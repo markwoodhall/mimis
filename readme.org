@@ -3,4 +3,11 @@
 
 * minisp
 
-A minimal neovim distribution, crafted with love, and focused on lisps
+  A minimal neovim distribution, crafted with love, and focused on lisps
+
+** Goals
+
+   1. Minimalism, both in terms of installed dependencies and plugins
+   2. Favour vim/neovim built-ins over plugins
+   3. Performance
+   4. Configurable with [[https://fennel-lang.org/][Fennel]]
