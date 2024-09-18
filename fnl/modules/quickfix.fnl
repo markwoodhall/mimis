@@ -3,7 +3,9 @@
 (fn enable [] 
   (Plug "kevinhwang91/nvim-bqf"))
 
-(fn setup [])
+(fn setup []
+  (vim.cmd "autocmd FileType qf wincmd J")
+  (vim.cmd "autocmd FileType qf nmap <buffer> <cr> <cr>:lcl<cr>:ccl<cr>"))
 
 {: enable
  : setup }
