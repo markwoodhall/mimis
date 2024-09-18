@@ -2,7 +2,6 @@
 (local Plug (. vim.fn "plug#"))
 
 (var paredit-languages [])
-(var paredit-setup-done nil)
 
 (fn enable [languages]
   (Plug "kovisoft/paredit" {:for languages})
@@ -21,34 +20,31 @@
       vim.schedule 
       (fn []
         (let [mimis (require :mimis) 
+              buffer (vim.api.nvim_get_current_buf)
               wrap (fn [start end]
                      (vim.cmd (.. "call PareditWrap('" start "','" end "')")))]
 
-          ;;(when (not paredit-setup-done)
-              ;;  (vim.cmd "call PareditToggle()"))
-
           (set vim.g.paredit_electric_return 0)
 
-          (mimis.leader-map "n" "sw(" (partial wrap "(" ")") {:desc "wrap-with-parens"})
-                            (mimis.leader-map "n" "sw)" (partial wrap "(" ")") {:desc "wrap-with-parens"})
-          (mimis.leader-map "n" "sw[" (partial wrap "[" "]") {:desc "wrap-with-brackets"})
-                                    (mimis.leader-map "n" "sw]" (partial wrap "[" "]") {:desc "wrap-with-brackets"})
-          (mimis.leader-map "n" "sw{" (partial wrap "{" "}") {:desc "wrap-with-braces"})
-                                    (mimis.leader-map "n" "sw}" (partial wrap "[" "]") {:desc "wrap-with-braces"})
-          (mimis.leader-map "n" "sw'" (partial wrap "\' " "\'") {:desc "wrap-with-single-quotes"})
-          (mimis.leader-map "n" "sw\"" (partial wrap "\" " "\"") {:desc "wrap-with-double-quotes"})
-          (mimis.leader-map "n" "ssb" ":call PareditMoveLeft()<CR>" {:desc "slurp-backwords"})
-          (mimis.leader-map "n" "ssf" ":call PareditMoveRight()<CR>" {:desc "slurp-forwards"})
-          (mimis.leader-map "n" "suu" ":call PareditSplice()<CR>" {:desc "unwrap-form"})
-          (mimis.leader-map "n" "sur" ":call PareditRaise()<CR>" {:desc "raise-form"})
+          (mimis.leader-map "n" "sw(" (partial wrap "(" ")") {:desc "wrap-with-parens" :buffer buffer})
+          (mimis.leader-map "n" "sw)" (partial wrap "(" ")") {:desc "wrap-with-parens" :buffer buffer})
+          (mimis.leader-map "n" "sw[" (partial wrap "[" "]") {:desc "wrap-with-brackets" :buffer buffer})
+          (mimis.leader-map "n" "sw]" (partial wrap "[" "]") {:desc "wrap-with-brackets" :buffer buffer})
+          (mimis.leader-map "n" "sw{" (partial wrap "{" "}") {:desc "wrap-with-braces" :buffer buffer})
+          (mimis.leader-map "n" "sw}" (partial wrap "[" "]") {:desc "wrap-with-braces" :buffer buffer})
+          (mimis.leader-map "n" "sw'" (partial wrap "\' " "\'") {:desc "wrap-with-single-quotes" :buffer buffer})
+          (mimis.leader-map "n" "sw\"" (partial wrap "\" " "\"") {:desc "wrap-with-double-quotes" :buffer buffer})
+          (mimis.leader-map "n" "ssb" ":call PareditMoveLeft()<CR>" {:desc "slurp-backwords" :buffer buffer})
+          (mimis.leader-map "n" "ssf" ":call PareditMoveRight()<CR>" {:desc "slurp-forwards" :buffer buffer})
+          (mimis.leader-map "n" "suu" ":call PareditSplice()<CR>" {:desc "unwrap-form" :buffer buffer})
+          (mimis.leader-map "n" "sur" ":call PareditRaise()<CR>" {:desc "raise-form" :buffer buffer})
+
           (let [wk (require :which-key)] 
             (wk.add 
-              [{1 (.. nvim.g.mapleader "s") :group "smartparens"}
-               {1 (.. nvim.g.mapleader "sw") :group "wrap"}
-               {1 (.. nvim.g.mapleader "ss") :group "slurp"}
-               {1 (.. nvim.g.mapleader "su") :group "unwrap"}]))
-
-          (set paredit-setup-done true))))}))
+              [{1 (.. nvim.g.mapleader "s") :group "smartparens" :buffer buffer}
+               {1 (.. nvim.g.mapleader "sw") :group "wrap" :buffer buffer}
+               {1 (.. nvim.g.mapleader "ss") :group "slurp" :buffer buffer}
+               {1 (.. nvim.g.mapleader "su") :group "unwrap" :buffer buffer}])))))}))
 
 {: enable
  : setup }
