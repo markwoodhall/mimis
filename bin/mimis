@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+
+set -o errexit -o pipefail -o nounset
+
+function help() {
+    printf "%s\n%s\n  %s\n%s\n" \
+        "usage: $(basename "$0") [options] [script [args]]" \
+        "Available options are:" \
+        "install - install plugins" \
+        "  update - update plugins" 
+}
+
+case "${1:-}" in
+"")
+    help
+    ;;
+help)
+    help
+    ;;
+install)
+    nvim +PlugInstall -c "helptags doc"
+    ;;
+update)
+    nvim +PlugUpdate -c "helptags doc"
+    ;;
+esac
