@@ -55,3 +55,9 @@
 
 (vim.cmd "set grepprg=rg\\ --vimgrep")
 (vim.cmd "set grepformat^=%f:%l:%c:%m")
+
+;; Auto create directories
+(vim.cmd "au BufWritePre,FileWritePre * if @% !~# '\\(://\\)' | call mkdir(expand('<afile>:p:h'), 'p') | endif")
+
+;; Anchor bottom position in terminal windows
+(vim.cmd "autocmd BufWinEnter,WinEnter term://* normal G")
