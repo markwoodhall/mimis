@@ -66,8 +66,8 @@
                         :current)
              init-db (partial r.send (.. "(use 'db) (db/init-schema)") :dev)
              migrate-db (partial r.send (.. "(use 'db) (db/migrate-schema)") :dev)
-             shadow-jack (partial r.send "(shadow/repl :app)" :dev)
-             shadow-watch (partial r.send "(shadow/watch :app)" :dev)]
+             shadow-jack (partial r.send "(shadow/repl :app)" :none)
+             shadow-watch (partial r.send "(shadow/watch :app)" :none)]
 
 
          (m-binding "ss" (partial r.show-repl true) "jump-to-repl")
