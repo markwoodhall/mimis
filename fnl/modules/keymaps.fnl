@@ -46,14 +46,7 @@
   (mimis.leader-map 
     "n" 
     "tn" 
-    (fn []
-      (mimis.bottom-pane "" "" true true)
-      (vim.fn.termopen "zsh")
-      (nvim.ex.setlocal :norelativenumber)
-      (nvim.ex.setlocal :nonumber)
-      (nvim.ex.setlocal :nowrap)
-      (set nvim.b.filetype :off)
-      (set nvim.b.syntax :off))
+    (partial mimis.bottom-pane-shell nvim.o.shell)
     {:desc "new-terminal"})
 
   ;; defaults
