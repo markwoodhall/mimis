@@ -1,7 +1,7 @@
-#+TITLE: minisp
+#+TITLE: mimis
 #+AUTHOR: Mark Woodhall
 
-* minisp
+* mimis
 
   A minimal neovim distribution, crafted with love, and focused on lisps
 

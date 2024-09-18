@@ -1,0 +1,15 @@
+*mimis.txt*  A minimal neovim distribution, crafted with love, and focused on lisps 
+
+INTRODUCTION                                    *mimis*
+
+Mimis was built with the following goals in mind.
+
+    Minimalism, both in terms of installed dependencies and plugins
+    Favour vim/neovim built-ins over plugins
+    Performance
+    Configurable with Fennel
+
+Whenever you edit a file from a Git repository, a set of commands is defined
+that serve as a gateway to Git.
+
+vim:ft=help

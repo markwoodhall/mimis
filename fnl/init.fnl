@@ -30,7 +30,9 @@
 (local git (require :modules.git))
 
 ;; Cmdline wrappers
+(local common (require :modules.cmdline.common))
 (local npm (require :modules.cmdline.npm))
+(local aws (require :modules.cmdline.aws))
 
 
 (vim.call "plug#begin")
@@ -59,6 +61,8 @@
 
   ;; Cmdline wrappers
   (npm.enable)
+  (aws.enable)
+  (common.enable)
 
   ;; Aesthetic
   (quickfix.enable)
@@ -107,6 +111,8 @@
 
   ;; Cmdline wrappers
   (npm.setup)
+  (aws.setup)
+  (common.setup)
 
   ;; Aesthetic
   (quickfix.setup)

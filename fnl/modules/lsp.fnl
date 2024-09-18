@@ -48,22 +48,24 @@
      :group (vim.api.nvim_create_augroup "mimis-lsp" {:clear true})
      :desc "Setup lsp for specific filetypes"
      :callback 
-     (fn []
-       (when (not lsp-setup-done)
-         (setup-cmp servers)
-         (let [mimis (require :mimis)]
-           (mimis.leader-map "n" "ldD" ":lua vim.diagnostic.setqflist()<CR>" {:desc "project-diagnostics"})
-           (mimis.leader-map "n" "ldd" ":lua vim.diagnostic.setloclist()<CR>" {:desc "buffer-diagnostics"})
-           (mimis.leader-map "n" "lda" ":lua vim.lsp.buf.code_action()<CR>" {:desc "code-actions"})
-           (mimis.leader-map "n" "lf" ":lua vim.lsp.buf.format()<CR>" {:desc "format-buffer"})
-           (mimis.leader-map "n" "lgd" ":lua vim.lsp.buf.definition()<CR>" {:desc "go-to-definition"}))
-         (let [wk (require :which-key)] 
-           (wk.add 
-             [{1 (.. nvim.g.mapleader "l") :group "lsp"}
-              {1 (.. nvim.g.mapleader "ld") :group "diagnostics"}
-              {1 (.. nvim.g.mapleader "lg") :group "goto"}]))
-         (set lsp-setup-done true))
-       (vim.cmd.LspStart))})
+     (partial 
+       vim.schedule 
+       (fn []
+         (when (not lsp-setup-done)
+           (setup-cmp servers)
+           (let [mimis (require :mimis)]
+             (mimis.leader-map "n" "ldD" ":lua vim.diagnostic.setqflist()<CR>" {:desc "project-diagnostics"})
+             (mimis.leader-map "n" "ldd" ":lua vim.diagnostic.setloclist()<CR>" {:desc "buffer-diagnostics"})
+             (mimis.leader-map "n" "lda" ":lua vim.lsp.buf.code_action()<CR>" {:desc "code-actions"})
+             (mimis.leader-map "n" "lf" ":lua vim.lsp.buf.format()<CR>" {:desc "format-buffer"})
+             (mimis.leader-map "n" "lgd" ":lua vim.lsp.buf.definition()<CR>" {:desc "go-to-definition"}))
+           (let [wk (require :which-key)] 
+             (wk.add 
+               [{1 (.. nvim.g.mapleader "l") :group "lsp"}
+                {1 (.. nvim.g.mapleader "ld") :group "diagnostics"}
+                {1 (.. nvim.g.mapleader "lg") :group "goto"}]))
+           (set lsp-setup-done true))
+         (vim.cmd.LspStart)))})
 
   (let [group (vim.api.nvim_create_augroup "mimis-lsp-filetype" {:clear true})]
     (icollect [k v (pairs completion-sources)]
@@ -74,11 +76,13 @@
            :group group
            :desc "Setup lsp completion sources for specific filetypes"
            :callback 
-           (fn []
-             (let [cmp (require :cmp)]
-               (cmp.setup.filetype 
-                 k
-                 {:sources (cmp.config.sources v)})))})))))
+           (partial 
+             vim.schedule 
+             (fn []
+               (let [cmp (require :cmp)]
+                 (cmp.setup.filetype 
+                   k
+                   {:sources (cmp.config.sources v)}))))})))))
 
 {: enable 
  : setup }

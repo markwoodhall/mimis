@@ -2,7 +2,7 @@
 
 (fn setup []
   (let [completion 
-        (fn completion [_ c]
+        (fn [_ c]
           (vim.fn.sort
             (let [mimis (require :mimis)
                   c-parts (mimis.split c " ")]

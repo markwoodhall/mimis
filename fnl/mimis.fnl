@@ -39,6 +39,12 @@
 (fn second [c]
   (?. c 2))
 
+(fn last [c]
+  (?. c (length c)))
+
+(fn nth [c n]
+  (?. c n))
+
 (fn exists? [path]
   (= (nvim.fn.filereadable path) 1))
 
@@ -62,12 +68,22 @@
     action 
     options))
 
+(fn glob [path]
+  (nvim.fn.glob path true true true))
+
+(fn globpath [path expression]
+  (nvim.fn.globpath path expression true true true))
+
 {: bottom-pane
  : bottom-pane-shell
  : first
  : second
+ : last
+ : nth
  : count-matches
  : add-match
  : split 
  : exists?
+ : glob
+ : globpath
  : leader-map}

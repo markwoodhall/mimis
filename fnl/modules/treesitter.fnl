@@ -15,16 +15,18 @@
        :group (vim.api.nvim_create_augroup "treesitter" {:clear true})
        :desc "Setup treesitter for specific filetypes"
        :callback 
-       (fn []
-         (when (not treesitter-loaded)
-           (let [ts (require "nvim-treesitter.configs")]
-             (ts.setup 
-               {:ensure_installed treesitter-languages
-                :sync_install false
-                :auto_install true
-                :highlight 
-                {:enable true :additional_vim_regex_highlighting []}}))
-           (set treesitter-loaded true)))})))
+       (partial 
+         vim.schedule 
+         (fn []
+           (when (not treesitter-loaded)
+             (let [ts (require "nvim-treesitter.configs")]
+               (ts.setup 
+                 {:ensure_installed treesitter-languages
+                  :sync_install false
+                  :auto_install true
+                  :highlight 
+                  {:enable true :additional_vim_regex_highlighting []}}))
+             (set treesitter-loaded true))))})))
 
 {: enable 
  : setup }
