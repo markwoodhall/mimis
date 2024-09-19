@@ -20,6 +20,7 @@
 (local sql (require :modules.sql))
 
 ;; Aesthetic
+(local telescope (require :modules.telescope))
 (local statusline (require :modules.statusline))
 (local quickfix (require :modules.quickfix))
 
@@ -66,6 +67,7 @@
 (common.enable)
 
 ;; Aesthetic
+(telescope.enable)
 (quickfix.enable)
 (statusline.enable)
 (colors.enable)
@@ -116,6 +118,7 @@
   (common.setup)
 
   ;; Aesthetic
+  (telescope.setup)
   (quickfix.setup)
   (statusline.setup)
 

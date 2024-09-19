@@ -1,3 +1,4 @@
+(local nvim (require "nvim"))
 (local plugins (require :plugins))
 
 (fn enable []
@@ -5,7 +6,7 @@
 
 (fn setup []
   (let [wk (require :which-key)]
-    (wk.setup {:triggers [" "]})))
+    (wk.setup {:triggers [nvim.g.mapleader]})))
 
 {: enable
  : setup }

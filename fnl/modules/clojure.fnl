@@ -78,7 +78,7 @@
            (m-binding "sw" shadow-watch "start-shadow-build")
            (m-binding "sx" r.kill-repl "kill-repl")
            (m-binding "si" (partial r.jack-in :clojure) "jack-in")
-           (m-binding "sc" "ClojureConnect" "connect-to-running-repl")
+           (m-binding "sc" ":ClojureConnect" "connect-to-running-repl")
            (m-binding "tb" test "Run buffer tests")
            (m-binding "tp" test-all "Run project tests")
 

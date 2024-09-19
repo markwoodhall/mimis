@@ -22,12 +22,18 @@
 
   ;; buffers
   (mimis.leader-map "n" "ba" ":e #<CR>" {:desc "toggle-buffers"})
-  (mimis.leader-map "n" "bl" ":Buffers<CR>" {:desc "list-buffers"})
+  (mimis.leader-map "n" "bl" ":Telescope buffers<CR>" {:desc "list-buffers"})
   (mimis.leader-map "n" "bh" ":nohl<CR>" {:desc "no-highlight-search"})
   (mimis.leader-map "n" "bn" ":bn<CR>" {:desc "goto-next-buffer"})
   (mimis.leader-map "n" "bp" ":bp<CR>" {:desc "goto-previous-buffer"})
   (mimis.leader-map "n" "bx" ":close<CR>" {:desc "close-buffer"})
   (mimis.leader-map "n" "bX" ":bd!<CR>" {:desc "delete-buffer"})
+
+  ;; find
+  (mimis.leader-map "n" "ff" ":Telescope find_files hidden=true search_dirs={\"~/\"}<CR>" {:desc "find-files"})
+  (mimis.leader-map "n" "fr" ":lua require'telescope.builtin'.oldfiles{}<CR>" {:desc "recent-files"})
+  (mimis.leader-map "n" "fg" ":Telescope live_grep hidden=true<CR>" {:desc "grep"})
+  (mimis.leader-map "n" "fG" ":Telescope live_grep --no-ignore<CR>" {:desc "grep-all"})
 
   ;; window mappings
   (mimis.leader-map "n" "ws" "<c-w>v<c-w>w" {:desc "split-window-vertically"})
@@ -57,6 +63,7 @@
     (wk.add 
       [{1 (.. nvim.g.mapleader "t") :group "terminal"}
        {1 (.. nvim.g.mapleader "b") :group "buffers"}
+       {1 (.. nvim.g.mapleader "f") :group "find"}
        {1 (.. nvim.g.mapleader "w") :group "window"}])))
 
 {: enable

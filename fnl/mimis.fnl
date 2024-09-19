@@ -22,12 +22,17 @@
 (fn bottom-pane-shell [cmd]
   (bottom-pane "" "" true true)
   (vim.fn.termopen cmd)
-  (set vim.b.wrap false)
-  (set vim.b.filetype :off)
-  (set vim.b.syntax :off)
-  (set vim.b.relativenumber false)
-  (set vim.b.number false)
-  (set vim.b.list false))
+  (vim.cmd "setlocal norelativenumber")
+  (vim.cmd "setlocal nonumber")
+  (vim.cmd "setlocal nolist")
+  (vim.cmd "setlocal filetype=off")
+  (vim.cmd "setlocal syntax=off"))
+
+(fn bottom-pane-buff [bufnum]
+  (vim.cmd "wincmd n")
+  (vim.cmd "wincmd J")
+  (vim.cmd "15wincmd_")
+  (vim.cmd (.. "buffer " bufnum)))
 
 (fn split [s pattern]
   (if s
@@ -76,6 +81,7 @@
   (nvim.fn.globpath path expression true true true))
 
 {: bottom-pane
+ : bottom-pane-buff
  : bottom-pane-shell
  : first
  : second
