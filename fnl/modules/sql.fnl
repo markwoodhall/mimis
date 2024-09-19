@@ -1,10 +1,12 @@
-(local Plug (. vim.fn "plug#"))
+(local plugins (require :plugins))
 
 (fn enable []
-  (Plug "tpope/vim-dadbod" {:on :DBUI})
-  (Plug "kristijanhusak/vim-dadbod-ui" {:on :DBUI})
-  (Plug "kristijanhusak/vim-dadbod-completion" {:for :sql})
-  (set vim.g.db_ui_save_location "~/dotfiles"))
+  (plugins.register
+    {:tpope/vim-dadbod {:on [:DBUI :DBUIFindBuffer]} 
+     :kristijanhusak/vim-dadbod-ui {:on [:DBUI :DBUIFindBuffer]} 
+     :kristijanhusak/vim-dadbod-completion {:for :sql}})
+  (set vim.g.db_ui_save_location "~/dotfiles")
+  (set vim.g.db_ui_execute_on_save 0))
 
 (fn setup [])
 

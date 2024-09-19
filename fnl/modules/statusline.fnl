@@ -1,7 +1,7 @@
-(local Plug (. vim.fn "plug#"))
+(local plugins (require :plugins))
 
 (fn enable []
-  (Plug "nvim-lualine/lualine.nvim"))
+  (plugins.register {"nvim-lualine/lualine.nvim" :always}))
 
 (fn setup []
   (local lualine (require :lualine))

@@ -22,11 +22,12 @@
 (fn bottom-pane-shell [cmd]
   (bottom-pane "" "" true true)
   (vim.fn.termopen cmd)
-  (nvim.ex.setlocal :norelativenumber)
-  (nvim.ex.setlocal :nonumber)
-  (nvim.ex.setlocal :nowrap)
-  (set nvim.b.filetype :off)
-  (set nvim.b.syntax :off))
+  (set vim.b.wrap false)
+  (set vim.b.filetype :off)
+  (set vim.b.syntax :off)
+  (set vim.b.relativenumber false)
+  (set vim.b.number false)
+  (set vim.b.list false))
 
 (fn split [s pattern]
   (if s

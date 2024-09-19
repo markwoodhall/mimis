@@ -1,6 +1,6 @@
 (local mimis (require :mimis))
-(local nvim (require "nvim"))
-(local Plug (. vim.fn "plug#"))
+(local nvim (require :nvim))
+(local plugins (require :plugins))
 
 (fn m-binding [bind action desc]
   (mimis.leader-map
@@ -25,7 +25,7 @@
     data))
 
 (fn enable []
-  (Plug "clojure-vim/clojure.vim" {:for :clojure})
+  (plugins.register {"clojure-vim/clojure.vim" {:for :clojure}})
   (set vim.g.clojure_max_lines 1000))
 
 (fn setup []

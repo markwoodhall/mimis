@@ -34,42 +34,43 @@
 (local npm (require :modules.cmdline.npm))
 (local aws (require :modules.cmdline.aws))
 
+;; Plugins
+(local plugins (require :plugins))
 
-(vim.call "plug#begin")
-;; Enable modules
-(do 
-  ;; Keymaps
-  (whichkey.enable)
-  (keymaps.enable)
+(plugins.begin)
 
-  ;; Supporting
-  (projects.enable)
-  (paredit.enable [:fennel :clojure])
-  (treesitter.enable [:fennel :clojure :lua :gitcommit :sql])
-  (surround.enable)
+;; Keymaps
+(whichkey.enable)
+(keymaps.enable)
 
-  ;; Languages
-  (fennel.enable)
-  (clojure.enable)
-  (sql.enable)
+;; Supporting
+(projects.enable)
+(paredit.enable [:fennel :clojure])
+(treesitter.enable [:fennel :clojure :lua :gitcommit :sql])
+(surround.enable)
 
-  ;; Lsp
-  (lsp.enable [:fennel :clojure :sql])
+;; Languages
+(fennel.enable)
+(clojure.enable)
+(sql.enable)
 
-  ;; Source control
-  (git.enable)
+;; Lsp
+(lsp.enable [:fennel :clojure :sql])
 
-  ;; Cmdline wrappers
-  (npm.enable)
-  (aws.enable)
-  (common.enable)
+;; Source control
+(git.enable)
 
-  ;; Aesthetic
-  (quickfix.enable)
-  (statusline.enable)
-  (colors.enable))
+;; Cmdline wrappers
+(npm.enable)
+(aws.enable)
+(common.enable)
 
-(vim.call "plug#end")	
+;; Aesthetic
+(quickfix.enable)
+(statusline.enable)
+(colors.enable)
+
+(plugins.end)
 
 ;; Setup modules
 (do
@@ -93,15 +94,15 @@
   ;; Lsp setup
   (lsp.setup 
     ;; Add additional language servers here. Internally uses lspconfig, see
-    ;; avialable servers here https://github.com/neovim/nvim-lspconfig/blob/master/doc/server_configurations.md
-    [:clojure_lsp :sqlls :fennel_ls]
+    ;; available servers here https://github.com/neovim/nvim-lspconfig/blob/master/doc/server_configurations.md
+    [:clojure_lsp :fennel_ls]
     ;; Configure filetype completion sources here
     {:fennel
      [{:name "nvim_lsp" :keyword_length 2}
       {:name "buffer" :keyword_length 2}]
      :clojure
-     [{:name "nvim_lsp" :keyword_length 2}
-      {:name "buffer" :keyword_length 2}]
+     [{:name "nvim_lsp"}
+      {:name "buffer"}]
      :sql
      [{:name "vim-dadbod-completion"}
       {:name "buffer"}]})

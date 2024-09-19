@@ -36,6 +36,10 @@
   (let [path (vim.fn.call "FindRootDirectory" [])]
     (set (. repl :repls path) v)))
 
+(fn kill-project-repl []
+  (let [path (vim.fn.call "FindRootDirectory" [])]
+    (set (. repl :repls path) nil)))
+
 (fn current-ns []
   "("
   (mimis.first 
@@ -68,10 +72,7 @@
     (when r.repl
       (do (hide-repl) (show-repl true)))
     (vim.cmd ":bd!")
-    (set r.repl nil)
-    (set r.win nil)
-    (set r.buf nil)
-    (set-project-repl r)))
+    (kill-project-repl)))
 
 (fn send [expression ns]
   (let [r (get-project-repl)

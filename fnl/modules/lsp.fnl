@@ -1,13 +1,14 @@
-(local Plug (. vim.fn "plug#"))
+(local plugins (require :plugins))
 (local nvim (require :nvim))
 (var lsp-languages [])
 (var lsp-setup-done nil)
 
 (fn enable [languages]
-  (Plug "neovim/nvim-lspconfig" {:for languages})
-  (Plug "hrsh7th/nvim-cmp" {:for languages})
-  (Plug "hrsh7th/cmp-nvim-lsp" {:for languages})
-  (Plug "hrsh7th/cmp-path" {:for languages})
+  (plugins.register
+    {:neovim/nvim-lspconfig {:for languages} 
+     :hrsh7th/nvim-cmp {:for languages} 
+     :hrsh7th/cmp-nvim-lsp {:for languages} 
+     :hrsh7th/cmp-path {:for languages}})
   (set lsp-languages languages))
 
 (fn setup-cmp [servers]
@@ -66,6 +67,18 @@
                 {1 (.. nvim.g.mapleader "lg") :group "goto"}]))
            (set lsp-setup-done true))
          (vim.cmd.LspStart)))})
+
+  (vim.api.nvim_create_autocmd 
+    ["BufWritePre"] 
+    {:pattern "*.*"
+     :group (vim.api.nvim_create_augroup "mimis-lsp-formatting" {:clear true})
+     :desc "LSP format on save"
+     :callback 
+     (partial 
+       vim.schedule 
+       (fn [] 
+         (when (vim.lsp.buf_is_attached)
+           (vim.lsp.buf.format))))})
 
   (let [group (vim.api.nvim_create_augroup "mimis-lsp-filetype" {:clear true})]
     (icollect [k v (pairs completion-sources)]

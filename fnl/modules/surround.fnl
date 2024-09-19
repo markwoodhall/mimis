@@ -1,7 +1,7 @@
-(local Plug (. vim.fn "plug#"))
+(local plugins (require :plugins))
 
 (fn enable []
-  (Plug "tpope/vim-surround"))
+  (plugins.register {"tpope/vim-surround" :always}))
 
 (fn setup [])
 

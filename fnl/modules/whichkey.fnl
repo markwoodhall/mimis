@@ -1,7 +1,7 @@
-(local Plug (. vim.fn "plug#"))
+(local plugins (require :plugins))
 
 (fn enable []
-  (Plug "folke/which-key.nvim"))
+  (plugins.register {"folke/which-key.nvim" :always}))
 
 (fn setup []
   (let [wk (require :which-key)]

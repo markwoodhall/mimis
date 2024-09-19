@@ -42,6 +42,7 @@
 (nvim.ex.set :termguicolors)
 (nvim.ex.set :ignorecase)
 (nvim.ex.set :smartcase)
+(nvim.ex.set :nofoldenable)
 
 (set nvim.g.mapleader " ")
 (set nvim.g.maplocalleader ",")
@@ -59,5 +60,35 @@
 ;; Auto create directories
 (vim.cmd "au BufWritePre,FileWritePre * if @% !~# '\\(://\\)' | call mkdir(expand('<afile>:p:h'), 'p') | endif")
 
-;; Anchor bottom position in terminal windows
-(vim.cmd "autocmd BufWinEnter,WinEnter term://* normal G")
+(vim.api.nvim_create_autocmd 
+    ["TermOpen"] 
+    {:pattern "*"
+     :group (vim.api.nvim_create_augroup "mimis-terminal-open" {:clear true})
+     :desc "Autocmds for terminal open"
+     :callback 
+     (partial 
+       vim.schedule 
+       (fn [] 
+         (vim.cmd.normal "G")
+         ;; Set scrollback
+         (nvim.ex.setlocal "scrollback=25000")))})
+
+(vim.api.nvim_create_autocmd 
+    ["BufWinEnter" "WinEnter"] 
+    {:pattern "term://*"
+     :group (vim.api.nvim_create_augroup "mimis-terminal-enter" {:clear true})
+     :desc "Autocmds for terminal entry"
+     :callback 
+     (partial 
+       vim.schedule 
+       (fn [] 
+         ;; Anchor bottom position in terminal windows
+         ;; (vim.cmd.normal "G")
+         ;; Set filetype to off
+         (set vim.b.filetype :off)
+         (set vim.b.syntax :off)
+         (set vim.b.relativenumber false)
+         (set vim.b.number false)
+         (set vim.b.list false)
+         (set vim.b.wrap false)))})
+

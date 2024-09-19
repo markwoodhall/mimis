@@ -1,9 +1,10 @@
-(local Plug (. vim.fn "plug#"))
-(local nvim (require "nvim"))
+(local plugins (require :plugins))
+(local nvim (require :nvim))
 (local mimis (require :mimis))
 
 (fn enable []
-  (Plug "jaawerth/fennel.vim" {:for [:fennel]}))
+  (plugins.register 
+    {"jaawerth/fennel.vim" {:for [:fennel]}}))
 
 (fn m-binding [bind action desc]
   (mimis.leader-map

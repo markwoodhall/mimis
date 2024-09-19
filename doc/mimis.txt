@@ -1,6 +1,6 @@
-*mimis.txt*  A minimal neovim distribution, crafted with love, and focused on lisps 
+*mimis*  A minimal neovim distribution, crafted with love, and focused on lisps 
 
-INTRODUCTION                                    *mimis*
+INTRODUCTION                                    *intro*
 
 Mimis was built with the following goals in mind.
 

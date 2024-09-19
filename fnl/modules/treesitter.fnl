@@ -1,10 +1,10 @@
-(local Plug (. vim.fn "plug#"))
+(local plugins (require :plugins))
 
 (var treesitter-languages [])
 (var treesitter-loaded nil)
 
 (fn enable [languages]
-  (Plug "nvim-treesitter/nvim-treesitter" {:do ":TSUpdate" :for languages})
+  (plugins.register {"nvim-treesitter/nvim-treesitter" {:do ":TSUpdate" :for languages}})
   (set treesitter-languages languages))
 
 (fn setup []

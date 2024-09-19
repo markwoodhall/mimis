@@ -1,7 +1,8 @@
-(local Plug (. vim.fn "plug#"))
+(local plugins (require :plugins))
 
 (fn enable []
- (Plug "catppuccin/nvim" {:as :catppuccin}) )
+  (plugins.register
+    {"catppuccin/nvim" {:as :catppuccin}}))
 
 (fn setup []
   (let [cat (require "catppuccin")]

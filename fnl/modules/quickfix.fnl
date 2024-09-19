@@ -1,7 +1,8 @@
-(local Plug (. vim.fn "plug#"))
+(local plugins (require :plugins))
 
 (fn enable [] 
-  (Plug "kevinhwang91/nvim-bqf"))
+  (plugins.register 
+    {"kevinhwang91/nvim-bqf" {:for :qf}}))
 
 (fn setup []
   (vim.api.nvim_create_autocmd 

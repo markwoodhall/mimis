@@ -1,10 +1,10 @@
-(local nvim (require "nvim"))
-(local Plug (. vim.fn "plug#"))
+(local nvim (require :nvim))
+(local plugins (require :plugins))
 
 (var paredit-languages [])
 
 (fn enable [languages]
-  (Plug "kovisoft/paredit" {:for languages})
+  (plugins.register {"kovisoft/paredit" {:for languages}})
   (set vim.g.paredit_leader ",")
   (set vim.g.paredit_matchlines 1000)
   (set paredit-languages languages))

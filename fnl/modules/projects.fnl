@@ -1,10 +1,10 @@
-(local Plug (. vim.fn "plug#"))
+(local plugins (require :plugins))
 
 (fn enable []
-  (Plug "airblade/vim-rooter"))
+  (plugins.register {"airblade/vim-rooter" :always}))
 
 (fn setup [project-patterns]
-  (set vim.g.rooter_patterns ["project.clj" "shadow-cljs.edn" "pom.xml" "*.sln"])
+  (set vim.g.rooter_patterns project-patterns)
   (set vim.g.rooter_silent_chdir 1))
 
 {: enable
