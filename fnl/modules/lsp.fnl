@@ -55,12 +55,8 @@
          (when (not lsp-setup-done)
            (setup-cmp servers)
            (let [mimis (require :mimis)]
-             (mimis.leader-map "n" "ldD" ":Telescope diagnostics<CR>" {:desc "project-diagnostics"})
-             (mimis.leader-map "n" "ldd" ":Telescope diagnostics bufnr=0<CR>" {:desc "buffer-diagnostics"})
-             (mimis.leader-map "n" "ldr" ":Telescope lsp_references<CR>" {:desc "references"})
              (mimis.leader-map "n" "lda" ":lua vim.lsp.buf.code_action()<CR>" {:desc "code-actions"})
-             (mimis.leader-map "n" "lf" ":lua vim.lsp.buf.format()<CR>" {:desc "format-buffer"})
-             (mimis.leader-map "n" "lgd" ":Telescope lsp_definitions<CR>" {:desc "go-to-definition"}))
+             (mimis.leader-map "n" "lf" ":lua vim.lsp.buf.format()<CR>" {:desc "format-buffer"}))
            (let [wk (require :which-key)] 
              (wk.add 
                [{1 (.. nvim.g.mapleader "l") :group "lsp"}

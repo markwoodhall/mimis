@@ -2,7 +2,7 @@
 
 (fn enable []
   (plugins.register
-    {"catppuccin/nvim" {:as :catppuccin}}))
+    {:catppuccin/nvim {:as :catppuccin}}))
 
 (fn setup []
   (let [cat (require "catppuccin")]

@@ -1,28 +1,11 @@
 ;; Default options
 (local _ (require :modules.options))
 
-;; Colors
-(local colors (require :modules.colors))
-
-;; Keymaps 
-(local whichkey (require :modules.whichkey))
-(local keymaps (require :modules.keymaps))
-
 ;; Supporting
 (local projects (require :modules.projects))
-(local paredit (require :modules.paredit))
-(local treesitter (require :modules.treesitter))
-(local surround (require :modules.surround))
 
-;; Languages
-(local fennel (require :modules.fennel))
-(local clojure (require :modules.clojure))
-(local sql (require :modules.sql))
-
-;; Aesthetic
-(local telescope (require :modules.telescope))
-(local statusline (require :modules.statusline))
-(local quickfix (require :modules.quickfix))
+;; Package
+(local package (require :packages.package))
 
 ;; Lsp
 (local lsp (require :modules.lsp))
@@ -30,30 +13,30 @@
 ;; Version control
 (local git (require :modules.git))
 
-;; Cmdline wrappers
-(local common (require :modules.cmdline.common))
-(local npm (require :modules.cmdline.npm))
-(local aws (require :modules.cmdline.aws))
-
 ;; Plugins
 (local plugins (require :plugins))
 
 (plugins.begin)
 
 ;; Keymaps
-(whichkey.enable)
-(keymaps.enable)
+(package.enable
+  {:modules.whichkey []
+   :modules.keymaps []})
 
 ;; Supporting
 (projects.enable)
-(paredit.enable [:fennel :clojure])
-(treesitter.enable [:fennel :clojure :lua :gitcommit :sql])
-(surround.enable)
 
-;; Languages
-(fennel.enable)
-(clojure.enable)
-(sql.enable)
+;; Structure and syntax
+(package.enable 
+  {:modules.paredit [:fennel :clojure] 
+   :modules.treesitter [:fennel :clojure :lua :gitcommit :sql]
+   :modules.surround []})
+
+;; Language support
+(package.enable
+  {:modules.fennel []
+   :modules.clojure []
+   :modules.sql []})
 
 ;; Lsp
 (lsp.enable [:fennel :clojure :sql])
@@ -62,36 +45,36 @@
 (git.enable)
 
 ;; Cmdline wrappers
-(npm.enable)
-(aws.enable)
-(common.enable)
+(package.enable 
+  {:modules.cmdline.npm []
+   :modules.cmdline.aws []
+   :modules.cmdline.common []})
 
-;; Aesthetic
-(telescope.enable)
-(quickfix.enable)
-(statusline.enable)
-(colors.enable)
+;; Editor
+(package.enable 
+  {:modules.git []
+   :modules.telescope []
+   :modules.statusline []
+   :modules.quickfix []
+   :modules.colors []})
 
 (plugins.end)
 
 ;; Setup modules
 (do
-  ;; Colors
-  (colors.setup)
-
   ;; Keymaps
-  (whichkey.setup)
-  (keymaps.setup)
+  (package.setup
+    {:modules.whichkey []
+     :modules.keymaps []})
 
   ;; Supporting
-  (paredit.setup)
   (projects.setup ["project.clj" "shadow-cljs.edn" "pom.xml" "*.sln"])
-  (surround.setup)
 
-  ;; Languages 
-  (fennel.setup)
-  (clojure.setup)
-  (sql.setup)
+  ;; Language support
+  (package.setup 
+    {:modules.fennel []
+     :modules.clojure []
+     :modules.sql []})
 
   ;; Lsp setup
   (lsp.setup 
@@ -109,18 +92,22 @@
      [{:name "vim-dadbod-completion"}
       {:name "buffer"}]})
 
-  ;; Source control
-  (git.setup)
-
   ;; Cmdline wrappers
-  (npm.setup)
-  (aws.setup)
-  (common.setup)
+  (package.setup 
+    {:modules.cmdline.npm [] 
+     :modules.cmdline.aws [] 
+     :modules.cmdline.common []})
 
-  ;; Aesthetic
-  (telescope.setup)
-  (quickfix.setup)
-  (statusline.setup)
+  ;; Editor
+  (package.setup 
+    {:modules.git []
+     :modules.colors []
+     :modules.telescope [:lsp :projects :finder :git] 
+     :modules.statusline [] 
+     :modules.quickfix []})
 
-  ;; treesitter
-  (treesitter.setup))
+  ;; Structure and syntax
+  (package.setup 
+    {:modules.paredit []
+     :modules.treesitter []
+     :modules.surround []}))
