@@ -21,7 +21,6 @@
                                   (. :height)) 3) 0.5))}})
 
 (fn get-project-repl []
-  (print (vim.inspect repl))
   (let [path (vim.fn.call "FindRootDirectory" [])]
     (or (. repl :repls path)
         (let [buf (vim.api.nvim_create_buf true true)
