@@ -8,9 +8,12 @@
      :dhruvasagar/vim-table-mode {:for :org}}))
 
 (fn setup []
+  (let [og (require :orgmode) ]
+    (og.setup {:mappings {:disable_all true}}))
+
   (vim.api.nvim_create_autocmd 
-    "BufEnter" 
-    {:pattern "*.org"
+    "FileType" 
+    {:pattern :org
      :group (vim.api.nvim_create_augroup "mimis-orgmode" {:clear true})
      :desc "Setup org mode"
      :callback 
@@ -18,10 +21,8 @@
        vim.schedule 
        (fn []
          (let [wk (require :which-key)
-               og (require :orgmode)
                ob (require "org-bullets")
                buffer (vim.api.nvim_get_current_buf)]
-           (og.setup {:mappings {:disable_all true}})
            (ob.setup)
            (wk.add 
              [{1 (.. nvim.g.mapleader "m") :group "org" :buffer buffer}
