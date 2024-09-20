@@ -66,8 +66,8 @@
       {:name "buffer"}]}}
    :modules.git []
    :modules.colors 
-   {:theme :nightfox
-    :colorscheme :duskfox
+   {:theme :catppuccin
+    :colorscheme :catppuccin-mocha
     :background :dark
     :post-setup (fn []
                   (vim.api.nvim_set_hl 0 "WinSeparator" {:fg "#1e1e2e" :bg "#1e1e2e"}))}
