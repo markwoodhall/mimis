@@ -38,3 +38,76 @@ git clone git@github.com:markwoodhall/mimis.git ~/.config/nvim
 cd ~/.config/
 ./bin/mimis install
 #+end_src
+
+  Run nvim.
+
+#+begin_src bash
+nvim
+#+end_src
+
+  Check out mimis help.
+
+#+begin_src bash
+:help mimis
+#+end_src
+
+* Configuration
+
+  The entry point for configuring mimis is ~./fnl/init.fnl~. 
+
+  You can enable a selection of modules using the ~package~ module. ~package.enable~ is an init
+  function that will register plugins.
+
+#+begin_src fennel
+(package.enable 
+  {;; Keymaps
+   :modules.whichkey []
+   :modules.keymaps []
+
+   ;; Structure and syntax
+   :modules.paredit [:fennel :clojure] 
+   :modules.treesitter [:fennel]
+
+   ;; Language support
+   :modules.fennel []
+
+   ;; Editor integrations
+   :modules.lsp [:fennel]
+   :modules.git []
+   :modules.telescope []
+   :modules.statusline []
+   :modules.colors []})
+#+end_src
+
+  You can setup a selection of modules using ~package.setup~. ~package.setup~ handles configuring 
+  plugins once they have been registered.
+
+#+begin_src fennel
+(package.setup
+  {;; Keymaps
+   :modules.whichkey []
+   :modules.keymaps []
+
+   ;; Language Support
+   :modules.fennel []
+
+   ;; Editor integration
+   :modules.lsp 
+   {:servers [:fennel_ls]
+    :completion-sources 
+    {:fennel
+     [{:name "nvim_lsp" :keyword_length 2}
+      {:name "buffer" :keyword_length 2}]}}
+   :modules.git []
+   :modules.colors 
+   {:theme :catppuccin
+    :post-setup (fn []
+                  (vim.api.nvim_set_hl 0 "WinSeparator" {:fg "#1e1e2e" :bg "#1e1e2e"}))}
+   :modules.telescope [:lsp :projects :finder :git :buffers] 
+   :modules.statusline {:lsp true :theme :catppuccin} 
+
+   ;; Structure and syntax
+   :modules.paredit []
+   :modules.treesitter [:fennel]
+   })
+#+end_src
