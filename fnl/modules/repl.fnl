@@ -4,6 +4,7 @@
 (local 
   repl 
   {:repls {}
+   :hide-after 30000
    :window-options 
    {:relative :editor
     :border :single
@@ -24,6 +25,7 @@
     (or (. repl :repls path)
         (let [buf (vim.api.nvim_create_buf true true)
               r {:last-ns nil
+                 :want-hide false
                  :buf buf
                  :win (vim.api.nvim_open_win 
                         buf
@@ -86,8 +88,8 @@
 
 (fn get-command [filetype]
   (match filetype
-    :fennel "fennel"
-    :janet "janet"
+    :fennel :fennel
+    :janet :janet
     :clojure 
     (let [root (vim.fn.call "FindRootDirectory" [])
           project-clj (mimis.exists? (.. root "/project.clj"))
@@ -98,6 +100,25 @@
         [false true false] "npx shadow-cljs clj-repl"
         [false false true] "clojure -A:dev:dev/nrepl"
         _ "lein repl"))))
+
+(fn sender [r job data]
+  (hide-repl)
+  (set r.win 
+       (vim.api.nvim_open_win 
+         r.buf 
+         false
+         repl.window-options))
+  (when data
+    (vim.fn.chansend job (.. data "\n"))
+    (when r.timer
+      (r.timer:stop)
+      (r.timer:close))
+    (let [timer (vim.uv.new_timer)]
+      (timer:start 
+        repl.hide-after
+        0
+        (vim.schedule_wrap hide-repl))
+      (set r.timer timer))))
 
 (fn connect-repl [filetype connection]
   (let [r (get-project-repl)]
@@ -112,14 +133,7 @@
           (set nvim.bo.filetype filetype)
           (set nvim.bo.syntax filetype)
           {:job job
-           :send (fn [data]
-                   (hide-repl)
-                   (set r.win 
-                        (vim.api.nvim_open_win 
-                          r.buf 
-                          false
-                          repl.window-options))
-                   (vim.fn.chansend job (.. data "\n")))})
+           :send (partial sender r job)})
         (print "Cannot find a repl to connect to for this project")))))
 
 (fn start-repl [filetype]
@@ -131,15 +145,7 @@
       (set nvim.bo.filetype filetype)
       (set nvim.bo.syntax filetype)
       {:job job
-       :send (fn [data]
-               (hide-repl)
-               (set r.win 
-                    (vim.api.nvim_open_win 
-                      r.buf 
-                      false
-                      repl.window-options))
-               (when data
-                 (vim.fn.chansend job (.. data "\n"))))})))
+       :send (partial sender r job)})))
 
 (fn jack-in [filetype]
   (let [r (get-project-repl)]
