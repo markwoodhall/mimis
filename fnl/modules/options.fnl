@@ -12,7 +12,6 @@
 (set nvim.o.tabline "0")
 (set nvim.o.synmaxcol 9999)
 (set nvim.o.completeopt "menu,menuone,noselect")
-(set nvim.o.background "dark")
 (set nvim.o.shell "zsh")
 (set nvim.o.fileformat "unix")
 (set nvim.o.fileformats "unix,dos")
