@@ -12,7 +12,7 @@ A "minimal" neovim distribution, crafted with love, and focused on lisps
   
 * Installation
 
-  Backup yourexisting neovim config.
+  Backup yourexisting nvim config.
 
 #+begin_src bash
 mv ~/.config/nvim{,.bak}
