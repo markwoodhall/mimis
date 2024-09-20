@@ -9,13 +9,14 @@
 
    ;; Structure and syntax
    :modules.paredit [:fennel :clojure] 
-   :modules.treesitter [:fennel :clojure :lua :gitcommit :sql]
+   :modules.treesitter [:fennel :clojure :lua :gitcommit :sql :org]
    :modules.surround []
 
    ;; Language support
    :modules.fennel []
    :modules.clojure []
    :modules.sql []
+   :modules.org []
    ;;:modules.janet []
 
    ;; Command line wrappers
@@ -42,6 +43,7 @@
    :modules.fennel []
    :modules.clojure []
    :modules.sql []
+   :modules.org []
    ;;:modules.janet []
 
    ;; Command line wrappers
@@ -76,4 +78,5 @@
    ;; Structure and syntax
    :modules.paredit []
    :modules.treesitter [:fennel :clojure :lua :gitcommit :sql]
-   :modules.surround []})
+   :modules.surround []
+   })

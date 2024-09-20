@@ -22,6 +22,7 @@
              (ts.setup 
                {:ensure_installed parsers
                 :sync_install false
+                :ignore_install ["org"]
                 :auto_install true
                 :highlight 
                 {:enable true :additional_vim_regex_highlighting []}}))
