@@ -13,7 +13,7 @@
   (vim.api.nvim_create_autocmd 
     "FileType" 
     {:pattern paredit-languages
-    :group (vim.api.nvim_create_augroup "paredit" {:clear true})
+    :group (vim.api.nvim_create_augroup "mimis-paredit" {:clear true})
     :desc "Setup paredit for specific filetypes"
     :callback 
     (partial
@@ -25,6 +25,10 @@
                      (vim.cmd (.. "call PareditWrap('" start "','" end "')")))]
 
           (set vim.g.paredit_electric_return 0)
+          ;;(set vim.g.paredit_mode 0)
+
+          ;;(vim.cmd "call PareditInitBalancingAllBracketsBuffer()")
+          ;;(vim.cmd "call PareditMapKeys()")
 
           (mimis.leader-map "n" "sw(" (partial wrap "(" ")") {:desc "wrap-with-parens" :buffer buffer})
           (mimis.leader-map "n" "sw)" (partial wrap "(" ")") {:desc "wrap-with-parens" :buffer buffer})

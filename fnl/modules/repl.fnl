@@ -87,6 +87,7 @@
 (fn get-command [filetype]
   (match filetype
     :fennel "fennel"
+    :janet "janet"
     :clojure 
     (let [root (vim.fn.call "FindRootDirectory" [])
           project-clj (mimis.exists? (.. root "/project.clj"))

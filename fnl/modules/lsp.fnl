@@ -42,57 +42,59 @@
                  {:name "path" :keyword_length 3}
                  {:name "buffer" :keyword_length 4}]})))
 
-(fn setup [servers completion-sources]
-  (vim.api.nvim_create_autocmd 
-    "FileType" 
-    {:pattern lsp-languages
-     :group (vim.api.nvim_create_augroup "mimis-lsp" {:clear true})
-     :desc "Setup lsp for specific filetypes"
-     :callback 
-     (partial 
-       vim.schedule 
-       (fn []
-         (when (not lsp-setup-done)
-           (setup-cmp servers)
-           (let [mimis (require :mimis)]
-             (mimis.leader-map "n" "lda" ":lua vim.lsp.buf.code_action()<CR>" {:desc "code-actions"})
-             (mimis.leader-map "n" "lf" ":lua vim.lsp.buf.format()<CR>" {:desc "format-buffer"}))
-           (let [wk (require :which-key)] 
-             (wk.add 
-               [{1 (.. nvim.g.mapleader "l") :group "lsp"}
-                {1 (.. nvim.g.mapleader "ld") :group "diagnostics"}
-                {1 (.. nvim.g.mapleader "lg") :group "goto"}]))
-           (set lsp-setup-done true))
-         (vim.cmd.LspStart)))})
+(fn setup [options]
+  (let [servers options.servers
+        completion-sources options.completion-sources]
+    (vim.api.nvim_create_autocmd 
+      "FileType" 
+      {:pattern lsp-languages
+       :group (vim.api.nvim_create_augroup "mimis-lsp" {:clear true})
+       :desc "Setup lsp for specific filetypes"
+       :callback 
+       (partial 
+         vim.schedule 
+         (fn []
+           (when (not lsp-setup-done)
+             (setup-cmp servers)
+             (let [mimis (require :mimis)]
+               (mimis.leader-map "n" "lda" ":lua vim.lsp.buf.code_action()<CR>" {:desc "code-actions"})
+               (mimis.leader-map "n" "lf" ":lua vim.lsp.buf.format()<CR>" {:desc "format-buffer"}))
+             (let [wk (require :which-key)] 
+               (wk.add 
+                 [{1 (.. nvim.g.mapleader "l") :group "lsp"}
+                  {1 (.. nvim.g.mapleader "ld") :group "diagnostics"}
+                  {1 (.. nvim.g.mapleader "lg") :group "goto"}]))
+             (set lsp-setup-done true))
+           (vim.cmd.LspStart)))})
 
-  (vim.api.nvim_create_autocmd 
-    ["BufWritePre"] 
-    {:pattern "*.*"
-     :group (vim.api.nvim_create_augroup "mimis-lsp-formatting" {:clear true})
-     :desc "LSP format on save"
-     :callback 
-     (partial 
-       vim.schedule 
-       (fn [] 
-         (when (vim.lsp.buf_is_attached)
-           (vim.lsp.buf.format))))})
+    (vim.api.nvim_create_autocmd 
+      ["BufWritePre"] 
+      {:pattern "*.*"
+       :group (vim.api.nvim_create_augroup "mimis-lsp-formatting" {:clear true})
+       :desc "LSP format on save"
+       :callback 
+       (partial 
+         vim.schedule 
+         (fn [] 
+           (when (vim.lsp.buf_is_attached)
+             (vim.lsp.buf.format))))})
 
-  (let [group (vim.api.nvim_create_augroup "mimis-lsp-filetype" {:clear true})]
-    (icollect [k v (pairs completion-sources)]
-      (do
-        (vim.api.nvim_create_autocmd 
-          "FileType" 
-          {:pattern k
-           :group group
-           :desc "Setup lsp completion sources for specific filetypes"
-           :callback 
-           (partial 
-             vim.schedule 
-             (fn []
-               (let [cmp (require :cmp)]
-                 (cmp.setup.filetype 
-                   k
-                   {:sources (cmp.config.sources v)}))))})))))
+    (let [group (vim.api.nvim_create_augroup "mimis-lsp-filetype" {:clear true})]
+      (icollect [k v (pairs completion-sources)]
+        (do
+          (vim.api.nvim_create_autocmd 
+            "FileType" 
+            {:pattern k
+             :group group
+             :desc "Setup lsp completion sources for specific filetypes"
+             :callback 
+             (partial 
+               vim.schedule 
+               (fn []
+                 (let [cmp (require :cmp)]
+                   (cmp.setup.filetype 
+                     k
+                     {:sources (cmp.config.sources v)}))))}))))))
 
 {: enable 
  : setup }

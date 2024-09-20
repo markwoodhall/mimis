@@ -1,19 +1,6 @@
 ;; Default options
 (local _ (require :modules.options))
-
-;; Supporting
-(local projects (require :modules.projects))
-
-;; Package
 (local package (require :packages.package))
-
-;; Lsp
-(local lsp (require :modules.lsp))
-
-;; Version control
-(local git (require :modules.git))
-
-;; Plugins
 (local plugins (require :plugins))
 
 (plugins.begin)
@@ -23,13 +10,10 @@
   {:modules.whichkey []
    :modules.keymaps []})
 
-;; Supporting
-(projects.enable)
-
 ;; Structure and syntax
 (package.enable 
-  {:modules.paredit [:fennel :clojure] 
-   :modules.treesitter [:fennel :clojure :lua :gitcommit :sql]
+  {:modules.paredit [:fennel :clojure :janet] 
+   :modules.treesitter [:fennel :clojure :janet :lua :gitcommit :sql]
    :modules.surround []})
 
 ;; Language support
@@ -37,12 +21,6 @@
   {:modules.fennel []
    :modules.clojure []
    :modules.sql []})
-
-;; Lsp
-(lsp.enable [:fennel :clojure :sql])
-
-;; Source control
-(git.enable)
 
 ;; Cmdline wrappers
 (package.enable 
@@ -52,7 +30,9 @@
 
 ;; Editor
 (package.enable 
-  {:modules.git []
+  {:modules.lsp [:fennel :clojure :sql]
+   :modules.projects []
+   :modules.git []
    :modules.telescope []
    :modules.statusline []
    :modules.quickfix []
@@ -67,30 +47,12 @@
     {:modules.whichkey []
      :modules.keymaps []})
 
-  ;; Supporting
-  (projects.setup ["project.clj" "shadow-cljs.edn" "pom.xml" "*.sln"])
-
   ;; Language support
   (package.setup 
     {:modules.fennel []
      :modules.clojure []
+     :modules.janet []
      :modules.sql []})
-
-  ;; Lsp setup
-  (lsp.setup 
-    ;; Add additional language servers here. Internally uses lspconfig, see
-    ;; available servers here https://github.com/neovim/nvim-lspconfig/blob/master/doc/server_configurations.md
-    [:clojure_lsp :fennel_ls]
-    ;; Configure filetype completion sources here
-    {:fennel
-     [{:name "nvim_lsp" :keyword_length 2}
-      {:name "buffer" :keyword_length 2}]
-     :clojure
-     [{:name "nvim_lsp"}
-      {:name "buffer"}]
-     :sql
-     [{:name "vim-dadbod-completion"}
-      {:name "buffer"}]})
 
   ;; Cmdline wrappers
   (package.setup 
@@ -100,14 +62,27 @@
 
   ;; Editor
   (package.setup 
-    {:modules.git []
-     :modules.colors []
-     :modules.telescope [:lsp :projects :finder :git] 
-     :modules.statusline [] 
+    {:modules.lsp 
+     {:servers [:clojure_lsp :fennel_ls :sqlls]
+      :completion-sources 
+      {:fennel
+       [{:name "nvim_lsp" :keyword_length 2}
+        {:name "buffer" :keyword_length 2}]
+       :clojure
+       [{:name "nvim_lsp"}
+        {:name "buffer"}]
+       :sql
+       [{:name "vim-dadbod-completion"}
+        {:name "buffer"}]}}
+     :modules.projects {:patterns ["project.clj" "shadow-cljs.edn" "pom.xml" "*.sln"]}
+     :modules.git []
+     :modules.colors {:theme :catppuccin}
+     :modules.telescope [:lsp :projects :finder :git :buffers] 
+     :modules.statusline {:lsp true :theme :catppuccin} 
      :modules.quickfix []})
 
   ;; Structure and syntax
   (package.setup 
     {:modules.paredit []
-     :modules.treesitter []
+     :modules.treesitter [:fennel :clojure :janet_simple :lua :gitcommit :sql]
      :modules.surround []}))

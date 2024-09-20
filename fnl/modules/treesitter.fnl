@@ -7,7 +7,7 @@
   (plugins.register {"nvim-treesitter/nvim-treesitter" {:do ":TSUpdate" :for languages}})
   (set treesitter-languages languages))
 
-(fn setup []
+(fn setup [parsers]
   (vim.api.nvim_create_autocmd 
     "FileType" 
     {:pattern treesitter-languages
@@ -20,7 +20,7 @@
          (when (not treesitter-loaded)
            (let [ts (require "nvim-treesitter.configs")]
              (ts.setup 
-               {:ensure_installed treesitter-languages
+               {:ensure_installed parsers
                 :sync_install false
                 :auto_install true
                 :highlight 
