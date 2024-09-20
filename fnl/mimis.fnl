@@ -80,6 +80,25 @@
 (fn globpath [path expression]
   (nvim.fn.globpath path expression true true true))
 
+(fn join [c separator]
+  (nvim.fn.join c separator))
+
+(fn pad-string [s n]
+  (var x "")
+  (for [_ 1 n]
+    (set x (.. x s)))
+  x)
+
+(fn ->environment-variables [env]
+  (let [lines (split env "\n")
+        lines (icollect [_ l (ipairs lines)]
+                (if (not (string.find l "^#"))
+                  l))
+        vars (join lines " ")
+        no-exp-vars (join (split vars "EXPORT ") "")
+        no-exp-vars (join (split no-exp-vars "export ") "")]
+    no-exp-vars))
+
 {: bottom-pane
  : bottom-pane-buff
  : bottom-pane-shell
@@ -93,4 +112,7 @@
  : exists?
  : glob
  : globpath
+ : pad-string
+ : join
+ : ->environment-variables
  : leader-map}
