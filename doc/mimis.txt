@@ -1,15 +1,60 @@
 *mimis*  A minimal neovim distribution, crafted with love, and focused on lisps 
 
-INTRODUCTION                                    *intro*
+INTRODUCTION                                    *mimis-intro*
 
 Mimis was built with the following goals in mind.
 
-    Minimalism, both in terms of installed dependencies and plugins
-    Favour vim/neovim built-ins over plugins
+    "Minimalism", both in terms of installed dependencies and plugins
     Performance
     Configurable with Fennel
 
-Whenever you edit a file from a Git repository, a set of commands is defined
-that serve as a gateway to Git.
+========================================================================
+
+MODULES                                         *mimis-modules*
+
+Mimis is made up of modules that can be "enabled" and "setup". 
+
+OPTIONS                                         *mimis-modules-options*
+
+Sets many defaults for the editor.
+
+WHICHKEY                                        *mimis-modules-whichkey*
+
+Discoverable keybindings. Bound to nvim.g.mapleader by default. Whichkey
+is a "core" module used by many other modules in order to register
+bindings.
+
+COLORS                                          *mimis-modules-colors*
+
+Manages colorschemes. Catppuccin and Tokyonight are available.
+
+KEYMAPS                                         *mimis-modules-keymaps*
+
+Sets up useful keybindings that don't rely on other modules or 
+third party plugins.
+
+PROJECTS                                        *mimis-modules-projects*
+
+Used to setup project related plugins. For example, vim-rooter
+which can be used to determine the root directory "project" for the
+current file.
+
+GIT                                             *mimis-modules-git*
+QUICKFIX                                        *mimis-modules-quickfix*
+STATUSLINE                                      *mimis-modules-statusline
+TELESCOPE                                       *mimis-modules-telescope*
+TREESITTER                                      *mimis-modules-treesitter
+PAREDIT                                         *mimis-modules-paredit*
+SURROUND                                        *mimis-modules-surround*
+LSP                                             *mimis-modules-lsp*
+CLOJURE                                         *mimis-modules-clojure*
+FENNEL                                          *mimis-modules-fennel*
+JANET                                           *mimis-modules-janet*
+SQL                                             *mimis-modules-sql*
+REPL                                            *mimis-modules-repl*
+
+==========================================================================
+
+PACKAGES                                        *mimis-packages*
 
 vim:ft=help

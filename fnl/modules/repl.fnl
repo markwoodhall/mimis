@@ -21,6 +21,7 @@
                                   (. :height)) 3) 0.5))}})
 
 (fn get-project-repl []
+  (print (vim.inspect repl))
   (let [path (vim.fn.call "FindRootDirectory" [])]
     (or (. repl :repls path)
         (let [buf (vim.api.nvim_create_buf true true)
@@ -59,7 +60,7 @@
 (fn hide-repl []
   (let [r (get-project-repl)]
     (if (and r r.win)
-      (pcall vim.api.nvim_win_hide (unpack [r.win])))))
+      (pcall vim.api.nvim_win_close (unpack [r.win true])))))
 
 (fn show-repl [enter]
   (let [r (get-project-repl)]
@@ -102,23 +103,25 @@
         _ "lein repl"))))
 
 (fn sender [r job data]
-  (hide-repl)
-  (set r.win 
-       (vim.api.nvim_open_win 
-         r.buf 
-         false
-         repl.window-options))
-  (when data
-    (vim.fn.chansend job (.. data "\n"))
-    (when r.timer
-      (r.timer:stop)
-      (r.timer:close))
-    (let [timer (vim.uv.new_timer)]
-      (timer:start 
-        repl.hide-after
-        0
-        (vim.schedule_wrap hide-repl))
-      (set r.timer timer))))
+  (vim.schedule
+    (fn []
+      (hide-repl)
+      (set r.win 
+           (vim.api.nvim_open_win 
+             r.buf 
+             false
+             repl.window-options))
+      (when data
+        (vim.fn.chansend job (.. data "\n"))
+        (when r.timer
+          (r.timer:stop)
+          (r.timer:close))
+        (let [timer (vim.uv.new_timer)]
+          (timer:start 
+            repl.hide-after
+            0
+            (vim.schedule_wrap hide-repl))
+          (set r.timer timer))))))
 
 (fn connect-repl [filetype connection]
   (let [r (get-project-repl)]

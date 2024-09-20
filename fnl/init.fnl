@@ -1,36 +1,31 @@
 ;; Default options
 (local _ (require :modules.options))
 (local package (require :packages.package))
-(local plugins (require :plugins))
 
-(plugins.begin)
-
-;; Keymaps
-(package.enable
-  {:modules.whichkey []
-   :modules.keymaps []})
-
-;; Structure and syntax
 (package.enable 
-  {:modules.paredit [:fennel :clojure :janet] 
-   :modules.treesitter [:fennel :clojure :janet :lua :gitcommit :sql]
-   :modules.surround []})
+  {;; Keymaps
+   :modules.whichkey []
+   :modules.keymaps []
 
-;; Language support
-(package.enable
-  {:modules.fennel []
+   ;; Structure and syntax
+   :modules.paredit [:fennel :clojure] 
+   :modules.treesitter [:fennel :clojure :lua :gitcommit :sql]
+   :modules.surround []
+
+   ;; Language support
+   :modules.fennel []
    :modules.clojure []
-   :modules.sql []})
+   :modules.sql []
+   ;;:modules.janet []
 
-;; Cmdline wrappers
-(package.enable 
-  {:modules.cmdline.npm []
+   ;; Command line wrappers
+   :modules.cmdline.npm []
    :modules.cmdline.aws []
-   :modules.cmdline.common []})
+   :modules.cmdline.docker []
+   :modules.cmdline.common []
 
-;; Editor
-(package.enable 
-  {:modules.lsp [:fennel :clojure :sql]
+   ;; Editor integrations
+   :modules.lsp [:fennel :clojure :sql]
    :modules.projects []
    :modules.git []
    :modules.telescope []
@@ -38,51 +33,47 @@
    :modules.quickfix []
    :modules.colors []})
 
-(plugins.end)
+(package.setup
+  {;; Keymaps
+   :modules.whichkey []
+   :modules.keymaps []
 
-;; Setup modules
-(do
-  ;; Keymaps
-  (package.setup
-    {:modules.whichkey []
-     :modules.keymaps []})
+   ;; Language Support
+   :modules.fennel []
+   :modules.clojure []
+   :modules.sql []
+   ;;:modules.janet []
 
-  ;; Language support
-  (package.setup 
-    {:modules.fennel []
-     :modules.clojure []
-     :modules.janet []
-     :modules.sql []})
+   ;; Command line wrappers
+   :modules.cmdline.npm [] 
+   :modules.cmdline.aws [] 
+   :modules.cmdline.docker [] 
+   :modules.cmdline.common []
 
-  ;; Cmdline wrappers
-  (package.setup 
-    {:modules.cmdline.npm [] 
-     :modules.cmdline.aws [] 
-     :modules.cmdline.common []})
+   ;; Editor integration
+   :modules.lsp 
+   {:servers [:clojure_lsp :fennel_ls :sqlls]
+    :completion-sources 
+    {:fennel
+     [{:name "nvim_lsp" :keyword_length 2}
+      {:name "buffer" :keyword_length 2}]
+     :clojure
+     [{:name "nvim_lsp"}
+      {:name "buffer"}]
+     :sql
+     [{:name "vim-dadbod-completion"}
+      {:name "buffer"}]}}
+   :modules.projects {:patterns ["project.clj" "shadow-cljs.edn" "pom.xml" "*.sln"]}
+   :modules.git []
+   :modules.colors 
+   {:theme :catppuccin
+    :post-setup (fn []
+                  (vim.api.nvim_set_hl 0 "WinSeparator" {:fg "#1e1e2e" :bg "#1e1e2e"}))}
+   :modules.telescope [:lsp :projects :finder :git :buffers] 
+   :modules.statusline {:lsp true :theme :catppuccin} 
+   :modules.quickfix [] 
 
-  ;; Editor
-  (package.setup 
-    {:modules.lsp 
-     {:servers [:clojure_lsp :fennel_ls :sqlls]
-      :completion-sources 
-      {:fennel
-       [{:name "nvim_lsp" :keyword_length 2}
-        {:name "buffer" :keyword_length 2}]
-       :clojure
-       [{:name "nvim_lsp"}
-        {:name "buffer"}]
-       :sql
-       [{:name "vim-dadbod-completion"}
-        {:name "buffer"}]}}
-     :modules.projects {:patterns ["project.clj" "shadow-cljs.edn" "pom.xml" "*.sln"]}
-     :modules.git []
-     :modules.colors {:theme :catppuccin}
-     :modules.telescope [:lsp :projects :finder :git :buffers] 
-     :modules.statusline {:lsp true :theme :catppuccin} 
-     :modules.quickfix []})
-
-  ;; Structure and syntax
-  (package.setup 
-    {:modules.paredit []
-     :modules.treesitter [:fennel :clojure :janet_simple :lua :gitcommit :sql]
-     :modules.surround []}))
+   ;; Structure and syntax
+   :modules.paredit []
+   :modules.treesitter [:fennel :clojure :lua :gitcommit :sql]
+   :modules.surround []})

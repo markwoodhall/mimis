@@ -43,6 +43,7 @@
   ;; terminal mappings
   (vim.keymap.set "t" "<Esc>" "<c-\\><c-n>")
   (vim.keymap.set "t" "<Esc><Esc>" "<c-\\><c-n>:q<CR>")
+
   (mimis.leader-map 
     "n" 
     "tn" 
