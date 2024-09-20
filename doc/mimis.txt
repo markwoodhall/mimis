@@ -41,9 +41,9 @@ current file.
 
 GIT                                             *mimis-modules-git*
 QUICKFIX                                        *mimis-modules-quickfix*
-STATUSLINE                                      *mimis-modules-statusline
+STATUSLINE                                      *mimis-modules-statusline*
 TELESCOPE                                       *mimis-modules-telescope*
-TREESITTER                                      *mimis-modules-treesitter
+TREESITTER                                      *mimis-modules-treesitter*
 PAREDIT                                         *mimis-modules-paredit*
 SURROUND                                        *mimis-modules-surround*
 LSP                                             *mimis-modules-lsp*
