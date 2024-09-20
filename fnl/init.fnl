@@ -27,7 +27,6 @@
 
    ;; Editor integrations
    :modules.lsp [:fennel :clojure :sql]
-   :modules.projects []
    :modules.git []
    :modules.telescope []
    :modules.statusline []
@@ -65,7 +64,6 @@
      :sql
      [{:name "vim-dadbod-completion"}
       {:name "buffer"}]}}
-   :modules.projects {:patterns ["project.clj" "shadow-cljs.edn" "pom.xml" "*.sln"]}
    :modules.git []
    :modules.colors 
    {:theme :catppuccin

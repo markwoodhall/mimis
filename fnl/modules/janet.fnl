@@ -2,6 +2,9 @@
 (local nvim (require :nvim))
 (local plugins (require :plugins))
 
+(fn depends []
+  [:modules.projects])
+
 (fn m-binding [bind action desc]
   (mimis.leader-map
     "n"
@@ -50,4 +53,5 @@
                 {1 (.. nvim.g.mapleader "me") :group "evaluation" :buffer buffer}])))))}))
 
 {: enable
- : setup }
+ : setup 
+ : depends }

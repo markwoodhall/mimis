@@ -2,6 +2,9 @@
 (local nvim (require :nvim))
 (local plugins (require :plugins))
 
+(fn depends []
+  [:modules.projects])
+
 (fn m-binding [bind action desc]
   (mimis.leader-map
     "n"
@@ -115,5 +118,6 @@
                  (r.connect-in :clojure args)))
              {:bang false :desc "Connect to repl" :nargs "*"}))))}))
 
-{: enable
+{: depends
+ : enable
  : setup }

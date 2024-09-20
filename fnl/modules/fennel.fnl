@@ -2,6 +2,9 @@
 (local nvim (require :nvim))
 (local mimis (require :mimis))
 
+(fn depends []
+  [:modules.projects])
+
 (fn enable []
   (plugins.register 
     {"jaawerth/fennel.vim" {:for [:fennel]}}))
@@ -46,4 +49,5 @@
               {1 (.. nvim.g.mapleader "me") :group "evaluation" :buffer buffer}]))))}))
 
 {: enable 
- : setup }
+ : setup 
+ : depends }
