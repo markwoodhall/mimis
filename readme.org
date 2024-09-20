@@ -1,13 +1,40 @@
 #+TITLE: mimis
 #+AUTHOR: Mark Woodhall
 
-* mimis
+A "minimal" neovim distribution, crafted with love, and focused on lisps
 
-  A "minimal" neovim distribution, crafted with love, and focused on lisps
-
-** Goals
+* Goals
 
    1. Minimalism, both in terms of installed dependencies and plugins
    2. Favour vim/neovim built-ins over plugins
    3. Performance
    4. Configurable with [[https://fennel-lang.org/][Fennel]]
+  
+* Installation
+
+  Backup yourexisting neovim config.
+
+#+begin_src bash
+mv ~/.config/nvim{,.bak}
+#+end_src
+
+  Backup existing nvim state.
+
+#+begin_src bash
+mv ~/.local/share/nvim{,.bak}
+mv ~/.local/state/nvim{,.bak}
+mv ~/.cache/nvim{,.bak}
+#+end_src
+
+  Clone this repo.
+
+#+begin_src bash
+git clone git@github.com:markwoodhall/mimis.git ~/.config/nvim
+#+end_src
+
+  Run the install script.
+
+#+begin_src bash
+cd ~/.config/
+./bin/mimis install
+#+end_src
