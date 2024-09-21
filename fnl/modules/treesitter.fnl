@@ -10,7 +10,7 @@
    :modules.fennel [:fennel]
    :modules.clojure [:clojure]
    :modules.sql [:sql]
-   :modules.git [:git]
+   :modules.git [:gitcommit]
    :modules.org [:org]})
 
 (fn enable [languages module-hook]
