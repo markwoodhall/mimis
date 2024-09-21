@@ -51,6 +51,16 @@
 (fn nth [c n]
   (?. c n))
 
+(fn concat [t1 t2]
+  (if (and t1 t2)
+    (do (for [i 1 (length t2)]
+          (tset t1 (+ (length t1) 1) (. t2 i)))
+      t1)
+    (if (not t2)
+      t1
+      (if (not t1)
+        t2))))	
+
 (fn exists? [path]
   (= (nvim.fn.filereadable path) 1))
 
@@ -106,6 +116,7 @@
  : second
  : last
  : nth
+ : concat
  : count-matches
  : add-match
  : split 
