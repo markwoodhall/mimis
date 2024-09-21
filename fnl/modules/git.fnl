@@ -5,7 +5,6 @@
 (fn depends []
   [:modules.treesitter])
 
-
 (fn enable []
   (Plug "tpope/vim-fugitive" {:on [:G :Git :Gvdiffsplit]}))
 
