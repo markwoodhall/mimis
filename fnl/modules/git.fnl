@@ -10,8 +10,7 @@
   (mimis.leader-map "n" "gs" ":G<CR>" {:desc "git-status"})
   (let [wk (require :which-key)] 
     (wk.add 
-      [{1 (.. nvim.g.mapleader "g") :group "git"}]))
-  (vim.cmd "set wildignore+=**/fugitive:/**"))
+      [{1 (.. nvim.g.mapleader "g") :group "git"}])))
 
 {: enable
  : setup }

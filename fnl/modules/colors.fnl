@@ -5,7 +5,6 @@
   (plugins.register
     {:catppuccin/nvim {:as :catppuccin}
      :EdenEast/nightfox.nvim {:as :nightfox}
-     :olimorris/onedarkpro.nvim {:as :onedarkpro}
      :folke/tokyonight.nvim {:as :tokyonight}}))
 
 (fn setup [options]

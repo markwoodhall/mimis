@@ -47,12 +47,6 @@
 (set nvim.g.maplocalleader ",")
 
 (vim.cmd "set path+=**")
-(vim.cmd "set wildignore+=**/node_modules/**")
-(vim.cmd "set wildignore+=**/.git/**")
-(vim.cmd "set wildignore+=**/.cpcache/**")
-(vim.cmd "set wildignore+=**/.lsp/**")
-(vim.cmd "set wildignore+=**/oil:/**")
-
 (vim.cmd "set grepprg=rg\\ --vimgrep")
 (vim.cmd "set grepformat^=%f:%l:%c:%m")
 

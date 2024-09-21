@@ -4,23 +4,52 @@
   (plugins.register {:nvim-tree/nvim-web-devicons :always
                      :nvim-lualine/lualine.nvim :always}))
 
+(fn theme [name]
+  (case name
+    :duskfox
+    {:bg "#191726"
+     :fg "#eae8ff"
+     :black "#393552"
+     :red "#eb6f92"
+     :green "#a3be8c"
+     :grey "#373354"
+     :yellow "#f6c177"
+     :blue "#569fba"
+     :magenta "#c4a7e7"
+     :cyan "#9ccfd8"
+     :orange "#ea9a97"
+     :violet "#eb98c3"}
+    :tokyonight
+    {:bg "#24283b"
+     :blue "#7aa2f7"
+     :cyan "#7dcfff"
+     :fg "#c0caf5"
+     :grey "#292e42"
+     :green "#9ece6a"
+     :magenta "#bb9af7"
+     :orange "#ff9e64"
+     :violet "#9d7cd8"
+     :red "#f7768e"
+     :yellow "#e0af68"}
+    :catppuccin 
+    {:bg "#11111b"
+     :blue "#74c7ec"
+     :cyan "#94e2d5"
+     :fg "#CDD6F4"
+     :grey "#494D64"
+     :green "#a6e3a1"
+     :magenta "#ee99a0"
+     :orange "#fab387"
+     :red "#f38ba8"
+     :violet "#c6a0f6"
+     :yellow "#F9E2AF"}))
+
 (fn setup [options]
-  (local lualine (require :lualine))
-  (let [colors 
+  (let [lualine (require :lualine)
+        colors 
         (or 
           options.colors 
-          {:bg "#11111b"
-           :blue "#74c7ec"
-           :cyan "#94e2d5"
-           :darkblue "#89b4fa"
-           :fg "#CDD6F4"
-           :grey "#494D64 "
-           :green "#a6e3a1"
-           :magenta "#ee99a0"
-           :orange "#fab387"
-           :red "#f38ba8"
-           :violet "#c6a0f6"
-           :yellow "#F9E2AF"})]
+          (theme (or options.theme :catppuccin)))]
 
     (local conditions
       {:buffer_not_empty (fn []

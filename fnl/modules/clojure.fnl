@@ -28,16 +28,10 @@
     data))
 
 (fn enable []
-  (plugins.register {"clojure-vim/clojure.vim" {:for :clojure}})
-  (set vim.g.clojure_max_lines 1000))
+  (plugins.register {"clojure-vim/clojure.vim" {:for :clojure}}))
 
 (fn setup []
-  (vim.cmd "set wildignore+=**/resources/public/js/compiled/**")
-  (vim.cmd "set wildignore+=**/.clj-kondo/**")
-  (vim.cmd "set wildignore+=**/cljs-test-runner-out/**")
-  (vim.cmd "set wildignore+=.shadow-cljs/**")
-  (vim.cmd "set wildignore+=**/deployment-temp/**")
-  (vim.cmd "set wildignore+=**/target/**")
+  (set vim.g.clojure_max_lines 1000)
   (vim.api.nvim_create_autocmd 
     "FileType" 
     {:pattern :clojure
