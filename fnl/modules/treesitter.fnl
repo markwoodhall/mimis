@@ -1,32 +1,57 @@
 (local plugins (require :plugins))
 
 (var treesitter-languages [])
+(var treesitter-parsers [])
 (var treesitter-loaded nil)
 
-(fn enable [languages]
-  (plugins.register {"nvim-treesitter/nvim-treesitter" {:do ":TSUpdate" :for languages}})
-  (set treesitter-languages languages))
+(local enable-hooks
+  {:modules.fennel [:fennel]
+   :modules.packages.clojure [:clojure]
+   :packages.clojure [:clojure]
+   :modules.sql [:sql]
+   :modules.git [:git]
+   :modules.org [:org]})
 
-(fn setup [parsers]
-  (vim.api.nvim_create_autocmd 
-    "FileType" 
-    {:pattern treesitter-languages
-     :group (vim.api.nvim_create_augroup "mimis-treesitter" {:clear true})
-     :desc "Setup treesitter for specific filetypes"
-     :callback 
-     (partial 
-       vim.schedule 
-       (fn []
-         (when (not treesitter-loaded)
-           (let [ts (require "nvim-treesitter.configs")]
-             (ts.setup 
-               {:ensure_installed parsers
-                :sync_install false
-                :ignore_install ["org"]
-                :auto_install true
-                :highlight 
-                {:enable true :additional_vim_regex_highlighting []}}))
-           (set treesitter-loaded true))))}))
+(fn enable [languages module-hook]
+  (let [mimis (require :mimis) 
+        languages (or languages 
+                      (. enable-hooks module-hook) 
+                      [])]
+    (set treesitter-languages (mimis.concat treesitter-languages languages))
+    (plugins.register {"nvim-treesitter/nvim-treesitter" {:do ":TSUpdate" :for treesitter-languages}})))
+
+(local setup-hooks
+  {:modules.fennel [:fennel]
+   :modules.packages.clojure [:clojure]
+   :modules.git [:gitcommit]
+   :modules.sql [:sql]
+   :modules.org [:org]})
+
+(fn setup [parsers module-hook]
+  (let [mimis (require :mimis)
+        parsers (or parsers 
+                    (. setup-hooks module-hook) 
+                    [])]
+    (set treesitter-parsers (mimis.concat treesitter-parsers parsers))
+    (vim.api.nvim_create_autocmd 
+      "FileType" 
+      {:pattern treesitter-languages
+       :group (vim.api.nvim_create_augroup "mimis-treesitter" {:clear true})
+       :desc "Setup treesitter for specific filetypes"
+       :callback 
+       (partial 
+         vim.schedule 
+         (fn []
+           (when (not treesitter-loaded)
+             (let [ts (require "nvim-treesitter.configs")]
+               (ts.setup 
+                 {:ensure_installed treesitter-parsers
+                  :sync_install false
+                  :ignore_install ["org"]
+                  :auto_install true
+                  :highlight 
+                  {:enable true :additional_vim_regex_highlighting []}}))
+             (set treesitter-loaded true))))})))
 
 {: enable 
  : setup }

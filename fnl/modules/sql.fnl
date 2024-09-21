@@ -1,5 +1,8 @@
 (local plugins (require :plugins))
 
+(fn depends []
+  [:modules.treesitter])
+
 (fn enable []
   (plugins.register
     {:tpope/vim-dadbod {:on [:DBUI :DBUIFindBuffer]} 
@@ -11,4 +14,5 @@
 (fn setup [])
 
 {: enable
- : setup }
+ : setup 
+ : depends }

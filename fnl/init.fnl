@@ -9,12 +9,11 @@
 
    ;; Structure and syntax
    :modules.paredit [:fennel :clojure] 
-   :modules.treesitter [:fennel :clojure :lua :gitcommit :sql :org]
    :modules.surround []
 
    ;; Language support
    :modules.fennel []
-   :modules.clojure []
+   :modules.packages.clojure []
    :modules.sql []
    :modules.org []
    ;;:modules.janet []
@@ -40,7 +39,7 @@
 
    ;; Language Support
    :modules.fennel []
-   :modules.clojure []
+   :modules.packages.clojure []
    :modules.sql []
    :modules.org {:org-babel-like true}
    ;;:modules.janet []
@@ -77,6 +76,5 @@
 
    ;; Structure and syntax
    :modules.paredit []
-   :modules.treesitter [:fennel :clojure :lua :gitcommit :sql]
    :modules.surround []
    })

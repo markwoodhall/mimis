@@ -2,6 +2,9 @@
 (local nvim (require :nvim))
 (local mimis (require :mimis))
 
+(fn depends []
+  [:modules.treesitter])
+
 (fn enable []
   (Plug "tpope/vim-fugitive" {:on [:G :Git :Gvdiffsplit]}))
 
@@ -13,4 +16,5 @@
       [{1 (.. nvim.g.mapleader "g") :group "git"}])))
 
 {: enable
- : setup }
+ : setup
+ : depends }

@@ -3,7 +3,8 @@
 (local mimis (require :mimis))
 
 (fn depends []
-  [:modules.projects])
+  [:modules.projects
+   :modules.treesitter])
 
 (fn enable []
   (plugins.register 

@@ -1,6 +1,9 @@
 (local nvim (require :nvim))
 (local plugins (require :plugins))
 
+(fn depends []
+  [:modules.treesitter])
+
 (fn enable []
   (plugins.register
     {:nvim-orgmode/orgmode :always
@@ -35,4 +38,5 @@
                (mimis.leader-map "n" "mtf" vabel.tangle-blocks {:desc "tangle-file" :buffer buffer}))))))}))
 
 {: enable
- : setup }
+ : setup 
+ : depends }

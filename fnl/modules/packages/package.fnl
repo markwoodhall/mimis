@@ -1,14 +1,13 @@
 (local plugins (require :plugins))
-(local enabled {})
 
-(fn require-enable [mod args]
-  (when (not (. enabled mod))
-    (let [m (require mod)
-          deps (when m.depends (m.depends))]
-      (when deps (icollect [_ v (ipairs deps)]
-                   (require-enable v)))
-      (m.enable args)
-      (set (. enabled mod) true))))
+(fn require-enable [mod args module-hook]
+  (let [m (require mod)
+        deps (when m.depends (m.depends))]
+    (when deps (icollect [_ v (ipairs deps)]
+                 (require-enable v nil mod)))
+    (if module-hook 
+      (m.enable args module-hook)
+      (m.enable args))))
 
 (fn require-setup [mod args module-hook]
   (let [m (require mod)
