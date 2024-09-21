@@ -24,7 +24,6 @@
    :modules.cmdline.common []
 
    ;; Editor integrations
-   :modules.lsp [:fennel :clojure :sql]
    :modules.git []
    :modules.telescope []
    :modules.statusline []
@@ -50,18 +49,6 @@
    :modules.cmdline.common []
 
    ;; Editor integration
-   :modules.lsp 
-   {:servers [:clojure_lsp :fennel_ls :sqlls]
-    :completion-sources 
-    {:fennel
-     [{:name "nvim_lsp" :keyword_length 2}
-      {:name "buffer" :keyword_length 2}]
-     :clojure
-     [{:name "nvim_lsp"}
-      {:name "buffer"}]
-     :sql
-     [{:name "vim-dadbod-completion"}
-      {:name "buffer"}]}}
    :modules.git []
    :modules.colors 
    {:theme :nightfox

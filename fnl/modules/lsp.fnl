@@ -1,15 +1,28 @@
 (local plugins (require :plugins))
 (local nvim (require :nvim))
 (var lsp-languages [])
+(var lsp-completion-sources [])
+(var lsp-servers [])
 (var lsp-setup-done nil)
 
-(fn enable [languages]
-  (plugins.register
-    {:neovim/nvim-lspconfig {:for languages} 
-     :hrsh7th/nvim-cmp {:for languages} 
-     :hrsh7th/cmp-nvim-lsp {:for languages} 
-     :hrsh7th/cmp-path {:for languages}})
-  (set lsp-languages languages))
+(local enable-hooks
+  {:modules.packages.fennel [:fennel]
+   :modules.packages.clojure [:clojure]
+   :modules.fennel [:fennel]
+   :modules.clojure [:clojure]
+   :modules.sql [:sql]})
+
+(fn enable [languages module-hook]
+  (let [mimis (require :mimis)
+        languages (or languages 
+                      (. enable-hooks module-hook) 
+                      [])]
+    (set lsp-languages (mimis.concat lsp-languages languages))
+    (plugins.register
+      {:neovim/nvim-lspconfig {:for lsp-languages} 
+       :hrsh7th/nvim-cmp {:for lsp-languages} 
+       :hrsh7th/cmp-nvim-lsp {:for lsp-languages} 
+       :hrsh7th/cmp-path {:for lsp-languages}})))
 
 (fn setup-cmp [servers]
   (let [cmp-nvim-lsp (require :cmp_nvim_lsp)
@@ -42,9 +55,35 @@
                  {:name "path" :keyword_length 3}
                  {:name "buffer" :keyword_length 4}]})))
 
-(fn setup [options]
-  (let [servers options.servers
-        completion-sources options.completion-sources]
+(local fennel {:servers [:fennel_ls]
+               :completion-sources
+               {:fennel [{:name "nvim_lsp" :keyword_length 2}
+                         {:name "buffer" :keyword_length 2}]}})
+
+(local clojure {:servers [:clojure_lsp]
+                :completion-sources
+                {:clojure [{:name "nvim_lsp" :keyword_length 2}
+                           {:name "buffer" :keyword_length 2}]}})
+
+(local sql {:servers [:sqlls]})
+
+(local setup-hooks
+  {:modules.packages.fennel fennel
+   :modules.packages.clojure clojure
+   :modules.clojure clojure
+   :modules.fennel fennel
+   :modules.sql sql})
+
+(fn setup [options module-hook]
+  (let [mimis (require :mimis)
+        completion-sources (or (if options options.completion-sources nil)
+                               (. (. setup-hooks module-hook) :completion-sources)
+                               [])
+        servers (or (if options options.servers nil)
+                               (. (. setup-hooks module-hook) :servers)
+                               [])]
+    (set lsp-servers (mimis.concat lsp-servers servers))
+    (set lsp-completion-sources (mimis.concat lsp-completion-sources completion-sources))
     (vim.api.nvim_create_autocmd 
       "FileType" 
       {:pattern lsp-languages
@@ -55,7 +94,7 @@
          vim.schedule 
          (fn []
            (when (not lsp-setup-done)
-             (setup-cmp servers)
+             (setup-cmp lsp-servers)
              (let [mimis (require :mimis)]
                (mimis.leader-map "n" "lda" ":lua vim.lsp.buf.code_action()<CR>" {:desc "code-actions"})
                (mimis.leader-map "n" "lf" ":lua vim.lsp.buf.format()<CR>" {:desc "format-buffer"}))
@@ -80,7 +119,7 @@
              (vim.lsp.buf.format))))})
 
     (let [group (vim.api.nvim_create_augroup "mimis-lsp-filetype" {:clear true})]
-      (icollect [k v (pairs completion-sources)]
+      (icollect [k v (pairs lsp-completion-sources)]
         (do
           (vim.api.nvim_create_autocmd 
             "FileType" 

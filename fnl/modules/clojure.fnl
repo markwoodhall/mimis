@@ -3,6 +3,7 @@
 (local plugins (require :plugins))
 
 (fn depends []
+  [:modules.treesitter]
   [:modules.projects])
 
 (fn m-binding [bind action desc]

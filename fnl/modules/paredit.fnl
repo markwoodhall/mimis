@@ -4,9 +4,10 @@
 (var paredit-languages [])
 
 (local enable-hooks
-  {:modules.fennel [:fennel]
+  {:modules.packages.clojure [:clojure]
+   :modules.packages.fennel [:fennel]
+   :modules.fennel [:fennel]
    :modules.janet [:janet]
-   :modules.packages.clojure [:clojure]
    :packages.clojure [:clojure]})
 
 (fn enable [languages module-hook]
@@ -14,8 +15,8 @@
         languages (or languages 
                       (. enable-hooks module-hook) 
                       [])]
-    (plugins.register {"kovisoft/paredit" {:for languages}})
-    (set paredit-languages (mimis.concat paredit-languages languages))))
+    (set paredit-languages (mimis.concat paredit-languages languages))
+    (plugins.register {"kovisoft/paredit" {:for paredit-languages}})))
 
 (fn setup []
   (set vim.g.paredit_leader ",")
