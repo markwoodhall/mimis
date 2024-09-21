@@ -8,11 +8,10 @@
    :modules.keymaps []
 
    ;; Structure and syntax
-   :modules.paredit [:fennel :clojure] 
    :modules.surround []
 
    ;; Language support
-   :modules.fennel []
+   :modules.packages.fennel []
    :modules.packages.clojure []
    :modules.sql []
    :modules.org []
@@ -38,7 +37,7 @@
    :modules.keymaps []
 
    ;; Language Support
-   :modules.fennel []
+   :modules.packages.fennel []
    :modules.packages.clojure []
    :modules.sql []
    :modules.org {:org-babel-like true}
@@ -75,6 +74,5 @@
    :modules.quickfix [] 
 
    ;; Structure and syntax
-   :modules.paredit []
    :modules.surround []
    })

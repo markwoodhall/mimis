@@ -1,5 +1,5 @@
 (fn depends []
-  [:modules.clojure
+  [:modules.fennel
    :modules.treesitter
    :modules.paredit])
 

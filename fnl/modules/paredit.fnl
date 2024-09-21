@@ -3,13 +3,23 @@
 
 (var paredit-languages [])
 
-(fn enable [languages]
-  (plugins.register {"kovisoft/paredit" {:for languages}})
-  (set vim.g.paredit_leader ",")
-  (set vim.g.paredit_matchlines 1000)
-  (set paredit-languages languages))
+(local enable-hooks
+  {:modules.fennel [:fennel]
+   :modules.janet [:janet]
+   :modules.packages.clojure [:clojure]
+   :packages.clojure [:clojure]})
+
+(fn enable [languages module-hook]
+  (let [mimis (require :mimis)
+        languages (or languages 
+                      (. enable-hooks module-hook) 
+                      [])]
+    (plugins.register {"kovisoft/paredit" {:for languages}})
+    (set paredit-languages (mimis.concat paredit-languages languages))))
 
 (fn setup []
+  (set vim.g.paredit_leader ",")
+  (set vim.g.paredit_matchlines 1000)
   (vim.api.nvim_create_autocmd 
     "FileType" 
     {:pattern paredit-languages
@@ -25,10 +35,6 @@
                      (vim.cmd (.. "call PareditWrap('" start "','" end "')")))]
 
           (set vim.g.paredit_electric_return 0)
-          ;;(set vim.g.paredit_mode 0)
-
-          ;;(vim.cmd "call PareditInitBalancingAllBracketsBuffer()")
-          ;;(vim.cmd "call PareditMapKeys()")
 
           (mimis.leader-map "n" "sw(" (partial wrap "(" ")") {:desc "wrap-with-parens" :buffer buffer})
           (mimis.leader-map "n" "sw)" (partial wrap "(" ")") {:desc "wrap-with-parens" :buffer buffer})

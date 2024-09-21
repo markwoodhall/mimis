@@ -5,9 +5,10 @@
 (var treesitter-loaded nil)
 
 (local enable-hooks
-  {:modules.fennel [:fennel]
+  {:modules.packages.fennel [:fennel]
    :modules.packages.clojure [:clojure]
-   :packages.clojure [:clojure]
+   :modules.fennel [:fennel]
+   :modules.clojure [:clojure]
    :modules.sql [:sql]
    :modules.git [:git]
    :modules.org [:org]})
@@ -21,8 +22,10 @@
     (plugins.register {"nvim-treesitter/nvim-treesitter" {:do ":TSUpdate" :for treesitter-languages}})))
 
 (local setup-hooks
-  {:modules.fennel [:fennel]
+  {:modules.packages.fennel [:fennel]
    :modules.packages.clojure [:clojure]
+   :modules.clojure [:clojure]
+   :modules.fennel [:fennel]
    :modules.git [:gitcommit]
    :modules.sql [:sql]
    :modules.org [:org]})

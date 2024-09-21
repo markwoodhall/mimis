@@ -18,9 +18,9 @@ help)
     help
     ;;
 install)
-    nvim -es -u init.vim -i NONE -c "PlugInstall" -c "helptags doc" -c "qa"
+    nvim -es -u init.vim -i NONE -c "PlugInstall" -c "helptags doc" -c "source package.lock" -c "qa"
     ;;
 update)
-    nvim -es -u init.vim -i NONE -c "PlugUpdate" -c "helptags doc" -c "qa"
+    nvim -es -u init.vim -i NONE -c "PlugUpgrade" -c "PlugUpdate" -c "helptags doc" -c "PlugSnapshot" -c "w package.lock" -c "qa"
     ;;
 esac
