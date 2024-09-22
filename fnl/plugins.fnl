@@ -27,15 +27,15 @@
              (fn [_]
                (vim.cmd "PlugInstall")
                (vim.cmd "helptags ~/.config/nvim/doc"))
-             {:bang false :desc "Init mimis" :nargs "*"})
+             {:bang false :desc "Install mimis plugins"})
 
 (vim.api.nvim_create_user_command
              "MimisUpdate"
              (fn [_]
                (vim.cmd "PlugUpgrade")
                (vim.cmd "PlugUpdate!")
-               (vim.cmd "helptags doc"))
-             {:bang false :desc "Install mimis" :nargs "*"})
+               (vim.cmd "helptags ~/.config/nvim/doc"))
+             {:bang false :desc "Update mimis plugins"})
 
 {: register
  : begin
