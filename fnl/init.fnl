@@ -28,7 +28,8 @@
    :modules.telescope []
    :modules.statusline []
    :modules.quickfix []
-   :modules.colors []})
+   :modules.colors []}
+  :stable)
 
 (package.setup
   {;; Keymaps

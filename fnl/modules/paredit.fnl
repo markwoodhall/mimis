@@ -16,7 +16,7 @@
                       (. enable-hooks module-hook) 
                       [])]
     (set paredit-languages (mimis.concat paredit-languages languages))
-    (plugins.register {"kovisoft/paredit" {:for paredit-languages}})))
+    (plugins.register {:kovisoft/paredit {:for paredit-languages}})))
 
 (fn setup []
   (set vim.g.paredit_leader ",")

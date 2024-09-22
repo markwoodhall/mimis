@@ -18,14 +18,16 @@
       (m.setup args module-hook)
       (m.setup args))))
 
-(fn enable [modules]
+(fn enable [modules channel]
   (plugins.begin)
   (icollect [k v (pairs modules)]
     (do
       (require-enable k v)
       (when v.post-enable
         (v.post-enable))))
-  (plugins.end))
+  (if channel
+    (plugins.end channel)
+    (plugins.end :stable)))
 
 (fn setup [modules]
   (icollect [k v (pairs modules)]

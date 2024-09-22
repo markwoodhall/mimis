@@ -4,9 +4,9 @@
 
 (fn enable []
   (plugins.register
-    {"nvim-lua/plenary.nvim" :always
-     "nvim-telescope/telescope.nvim" :always
-     "stevearc/dressing.nvim" :always}))
+    {:nvim-lua/plenary.nvim :always
+     :nvim-telescope/telescope.nvim :always
+     :stevearc/dressing.nvim :always}))
 
 (fn setup [options]
   (let [o (accumulate 

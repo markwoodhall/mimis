@@ -7,7 +7,7 @@ function help() {
         "usage: $(basename "$0") [options] [script [args]]" \
         "Available options are:" \
         "install - install plugins" \
-        "  update - update plugins" 
+        "  update - sync plugins with those in fnl/packagelock.fnl" 
 }
 
 case "${1:-}" in
@@ -18,9 +18,9 @@ help)
     help
     ;;
 install)
-    nvim -es -u init.vim -i NONE -c "PlugInstall" -c "helptags doc" -c "source package.lock" -c "qa"
+    nvim -es -u init.vim -i NONE -c "MimisInstall" -c "qa"
     ;;
 update)
-    nvim -es -u init.vim -i NONE -c "PlugUpgrade" -c "PlugUpdate" -c "helptags doc" -c "PlugSnapshot" -c "w package.lock" -c "qa"
+    nvim -es -u init.vim -i NONE -c "MimisUpdate" -c "qa"
     ;;
 esac

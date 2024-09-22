@@ -1,4 +1,4 @@
-(local Plug (. vim.fn "plug#"))
+(local plugins (require :plugins))
 (local nvim (require :nvim))
 (local mimis (require :mimis))
 
@@ -6,7 +6,7 @@
   [:modules.treesitter])
 
 (fn enable []
-  (Plug "tpope/vim-fugitive" {:on [:G :Git :Gvdiffsplit]}))
+  (plugins.register {:tpope/vim-fugitive {:on [:G :Git :Gvdiffsplit]}}))
 
 (fn setup []
   (mimis.leader-map "n" "gd" ":Gvdiffsplit<CR>" {:desc "git-diff"})

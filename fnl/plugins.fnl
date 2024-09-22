@@ -7,14 +7,35 @@
     (set (. registered k) v)
     ))
 
-(fn end []
-  (let [Plug (. vim.fn "plug#")]
+(fn end [channel]
+  (let [Plug (. vim.fn "plug#")
+        lock (require :packagelock)]
     (icollect [k v (pairs registered)]
       (do 
-        (if (not= v :always) 
-          (Plug k v)
-          (Plug k)))))
+        (let [p-lock (. lock channel k)]
+          (if (not= v :always) 
+              (do (when p-lock
+                (set (. v :commit) p-lock))
+                (Plug k v))
+              (if p-lock
+                  (Plug k {:commit p-lock})
+                  (Plug k)))))))
   (vim.call "plug#end"))
+
+(vim.api.nvim_create_user_command
+             "MimisInstall"
+             (fn [_]
+               (vim.cmd "PlugInstall")
+               (vim.cmd "helptags ~/.config/nvim/doc"))
+             {:bang false :desc "Init mimis" :nargs "*"})
+
+(vim.api.nvim_create_user_command
+             "MimisUpdate"
+             (fn [_]
+               (vim.cmd "PlugUpgrade")
+               (vim.cmd "PlugUpdate!")
+               (vim.cmd "helptags doc"))
+             {:bang false :desc "Install mimis" :nargs "*"})
 
 {: register
  : begin

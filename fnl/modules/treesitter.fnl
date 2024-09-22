@@ -19,7 +19,7 @@
                       (. enable-hooks module-hook) 
                       [])]
     (set treesitter-languages (mimis.concat treesitter-languages languages))
-    (plugins.register {"nvim-treesitter/nvim-treesitter" {:do ":TSUpdate" :for treesitter-languages}})))
+    (plugins.register {:nvim-treesitter/nvim-treesitter {:do ":TSUpdate" :for treesitter-languages}})))
 
 (local setup-hooks
   {:modules.packages.fennel [:fennel]

@@ -1,7 +1,7 @@
 (local plugins (require :plugins))
 
 (fn enable []
-  (plugins.register {"airblade/vim-rooter" :always}))
+  (plugins.register {:airblade/vim-rooter :always}))
 
 (local setup-hooks
   {:modules.fennel {:patterns ["flsproject.fnl"]}

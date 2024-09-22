@@ -8,7 +8,7 @@
 
 (fn enable []
   (plugins.register 
-    {"jaawerth/fennel.vim" {:for [:fennel]}}))
+    {:jaawerth/fennel.vim {:for [:fennel]}}))
 
 (fn m-binding [bind action desc]
   (mimis.leader-map

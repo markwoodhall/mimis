@@ -29,7 +29,7 @@
     data))
 
 (fn enable []
-  (plugins.register {"clojure-vim/clojure.vim" {:for :clojure}}))
+  (plugins.register {:clojure-vim/clojure.vim {:for :clojure}}))
 
 (fn setup []
   (set vim.g.clojure_max_lines 1000)
