@@ -1,41 +1,24 @@
 (local plugins (require :plugins))
+(local ft (require :modules.filetypes))
 
 (var treesitter-languages [])
 (var treesitter-parsers [])
 (var treesitter-loaded nil)
 
-(local enable-hooks
-  {:modules.packages.fennel [:fennel]
-   :modules.packages.clojure [:clojure]
-   :modules.packages.sql [:sql]
-   :modules.fennel [:fennel]
-   :modules.clojure [:clojure]
-   :modules.sql [:sql]
-   :modules.git [:gitcommit]
-   :modules.org [:org]})
-
 (fn enable [languages module-hook]
   (let [mimis (require :mimis) 
         languages (or languages 
-                      (. enable-hooks module-hook) 
+                      (. ft.module-filetypes module-hook) 
                       [])]
     (set treesitter-languages (mimis.concat treesitter-languages languages))
     (plugins.register {:nvim-treesitter/nvim-treesitter {:do ":TSUpdate" :for treesitter-languages}})))
 
-(local setup-hooks
-  {:modules.packages.fennel [:fennel]
-   :modules.packages.clojure [:clojure]
-   :modules.packages.sql [:sql]
-   :modules.clojure [:clojure]
-   :modules.fennel [:fennel]
-   :modules.git [:gitcommit]
-   :modules.sql [:sql]
-   :modules.org [:org]})
+(local module-parsers ft.module-filetypes)
 
 (fn setup [parsers module-hook]
   (let [mimis (require :mimis)
         parsers (or parsers 
-                    (. setup-hooks module-hook) 
+                    (. module-parsers module-hook) 
                     [])]
     (set treesitter-parsers (mimis.concat treesitter-parsers parsers))
     (vim.api.nvim_create_autocmd 

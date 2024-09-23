@@ -1,19 +1,13 @@
 (local nvim (require :nvim))
 (local plugins (require :plugins))
+(local ft (require :modules.filetypes))
 
 (var paredit-languages [])
-
-(local enable-hooks
-  {:modules.packages.clojure [:clojure]
-   :modules.packages.fennel [:fennel]
-   :modules.fennel [:fennel]
-   :modules.janet [:janet]
-   :packages.clojure [:clojure]})
 
 (fn enable [languages module-hook]
   (let [mimis (require :mimis)
         languages (or languages 
-                      (. enable-hooks module-hook) 
+                      (. ft.module-filetypes module-hook) 
                       [])]
     (set paredit-languages (mimis.concat paredit-languages languages))
     (plugins.register {:kovisoft/paredit {:for paredit-languages}})))

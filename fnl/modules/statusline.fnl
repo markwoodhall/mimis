@@ -141,7 +141,6 @@
                                    :color_warn {:fg colors.yellow}}
                :sources [:nvim_diagnostic]
                :symbols {:error "  " :info "  " :warn "  "}})
-    
 
     (when options.lsp 
       (ins-right {1 active-lsp

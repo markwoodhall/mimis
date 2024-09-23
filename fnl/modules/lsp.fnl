@@ -1,22 +1,16 @@
 (local plugins (require :plugins))
+(local ft (require :modules.filetypes))
 (local nvim (require :nvim))
+
 (var lsp-languages [])
 (var lsp-completion-sources [])
 (var lsp-servers [])
 (var lsp-setup-done nil)
 
-(local enable-hooks
-  {:modules.packages.fennel [:fennel]
-   :modules.packages.clojure [:clojure]
-   :modules.packages.sql [:sql]
-   :modules.fennel [:fennel]
-   :modules.clojure [:clojure]
-   :modules.sql [:sql]})
-
 (fn enable [languages module-hook]
   (let [mimis (require :mimis)
         languages (or languages 
-                      (. enable-hooks module-hook) 
+                      (. ft.module-filetypes module-hook) 
                       [])]
     (set lsp-languages (mimis.concat lsp-languages languages))
     (plugins.register
