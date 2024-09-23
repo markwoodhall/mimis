@@ -1,4 +1,5 @@
 (local plugins (require :plugins))
+(local mimis (require :mimis))
 
 (fn enable []
   (plugins.register {:nvim-tree/nvim-web-devicons :always
@@ -140,12 +141,25 @@
                                    :color_warn {:fg colors.yellow}}
                :sources [:nvim_diagnostic]
                :symbols {:error "  " :info "  " :warn "  "}})
-    (ins-left [(fn [] "%=")])
+    
 
     (when options.lsp 
-      (ins-left {1 active-lsp
-                 :color (fn [] (if (= (active-lsp) "No Active Lsp") {:fg colors.grey :gui :bold} {:fg colors.green :gui :bold}))
-                 :icon " LSP:"}))
+      (ins-right {1 active-lsp
+                 :color (fn [] (when (not= (active-lsp) "No Active Lsp") {:fg colors.green :gui :bold}))
+                 :cond (fn [] (not= (active-lsp) "No Active Lsp"))
+                 :icon " "}))
+    (when options.mimis-repl
+      (ins-right {1 (fn [] (if (and vim.g.mimis_repl_last_output
+                                    (= (mimis.last vim.g.mimis_repl_last_output) :error))
+                             "FAILED"
+                             "PASSED"))
+                  :color (fn [] 
+                           (if (and vim.g.mimis_repl_last_output
+                                    (= (mimis.last vim.g.mimis_repl_last_output) :error))
+                             {:fg colors.red :gui :bold}
+                             {:fg colors.green :gui :bold}))
+                  :cond (fn [] 
+                          (not= vim.g.mimis_repl_last_output nil))}))
     (ins-right {1 "o:encoding"
                 :color {:fg colors.grey :gui :bold}
                 :cond conditions.hide_in_width
@@ -153,7 +167,7 @@
     (ins-right {1 :fileformat
                 :color {:fg colors.grey :gui :bold}
                 :fmt string.upper
-                :icons_enabled false})
+                :icons_enabled true})
     (ins-right {1 :branch :color {:fg colors.violet :gui :bold} :icon ""})
     (ins-right {1 :diff
                 :cond conditions.hide_in_width

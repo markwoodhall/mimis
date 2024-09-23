@@ -101,6 +101,23 @@
         [false false true] "clojure -A:dev:dev/nrepl"
         _ "lein repl"))))
 
+(fn get-last-output [output]
+  (match nvim.bo.filetype
+    :clojure (or (mimis.last 
+                   (icollect [_ v (ipairs output)] 
+                     (let [line v]
+                       (when (and (> (mimis.count-matches line :summary) 0)
+                                  (> (mimis.count-matches line :test) 0)
+                                  (> (mimis.count-matches line :pass) 0)
+                                  (> (mimis.count-matches line :fail) 0)
+                                  (> (mimis.count-matches line :error) 0))
+                         (print line)
+                         (let [errors (tonumber (mimis.first (mimis.split (mimis.last (mimis.split line (.. :error " "))) ",")))
+                               fails (tonumber (mimis.first (mimis.split (mimis.last (mimis.split line (.. :fail " "))) ",")))]
+                           [line (if (or (> errors 0) (> fails 0)) :error :success)])))))
+                 vim.g.mimis_repl_last_output)
+    _ [(mimis.last output) :success]))
+
 (fn sender [r job data]
   (vim.schedule
     (fn []
@@ -141,7 +158,11 @@
 (fn start-repl [filetype]
   (let [r (get-project-repl)]
     (let [command (get-command filetype)
-          job (vim.fn.termopen command)]
+          job (vim.fn.termopen 
+                command
+                {:on_stdout
+                 (fn [_ o]
+                   (set vim.g.mimis_repl_last_output (get-last-output o)))})]
       (vim.cmd "setlocal norelativenumber")
       (vim.cmd "setlocal nonumber")
       (set nvim.bo.filetype filetype)

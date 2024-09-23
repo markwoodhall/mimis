@@ -48,6 +48,8 @@
 (fn last [c]
   (?. c (length c)))
 
+(fn last-but [c n]
+  (?. c (- (length c) n)))
 (fn nth [c n]
   (?. c n))
 
@@ -115,6 +117,7 @@
  : first
  : second
  : last
+ : last-but
  : nth
  : concat
  : count-matches

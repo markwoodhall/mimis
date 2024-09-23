@@ -15,8 +15,15 @@
               r))
         wk (require :which-key)
         ts (require :telescope)
+        dressing (require :dressing)
         actions (require "telescope.actions")
         action_state (require "telescope.actions.state")]
+
+    (dressing.setup
+      {:select {:enabled true
+                :backend ["telescope" "builtin"]
+                :trim_prompt true
+                :telescope {:theme "ivy"}}})
 
     (ts.setup {:defaults 
                {:layout_strategy :bottom_pane

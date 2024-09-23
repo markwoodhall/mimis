@@ -7,6 +7,7 @@
 (local enable-hooks
   {:modules.packages.fennel [:fennel]
    :modules.packages.clojure [:clojure]
+   :modules.packages.sql [:sql]
    :modules.fennel [:fennel]
    :modules.clojure [:clojure]
    :modules.sql [:sql]
@@ -24,6 +25,7 @@
 (local setup-hooks
   {:modules.packages.fennel [:fennel]
    :modules.packages.clojure [:clojure]
+   :modules.packages.sql [:sql]
    :modules.clojure [:clojure]
    :modules.fennel [:fennel]
    :modules.git [:gitcommit]

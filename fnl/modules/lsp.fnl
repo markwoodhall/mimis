@@ -8,6 +8,7 @@
 (local enable-hooks
   {:modules.packages.fennel [:fennel]
    :modules.packages.clojure [:clojure]
+   :modules.packages.sql [:sql]
    :modules.fennel [:fennel]
    :modules.clojure [:clojure]
    :modules.sql [:sql]})
@@ -70,6 +71,7 @@
 (local setup-hooks
   {:modules.packages.fennel fennel
    :modules.packages.clojure clojure
+   :modules.packages.sql sql
    :modules.clojure clojure
    :modules.fennel fennel
    :modules.sql sql})
@@ -105,6 +107,14 @@
                   {1 (.. nvim.g.mapleader "lg") :group "goto"}]))
              (set lsp-setup-done true))
            (vim.cmd.LspStart)))})
+
+    (vim.api.nvim_create_autocmd 
+      :LspAttach
+      {:desc "LSP disable semantic tokens"
+       :callback 
+       (fn [args] 
+         (let [client (vim.lsp.get_client_by_id args.data.client_id)]
+           (set client.server_capabilities.semanticTokensProvider nil)))})
 
     (vim.api.nvim_create_autocmd 
       ["BufWritePre"] 

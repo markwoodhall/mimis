@@ -13,7 +13,7 @@
    ;; Language support
    :modules.packages.fennel []
    :modules.packages.clojure []
-   :modules.sql []
+   :modules.packages.sql []
    :modules.org []
    ;;:modules.janet []
 
@@ -39,7 +39,7 @@
    ;; Language Support
    :modules.packages.fennel []
    :modules.packages.clojure []
-   :modules.sql []
+   :modules.packages.sql []
    :modules.org {:org-babel-like true}
    ;;:modules.janet []
 
@@ -52,13 +52,13 @@
    ;; Editor integration
    :modules.git []
    :modules.colors 
-   {:theme :nightfox
-    :colorscheme :duskfox
+   {:theme :catppuccin
+    :colorscheme :catppuccin
     :background :dark
     :post-setup (fn []
                   (vim.api.nvim_set_hl 0 "WinSeparator" {:fg "#1e1e2e" :bg "#1e1e2e"}))}
    :modules.telescope [:lsp :projects :finder :git :buffers] 
-   :modules.statusline {:lsp true :theme :duskfox} 
+   :modules.statusline {:lsp true :mimis-repl true :theme :duskfox} 
    :modules.quickfix [] 
 
    ;; Structure and syntax

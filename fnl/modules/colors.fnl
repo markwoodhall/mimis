@@ -5,6 +5,7 @@
   (plugins.register
     {:catppuccin/nvim {:as :catppuccin}
      :EdenEast/nightfox.nvim {:as :nightfox}
+     :miikanissi/modus-themes.nvim {:as :modus}
      :folke/tokyonight.nvim {:as :tokyonight}}))
 
 (fn setup [options]
