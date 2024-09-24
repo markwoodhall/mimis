@@ -45,13 +45,31 @@
 (fn second [c]
   (?. c 2))
 
+(fn take [c i]
+  (table.move c 1 i 1 []))
+
 (fn last [c]
   (?. c (length c)))
 
-(fn last-but [c n]
-  (?. c (- (length c) n)))
+(fn but-last [c]
+  (take c (- (length c) 1)))
+
 (fn nth [c n]
   (?. c n))
+
+(fn empty [c]
+  (= (length c) 0))
+
+(fn distinct [c]
+  (if c
+    (accumulate 
+      [t [] _ v (ipairs c)]
+      (do 
+        (when (empty (icollect [_ e (ipairs t)]
+                            (if (= e v)
+                              v)))
+          (table.insert t v))
+        t))))
 
 (fn concat [t1 t2]
   (if (and t1 t2)
@@ -117,8 +135,11 @@
  : first
  : second
  : last
- : last-but
+ : take
+ : but-last
  : nth
+ : empty
+ : distinct
  : concat
  : count-matches
  : add-match
