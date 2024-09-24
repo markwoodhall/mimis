@@ -7,7 +7,8 @@
    :hide-after 30000
    :window-options 
    {:relative :editor
-    :border :single
+    :border :none
+    :style :minimal
     :anchor :NE
     :row 1
     :col (-> (vim.api.nvim_list_uis)
@@ -63,11 +64,14 @@
 
 (fn show-repl [enter]
   (let [r (get-project-repl)]
-    (set r.win 
-         (vim.api.nvim_open_win 
-           r.buf 
-           enter
-           repl.window-options))))
+    (if (> (vim.fn.buffer_exists r.buf) 0)
+      (set r.win 
+           (vim.api.nvim_open_win 
+             r.buf 
+             enter
+             repl.window-options))
+      (do (kill-project-repl)
+        (print "Managed repl was closed, please start it again.")))))
 
 (fn kill-repl []
   (let [r (get-project-repl)]
@@ -79,12 +83,15 @@
 (fn send [expression ns]
   (let [r (get-project-repl)
         e (if (= (type expression) "string") expression (expression))]
-    (when (and (not= :none ns)) 
-      (if (or (not ns)
-              (= :current ns))
-        (in-ns)
-        (in-ns ns)))
-    ((. r.repl :send) e)))
+    (if (and r r.repl r.win r.buf)
+      (do
+        (when (and (not= :none ns)) 
+           (if (or (not ns)
+                   (= :current ns))
+             (in-ns)
+             (in-ns ns)))
+        ((. r.repl :send) e))
+      (print "Repl not connected"))))
 
 (fn get-command [filetype]
   (match filetype
@@ -121,23 +128,26 @@
 (fn sender [r job data]
   (vim.schedule
     (fn []
-      (hide-repl)
-      (set r.win 
-           (vim.api.nvim_open_win 
-             r.buf 
-             false
-             repl.window-options))
-      (when data
-        (vim.fn.chansend job (.. data "\n"))
-        (when r.timer
-          (r.timer:stop)
-          (r.timer:close))
-        (let [timer (vim.uv.new_timer)]
-          (timer:start 
-            repl.hide-after
-            0
-            (vim.schedule_wrap hide-repl))
-          (set r.timer timer))))))
+      (if (and r.win r.buf)
+        (do 
+          (hide-repl)
+          (set r.win 
+               (vim.api.nvim_open_win 
+                 r.buf 
+                 false
+                 repl.window-options))
+          (when data
+            (vim.fn.chansend job (.. data "\n"))
+            (when r.timer
+              (r.timer:stop)
+              (r.timer:close))
+            (let [timer (vim.uv.new_timer)]
+              (timer:start 
+                repl.hide-after
+                0
+                (vim.schedule_wrap hide-repl))
+              (set r.timer timer))))
+        (print "Repl not connected")))))
 
 (fn connect-repl [filetype connection]
   (let [r (get-project-repl)]
@@ -153,7 +163,7 @@
           (set nvim.bo.syntax filetype)
           {:job job
            :send (partial sender r job)})
-        (print "Cannot find a repl to connect to for this project")))))
+        (print "Cannot find a repl type to connect to for this project")))))
 
 (fn start-repl [filetype]
   (let [r (get-project-repl)]
