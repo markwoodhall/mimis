@@ -20,7 +20,8 @@
         action_state (require "telescope.actions.state")]
 
     (dressing.setup
-      {:select {:enabled true
+      {:input {:border :none}
+       :select {:enabled true
                 :backend ["telescope" "builtin"]
                 :trim_prompt true
                 :telescope {:theme "ivy"}}})
