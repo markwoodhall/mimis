@@ -147,18 +147,6 @@
                  :color (fn [] (when (not= (active-lsp) "No Active Lsp") {:fg colors.green :gui :bold}))
                  :cond (fn [] (not= (active-lsp) "No Active Lsp"))
                  :icon " "}))
-    (when options.mimis-repl
-      (ins-right {1 (fn [] (if (and vim.g.mimis_repl_last_output
-                                    (= (mimis.last vim.g.mimis_repl_last_output) :error))
-                             "FAILED"
-                             "PASSED"))
-                  :color (fn [] 
-                           (if (and vim.g.mimis_repl_last_output
-                                    (= (mimis.last vim.g.mimis_repl_last_output) :error))
-                             {:fg colors.red :gui :bold}
-                             {:fg colors.green :gui :bold}))
-                  :cond (fn [] 
-                          (not= vim.g.mimis_repl_last_output nil))}))
     (ins-right {1 "o:encoding"
                 :color {:fg colors.grey :gui :bold}
                 :cond conditions.hide_in_width

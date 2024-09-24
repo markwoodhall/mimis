@@ -59,17 +59,21 @@
 
 (fn hide-repl []
   (let [r (get-project-repl)]
-    (if (and r r.win)
-      (pcall vim.api.nvim_win_close (unpack [r.win true])))))
+    (when r.win
+      (vim.api.nvim_win_close (unpack [r.win true]))
+      (set r.win nil)
+      (set-project-repl r))))
 
 (fn show-repl [enter]
   (let [r (get-project-repl)]
     (if (> (vim.fn.buffer_exists r.buf) 0)
-      (set r.win 
-           (vim.api.nvim_open_win 
-             r.buf 
-             enter
-             repl.window-options))
+      (do 
+        (set r.win 
+             (vim.api.nvim_open_win 
+               r.buf 
+               enter
+               repl.window-options))
+        (set-project-repl r))
       (do (kill-project-repl)
         (print "Managed repl was closed, please start it again.")))))
 
@@ -83,7 +87,7 @@
 (fn send [expression ns]
   (let [r (get-project-repl)
         e (if (= (type expression) "string") expression (expression))]
-    (if (and r r.repl r.win r.buf)
+    (if (and r r.repl r.buf)
       (do
         (when (and (not= :none ns)) 
            (if (or (not ns)
@@ -108,34 +112,12 @@
         [false false true] "clojure -A:dev:dev/nrepl"
         _ "lein repl"))))
 
-(fn get-last-output [output]
-  (match nvim.bo.filetype
-    :clojure (or (mimis.last 
-                   (icollect [_ v (ipairs output)] 
-                     (let [line v]
-                       (when (and (> (mimis.count-matches line :summary) 0)
-                                  (> (mimis.count-matches line :test) 0)
-                                  (> (mimis.count-matches line :pass) 0)
-                                  (> (mimis.count-matches line :fail) 0)
-                                  (> (mimis.count-matches line :error) 0))
-                         (print line)
-                         (let [errors (tonumber (mimis.first (mimis.split (mimis.last (mimis.split line (.. :error " "))) ",")))
-                               fails (tonumber (mimis.first (mimis.split (mimis.last (mimis.split line (.. :fail " "))) ",")))]
-                           [line (if (or (> errors 0) (> fails 0)) :error :success)])))))
-                 vim.g.mimis_repl_last_output)
-    _ [(mimis.last output) :success]))
-
 (fn sender [r job data]
   (vim.schedule
     (fn []
-      (if (and r.win r.buf)
+      (if r.buf
         (do 
           (hide-repl)
-          (set r.win 
-               (vim.api.nvim_open_win 
-                 r.buf 
-                 false
-                 repl.window-options))
           (when data
             (vim.fn.chansend job (.. data "\n"))
             (when r.timer
@@ -146,7 +128,9 @@
                 repl.hide-after
                 0
                 (vim.schedule_wrap hide-repl))
-              (set r.timer timer))))
+              (set r.timer timer))
+            (set-project-repl r))
+          (show-repl false))
         (print "Repl not connected")))))
 
 (fn connect-repl [filetype connection]
@@ -168,11 +152,7 @@
 (fn start-repl [filetype]
   (let [r (get-project-repl)]
     (let [command (get-command filetype)
-          job (vim.fn.termopen 
-                command
-                {:on_stdout
-                 (fn [_ o]
-                   (set vim.g.mimis_repl_last_output (get-last-output o)))})]
+          job (vim.fn.termopen command)]
       (vim.cmd "setlocal norelativenumber")
       (vim.cmd "setlocal nonumber")
       (set nvim.bo.filetype filetype)
