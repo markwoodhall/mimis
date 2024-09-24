@@ -92,11 +92,13 @@
            (when (not lsp-setup-done)
              (setup-cmp lsp-servers)
              (let [mimis (require :mimis)]
+               (mimis.leader-map "n" "lrr" ":lua vim.lsp.buf.rename()<CR>" {:desc "rename"})
                (mimis.leader-map "n" "lda" ":lua vim.lsp.buf.code_action()<CR>" {:desc "code-actions"})
                (mimis.leader-map "n" "lf" ":lua vim.lsp.buf.format()<CR>" {:desc "format-buffer"}))
              (let [wk (require :which-key)] 
                (wk.add 
                  [{1 (.. nvim.g.mapleader "l") :group "lsp"}
+                  {1 (.. nvim.g.mapleader "lr") :group "refactor"}
                   {1 (.. nvim.g.mapleader "ld") :group "diagnostics"}
                   {1 (.. nvim.g.mapleader "lg") :group "goto"}]))
              (set lsp-setup-done true))
