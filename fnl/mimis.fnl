@@ -14,7 +14,7 @@
           0
           0 -1
           false
-          (nvim.fn.split content "\\n" "g")))
+          (vim.fn.split content "\\n" "g")))
       (when (not= content "") (vim.cmd (.. "e " content))))
     (vim.cmd "wincmd J")
     (vim.cmd "15wincmd_")))
@@ -36,7 +36,7 @@
 
 (fn split [s pattern]
   (if s
-    (nvim.fn.split s pattern "g")
+    (vim.fn.split s pattern "g")
     []))
 
 (fn first [c]
@@ -82,7 +82,7 @@
         t2))))	
 
 (fn exists? [path]
-  (= (nvim.fn.filereadable path) 1))
+  (= (vim.fn.filereadable path) 1))
 
 (fn count-matches [s pattern]
   (var c 0)
@@ -100,18 +100,18 @@
 (fn leader-map [mode map action options]
   (vim.keymap.set 
     mode 
-    (.. nvim.g.mapleader map)
+    (.. vim.g.mapleader map)
     action 
     options))
 
 (fn glob [path]
-  (nvim.fn.glob path true true true))
+  (vim.fn.glob path true true true))
 
 (fn globpath [path expression]
-  (nvim.fn.globpath path expression true true true))
+  (vim.fn.globpath path expression true true true))
 
 (fn join [c separator]
-  (nvim.fn.join c separator))
+  (vim.fn.join c separator))
 
 (fn pad-string [s n]
   (var x "")

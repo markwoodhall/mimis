@@ -1,9 +1,15 @@
+(local commands (require :commands))
+
 (fn enable [])
 
 (fn containers []
-  (let [util (require :util)
-        containers (vim.fn.system "docker ps --format \"{{json .}}\" | jq .Names    | sed 's/\\\"//g'")]
-    (util.split containers "\n")))
+  (let [mimis (require :mimis)
+        containers (vim.fn.system "docker ps --format \"{{json .}}\" | jq .Names | sed 's/\\\"//g'")]
+    (mimis.split containers "\n")))
+
+(fn get-last-switch [c]
+  (let [mimis (require :mimis)]
+    (mimis.first (mimis.split (mimis.last (mimis.split c (.. " -"))) " "))))
 
 (fn setup [] 
   (let [completion 
@@ -11,27 +17,42 @@
           (vim.fn.sort
             (let [mimis (require :mimis)
                   c-parts (mimis.split c " ")
-                  with-defaults (fn [c] ["--format" (unpack c)])]
-              (match (mimis.count-matches c "%s")
-                0 []
-                1 (accumulate 
-                    [results []
-                     _ v (ipairs [:run :exec :ps :build :pull :push :images :login
-                                  :logout :search :version :info :builder :compose :container
-                                  :context :image :manifest :network :plugin :system :trust
-                                  :volume :swarm :attach :commit :cp :create :diff :events :export
-                                  :history :import :inspect :kill :load :logs :pause :port :rename
-                                  :restart :rm :rmi :save :start :stats :stop :tag :top 
-                                  :unpause :update :wait])]
-                    (mimis.add-match v (mimis.second c-parts) results))
-                2 (match (mimis.second c-parts)
-                    "logs" (with-defaults (containers))
-                    "kill" (with-defaults (containers))
-                    "compose" (with-defaults [:up :down])
-                    "volume" (with-defaults [:create :inspect :prune :ls :rm])
-                    _ (with-defaults []))
-                3 (match (mimis.nth c-parts 3)
-                    "up" ["--detach"])))))]
+                  with-defaults (fn [c] ["--format" "-f" (unpack c)])
+                  with-containers (fn [] (with-defaults (containers)))]
+              (mimis.concat 
+                (match (get-last-switch c)
+                  "f" (mimis.split (vim.fn.glob "*docker-compose*") "\n")
+                  _ [])
+                (match (mimis.count-matches c "%s")
+                  1 (commands.get-matches
+                      [:run :exec :ps :build :pull :push :images :login
+                       :logout :search :version :info :builder :compose :container
+                       :context :image :manifest :network :plugin :system :trust
+                       :volume :swarm :attach :commit :cp :create :diff :events :export
+                       :history :import :inspect :kill :load :logs :pause :port :rename
+                       :restart :rm :rmi :save :start :stats :stop :tag :top 
+                       :unpause :update :wait]
+                      (mimis.second c-parts)) 
+                  2 (match (mimis.second c-parts)
+                      "logs" (commands.get-matches 
+                               (with-containers)
+                               (mimis.nth c-parts 3))
+                      "kill" (commands.get-matches 
+                               (with-containers)
+                               (mimis.nth c-parts 3))
+                      "compose" (commands.get-matches 
+                                  (with-defaults [:up :down])
+                                  (mimis.nth c-parts 3))
+                      "volume" (commands.get-matches 
+                                 (with-defaults [:create :inspect :prune :rm])
+                                 (mimis.nth c-parts 3))
+                      _ (with-defaults []))
+                  3 (match (mimis.nth c-parts 3)
+                      "up" (commands.get-matches 
+                                 (with-defaults [:--detach])
+                                 (mimis.nth c-parts 4))
+                      _ (with-defaults []))
+                  _ (with-defaults []))))))]
     (vim.api.nvim_create_user_command
       "Docker"
       (fn [opts]

@@ -1,22 +1,8 @@
+(local commands (require :commands))
+
 (fn enable [])
 
-(fn get-command-value [v c]
-  (let [mimis (require :mimis)]
-    (mimis.first (mimis.split (mimis.second (mimis.split c (.. v " "))) " "))))
-
-(fn get-last-switch [c]
-  (let [mimis (require :mimis)]
-    (mimis.first (mimis.split (mimis.last (mimis.split c (.. " --"))) " "))))
-
-(fn get-primary-command [c]
-  (let [mimis (require :mimis)]
-    (mimis.second (mimis.split c " "))))
-
-(fn get-sub-command [c]
-  (let [mimis (require :mimis)]
-    (mimis.nth (mimis.split c " ") 3)))
-
-(local get-profile (partial get-command-value "--profile"))
+(local get-profile (partial commands.get-command-value "--profile"))
 
 ;; logs
 (fn log-groups [command]
@@ -48,7 +34,7 @@
 (fn ecs-services [command]
   (let [mimis (require :mimis)
         profile (get-profile command)
-        cluster (get-command-value "--cluster" command)]
+        cluster (commands.get-command-value "--cluster" command)]
     (if profile
       (let [lgs (vim.fn.system (.. "aws --profile " profile " ecs list-services --cluster " cluster " | jq '.serviceArns[]'"))]
         (mimis.split lgs "\n"))
@@ -57,7 +43,7 @@
 (fn ecs-tasks [command]
   (let [mimis (require :mimis) 
         profile (get-profile command)
-        cluster (get-command-value "--cluster" command)]
+        cluster (commands.get-command-value "--cluster" command)]
     (if (and profile cluster)
       (let [lgs (vim.fn.system (.. "aws --profile " profile " ecs list-tasks --cluster " cluster " | jq '.taskArns[]'"))]
         (mimis.split lgs "\n"))
@@ -88,13 +74,13 @@
       [(string.gsub v "%s+" "") (unpack c)])))
 
 (fn for-service [c service f]
-  (match (get-primary-command c)
+  (match (commands.get-primary-command c)
     service (f c)
     _ []))
 
 (fn for-command [c service command f]
-  (match (get-primary-command c)
-    service (match (get-sub-command c)
+  (match (commands.get-primary-command c)
+    service (match (commands.get-sub-command c)
               command (f c)
               _ [])
     _ []))
@@ -124,7 +110,7 @@
                                              "`date -d \"24 hours ago\" +%s000`"])) 
         "|" (for-command c :logs :filter-log-events (fn [_] [" jq '.events[].message | fromjson | {timestamp, exception}'"
                                                              " jq '.events[].message | fromjson | {timestamp, message}'"]))
-        _ (match (get-last-switch c)
+        _ (match (commands.get-last-switch c)
             "tasks" (with-defaults (ecs-tasks c))
             _ (with-defaults (completer (.. c ""))))))))
 
