@@ -7,22 +7,24 @@
         containers (vim.fn.system "docker ps --format \"{{json .}}\" | jq .Names | sed 's/\\\"//g'")]
     (mimis.split containers "\n")))
 
-(fn get-last-switch [c]
-  (let [mimis (require :mimis)]
-    (mimis.first (mimis.split (mimis.last (mimis.split c (.. " -"))) " "))))
-
-(fn setup [] 
+(fn setup []
   (let [completion 
         (fn [_ c]
           (vim.fn.sort
             (let [mimis (require :mimis)
                   c-parts (mimis.split c " ")
-                  with-defaults (fn [c] ["--format" "-f" (unpack c)])
+                  with-defaults (fn [c] ["--format" (unpack c)])
                   with-containers (fn [] (with-defaults (containers)))]
               (mimis.concat 
-                (match (get-last-switch c)
+               (mimis.concat
+                (match (commands.get-last-single-switch c)
                   "f" (mimis.split (vim.fn.glob "*docker-compose*") "\n")
                   _ [])
+                (match (commands.get-primary-command c)
+                  "compose" (commands.get-matches
+                                  (with-defaults [:up :down :-f])
+                                  (mimis.nth c-parts 3))
+                  _ []))
                 (match (mimis.count-matches c "%s")
                   1 (commands.get-matches
                       [:run :exec :ps :build :pull :push :images :login
@@ -40,10 +42,7 @@
                       "kill" (commands.get-matches 
                                (with-containers)
                                (mimis.nth c-parts 3))
-                      "compose" (commands.get-matches 
-                                  (with-defaults [:up :down])
-                                  (mimis.nth c-parts 3))
-                      "volume" (commands.get-matches 
+                      "volume" (commands.get-matches
                                  (with-defaults [:create :inspect :prune :rm])
                                  (mimis.nth c-parts 3))
                       _ (with-defaults []))

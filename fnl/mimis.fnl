@@ -3,7 +3,7 @@
 (fn bottom-pane
   [filetype content listed scratch]
   (vim.cmd "wincmd n")
-  (let [_ (vim.api.nvim_create_buf listed scratch)]
+  (let [buff (vim.api.nvim_create_buf listed scratch)]
     (set nvim.bo.filetype filetype)
     (when (or (= filetype "markdown")
               (= filetype "org"))
@@ -17,16 +17,18 @@
           (vim.fn.split content "\\n" "g")))
       (when (not= content "") (vim.cmd (.. "e " content))))
     (vim.cmd "wincmd J")
-    (vim.cmd "15wincmd_")))
+    (vim.cmd "15wincmd_")
+    buff))
 
 (fn bottom-pane-shell [cmd]
-  (bottom-pane "" "" true true)
-  (vim.fn.termopen cmd)
-  (vim.cmd "setlocal norelativenumber")
-  (vim.cmd "setlocal nonumber")
-  (vim.cmd "setlocal nolist")
-  (vim.cmd "setlocal filetype=off")
-  (vim.cmd "setlocal syntax=off"))
+  (let [buff (bottom-pane "" "" true true)]
+    (vim.fn.termopen cmd)
+    (vim.cmd "setlocal norelativenumber")
+    (vim.cmd "setlocal nonumber")
+    (vim.cmd "setlocal nolist")
+    (vim.cmd "setlocal filetype=off")
+    (vim.cmd "setlocal syntax=off")
+    buff))
 
 (fn bottom-pane-buff [bufnum]
   (vim.cmd "wincmd n")

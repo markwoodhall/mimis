@@ -2,9 +2,12 @@
   (let [mimis (require :mimis)]
     (mimis.first (mimis.split (mimis.second (mimis.split c (.. v " "))) " "))))
 
-(fn get-last-switch [c]
+(fn get-last-switch [switch-prefix c]
   (let [mimis (require :mimis)]
-    (mimis.first (mimis.split (mimis.last (mimis.split c (.. " --"))) " "))))
+    (mimis.first (mimis.split (mimis.last (mimis.split c switch-prefix)) " "))))
+
+(local get-last-double-switch (partial get-last-switch " --"))
+(local get-last-single-switch (partial get-last-switch " -"))
 
 (fn get-primary-command [c]
   (let [mimis (require :mimis)]
@@ -22,7 +25,9 @@
       (mimis.add-match v s results))))
 
 {: get-command-value
- : get-last-switch 
+ : get-last-switch
+ : get-last-double-switch
+ : get-last-single-switch
  : get-primary-command 
  : get-sub-command
  : get-matches }

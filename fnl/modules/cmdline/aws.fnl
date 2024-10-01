@@ -110,7 +110,7 @@
                                              "`date -d \"24 hours ago\" +%s000`"])) 
         "|" (for-command c :logs :filter-log-events (fn [_] [" jq '.events[].message | fromjson | {timestamp, exception}'"
                                                              " jq '.events[].message | fromjson | {timestamp, message}'"]))
-        _ (match (commands.get-last-switch c)
+        _ (match (commands.get-last-double-switch c)
             "tasks" (with-defaults (ecs-tasks c))
             _ (with-defaults (completer (.. c ""))))))))
 

@@ -44,6 +44,17 @@
   (vim.keymap.set "t" "<Esc>" "<c-\\><c-n>")
   (vim.keymap.set "t" "<Esc><Esc>" "<c-\\><c-n>:q<CR>")
 
+  (var persistent-terminal nil)
+  (mimis.leader-map 
+    "n" 
+    "tt" 
+    (fn [] 
+      (if (and persistent-terminal
+               (> (vim.fn.bufexists persistent-terminal) 0))
+        (mimis.bottom-pane-buff persistent-terminal)
+        (set persistent-terminal (- (mimis.bottom-pane-shell nvim.o.shell) 1))))
+    {:desc "toggle-terminal"})
+
   (mimis.leader-map 
     "n" 
     "tn" 
