@@ -19,12 +19,28 @@
               (mimis.glob (.. (mimis.last opts) "*")))))]
 
     (vim.api.nvim_create_user_command
+      "Psql"
+      (fn [opts]
+        (let [mimis (require :mimis)
+              args (mimis.split (gather-args opts) " ")]
+          (mimis.bottom-pane-shell 
+            (.. "psql -h " (mimis.first args) 
+                " -d " (mimis.second args) 
+                " -U " (mimis.nth args 3) 
+                " -p " (mimis.nth args 4) 
+                " -P footer=off -P pager=off -P format=wrapped -q "))
+          (vim.cmd "setlocal syntax=sql")))
+      {:bang false :desc "psql wrapper" :nargs "*"
+       :complete (fn []
+                   ["localhost database-name username 5432"])})
+
+    (vim.api.nvim_create_user_command
       "Tail"
       (fn [opts]
         (let [mimis (require :mimis)
               args (gather-args opts)]
           (mimis.bottom-pane-shell (.. "tail " args))))
-      {:bang false :desc "Tail wrapper" :nargs "*"
+      {:bang false :desc "tail wrapper" :nargs "*"
        :complete (partial completion "Tail")})
 
     (vim.api.nvim_create_user_command
@@ -34,7 +50,7 @@
               args (gather-args opts)]
           (mimis.bottom-pane-shell (.. "tail " args))
           (vim.cmd "setlocal syntax=json")))
-      {:bang false :desc "Tail wrapper" :nargs "*"
+      {:bang false :desc "Logs wrapper" :nargs "*"
        :complete (partial completion "Logs")})))
 
 {: enable
