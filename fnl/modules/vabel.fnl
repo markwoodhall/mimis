@@ -1,20 +1,28 @@
 (local parsers (require "nvim-treesitter.parsers"))
 (local mimis (require :mimis))
 
+(fn ->output-lang [lang]
+  (match lang
+    :sql :org
+    _ lang))
+
 (fn verbatim [results indent lang]
   (match lang
     "sql" (let [t (mimis.split results "\n")
+                output-lang (->output-lang lang)
                 t (icollect [_ v  (ipairs t)]
-                    (.. (mimis.pad-string " " indent) (if (not= v "") (.. "|" v "|") v)))] 
-            (table.insert t 1 (.. (mimis.pad-string " " indent) (.. "#+BEGIN_EXAMPLE " lang)))
+                    (when (not (= "Timing is off." v))
+                      (.. (mimis.pad-string " " indent) (if (not= v "") (.. "|" v " |") v))))] 
+            (table.insert t 1 (.. (mimis.pad-string " " indent) (.. "#+BEGIN_EXAMPLE " output-lang)))
             (table.insert t 1 (.. (mimis.pad-string " " indent) "#+RESULTS:"))
             (table.insert t 1 "")
             (table.insert t (.. (mimis.pad-string " " indent) "#+END_EXAMPLE"))
             t)
     _ (let [t (mimis.split results "\n")
-                t (icollect [_ v  (ipairs t)]
-                    (.. (mimis.pad-string " " indent) v))] 
-            (table.insert t 1 (.. (mimis.pad-string " " indent) (.. "#+BEGIN_EXAMPLE " lang)))
+            output-lang (->output-lang lang)
+            t (icollect [_ v  (ipairs t)]
+                (.. (mimis.pad-string " " indent) v))] 
+            (table.insert t 1 (.. (mimis.pad-string " " indent) (.. "#+BEGIN_EXAMPLE " output-lang)))
             (table.insert t 1 (.. (mimis.pad-string " " indent) "#+RESULTS:"))
             (table.insert t 1 "")
             (table.insert t (.. (mimis.pad-string " " indent) "#+END_EXAMPLE"))

@@ -32,7 +32,31 @@
           (vim.cmd "setlocal syntax=sql")))
       {:bang false :desc "psql wrapper" :nargs "*"
        :complete (fn []
-                   ["localhost database-name username 5432"])})
+                   (let [mimis (require :mimis)]
+                     (if (mimis.exists? (vim.fn.expand "~/.local/share/mimis/psql.connections"))
+                       (vim.fn.readfile (vim.fn.expand "~/.local/share/mimis/psql.connections"))
+                       ["localhost database-name username port"])))})
+
+    (vim.api.nvim_create_user_command
+      "Sqlcmd"
+      (fn [opts]
+        (let [mimis (require :mimis)
+              args (mimis.split (gather-args opts) " ")]
+          (mimis.bottom-pane-shell 
+            (.. "sqlcmd -S " (mimis.first args) 
+                " -d " (mimis.second args) 
+                " -U " (mimis.nth args 3) 
+                " -P " (vim.fn.shellescape (mimis.nth args 4)) 
+                ""))
+          (vim.cmd "setlocal syntax=sql")))
+      {:bang false :desc "Sqlcmd wrapper" :nargs "*"
+       :complete (fn []
+                   (let [mimis (require :mimis)]
+                     (if (mimis.exists? (vim.fn.expand "~/.local/share/mimis/sqlcmd.connections"))
+                       (vim.fn.readfile (vim.fn.expand "~/.local/share/mimis/sqlcmd.connections"))
+                       ["localhost database-name username password"])))})
+
+;;sqlcmd -S abdevdb01.database.windows.net -d abvin_test -U AdminTech
 
     (vim.api.nvim_create_user_command
       "Tail"
