@@ -1,10 +1,10 @@
 (local nvim (require :nvim))
 
 (fn bottom-pane
-  [filetype content listed scratch]
-  (vim.cmd "wincmd n")
-  (let [buff (vim.api.nvim_create_buf listed scratch)]
-    (set nvim.bo.filetype filetype)
+  [filetype content listed scratch no-buffer]
+  (vim.cmd "split")
+  (let [buff (when (not no-buffer) (vim.api.nvim_create_buf listed scratch))]
+    (when filetype (set nvim.bo.filetype filetype))
     (when (or (= filetype "markdown")
               (= filetype "org"))
       (vim.cmd "setlocal wrap"))
@@ -17,23 +17,23 @@
           (vim.fn.split content "\\n" "g")))
       (when (not= content "") (vim.cmd (.. "e " content))))
     (vim.cmd "wincmd J")
-    (vim.cmd "15wincmd_")
+    (vim.cmd "25wincmd_")
     buff))
 
 (fn bottom-pane-shell [cmd]
-  (let [buff (bottom-pane "" "" true true)]
-    (vim.fn.termopen cmd)
+  (let [buff (bottom-pane nil "" true true true)]
+    (vim.cmd (.. "terminal " cmd))
     (vim.cmd "setlocal norelativenumber")
     (vim.cmd "setlocal nonumber")
     (vim.cmd "setlocal nolist")
     (vim.cmd "setlocal filetype=off")
     (vim.cmd "setlocal syntax=off")
-    buff))
+    (or buff (vim.api.nvim_get_current_buf))))
 
 (fn bottom-pane-buff [bufnum]
-  (vim.cmd "wincmd n")
+  (vim.cmd "split")
   (vim.cmd "wincmd J")
-  (vim.cmd "15wincmd_")
+  (vim.cmd "25wincmd_")
   (vim.cmd (.. "buffer " bufnum)))
 
 (fn split [s pattern]

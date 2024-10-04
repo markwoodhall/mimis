@@ -52,11 +52,11 @@
    ;; Editor integration
    :modules.git []
    :modules.colors 
-   {:theme :catppuccin
-    :colorscheme :catppuccin
+   {:theme :tokyonight
+    :colorscheme :tokyonight
     :background :dark
     :post-setup (fn []
-                  (vim.api.nvim_set_hl 0 "WinSeparator" {:fg "#1e1e2e" :bg "#1e1e2e"}))}
+                  )}
    :modules.telescope [:lsp :projects :finder :git :buffers] 
    :modules.statusline {:lsp true :mimis-repl true :theme :duskfox} 
    :modules.quickfix [] 

@@ -29,7 +29,7 @@
                 " -U " (mimis.nth args 3) 
                 " -p " (mimis.nth args 4) 
                 " -P footer=off -P pager=off -P format=wrapped -q "))
-          (vim.cmd "setlocal syntax=sql")))
+          ))
       {:bang false :desc "psql wrapper" :nargs "*"
        :complete (fn []
                    (let [mimis (require :mimis)]
@@ -48,7 +48,7 @@
                 " -U " (mimis.nth args 3) 
                 " -P " (vim.fn.shellescape (mimis.nth args 4)) 
                 ""))
-          (vim.cmd "setlocal syntax=sql")))
+          ))
       {:bang false :desc "Sqlcmd wrapper" :nargs "*"
        :complete (fn []
                    (let [mimis (require :mimis)]

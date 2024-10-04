@@ -36,7 +36,7 @@
   (mimis.leader-map "n" "wk" "<c-w>k" {:desc "Move-to-above-window"})
   (mimis.leader-map "n" "wl" "<c-w>l" {:desc "Move-to-left-window"})
   (mimis.leader-map "n" "wm" "<c-w>|<c-w>_" {:desc "maximize-window"})
-  (mimis.leader-map "n" "wp" "<c-w>|<c-w>_|:15wincmd_<cr>" {:desc "window-to-bottom-pane"})
+  (mimis.leader-map "n" "wp" "<c-w>|<c-w>_|:25wincmd_<cr>" {:desc "window-to-bottom-pane"})
   (mimis.leader-map "n" "w=" "<c-w>=" {:desc "balance-windows"})
   (vim.keymap.set "n" "<Esc><Esc>" "<c-\\><c-n>:q<CR>")
 
@@ -52,7 +52,7 @@
       (if (and persistent-terminal
                (> (vim.fn.bufexists persistent-terminal) 0))
         (mimis.bottom-pane-buff persistent-terminal)
-        (set persistent-terminal (- (mimis.bottom-pane-shell nvim.o.shell) 1))))
+        (set persistent-terminal (mimis.bottom-pane-shell nvim.o.shell))))
     {:desc "toggle-terminal"})
 
   (mimis.leader-map 

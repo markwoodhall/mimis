@@ -34,7 +34,7 @@
         (if (and buff
                  (> (vim.fn.bufexists buff) 0))
           (mimis.bottom-pane-buff buff)
-          (set (. project-terminals project) (- (mimis.bottom-pane-shell nvim.o.shell) 1)))))
+          (set (. project-terminals project) (mimis.bottom-pane-shell nvim.o.shell)))))
     {:desc "toggle-project-terminal"})))
 
 {: enable

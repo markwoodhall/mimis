@@ -107,10 +107,12 @@
     (vim.api.nvim_create_autocmd 
       :LspAttach
       {:desc "LSP disable semantic tokens"
+       :group (vim.api.nvim_create_augroup "mimis-lsp-attach" {:clear true})
        :callback 
        (fn [args] 
-         (let [client (vim.lsp.get_client_by_id args.data.client_id)]
-           (set client.server_capabilities.semanticTokensProvider nil)))})
+         (when args
+           (let [client (vim.lsp.get_client_by_id args.data.client_id)]
+             (set client.server_capabilities.semanticTokensProvider nil))))})
 
     (vim.api.nvim_create_autocmd 
       ["BufWritePre"] 
