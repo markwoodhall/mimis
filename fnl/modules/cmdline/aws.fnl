@@ -1,6 +1,8 @@
 (local commands (require :commands))
+(local nvim (require "nvim"))
 
 (fn enable [])
+
 
 (local get-profile (partial commands.get-command-value "--profile"))
 
@@ -123,7 +125,8 @@
                      [s ""
                       _ v (ipairs (?. opts :fargs))]
                      (.. s " " v))]
-          (mimis.bottom-pane-shell (.. "aws" args))))
+          (mimis.bottom-pane-shell (.. "aws" args))
+          (set nvim.bo.syntax :json)))
       {:bang false :desc "AWS command line wrapper" :nargs "*"
        :complete completion}))
 

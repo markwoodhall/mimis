@@ -1,4 +1,5 @@
 (local plugins (require :plugins))
+(local nvim (require :nvim))
 
 (fn enable []
   (plugins.register {:tpope/vim-eunuch :always}))
@@ -29,7 +30,7 @@
                 " -U " (mimis.nth args 3) 
                 " -p " (mimis.nth args 4) 
                 " -P footer=off -P pager=off -P format=wrapped -q "))
-          ))
+          (set nvim.bo.syntax :sql)))
       {:bang false :desc "psql wrapper" :nargs "*"
        :complete (fn []
                    (let [mimis (require :mimis)]
@@ -48,15 +49,13 @@
                 " -U " (mimis.nth args 3) 
                 " -P " (vim.fn.shellescape (mimis.nth args 4)) 
                 ""))
-          ))
+          (set nvim.bo.syntax :sql)))
       {:bang false :desc "Sqlcmd wrapper" :nargs "*"
        :complete (fn []
                    (let [mimis (require :mimis)]
                      (if (mimis.exists? (vim.fn.expand "~/.local/share/mimis/sqlcmd.connections"))
                        (vim.fn.readfile (vim.fn.expand "~/.local/share/mimis/sqlcmd.connections"))
                        ["localhost database-name username password"])))})
-
-;;sqlcmd -S abdevdb01.database.windows.net -d abvin_test -U AdminTech
 
     (vim.api.nvim_create_user_command
       "Tail"

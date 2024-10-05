@@ -52,8 +52,8 @@
    ;; Editor integration
    :modules.git []
    :modules.colors 
-   {:theme :tokyonight
-    :colorscheme :tokyonight
+   {:theme :catppuccin
+    :colorscheme :catppuccin-macchiato
     :background :dark
     :post-setup (fn []
                   )}
