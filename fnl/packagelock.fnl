@@ -1,5 +1,6 @@
 (local stable 
   {:kovisoft/paredit :989d1c046bbe36f7d71878636dbe6af8ea3f4f86
+   :neogitorg/neogit :d55bf6114c6cfba013e4c0e817e29e7752554ab7
    :lewis6991/gitsigns.nvim :1ef74b546732f185d0f806860fa5404df7614f28
    :miikanissi/modus-themes.nvim :162bc34b4d670fa4d8d1407924c0f855985fcc2c
    :nvim-tree/nvim-web-devicons :31bd21ac46b2b6039aa0b856ca02b018cf549ef7
