@@ -1,5 +1,4 @@
 (local plugins (require :plugins))
-(local mimis (require :mimis))
 
 (fn enable []
   (plugins.register {:nvim-tree/nvim-web-devicons :always
