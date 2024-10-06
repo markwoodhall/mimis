@@ -7,7 +7,8 @@
 
 (fn enable []
   (plugins.register 
-    {:lewis6991/gitsigns.nvim :always
+    {:nvim-lua/plenary.nvim :always
+     :lewis6991/gitsigns.nvim :always
      :neogitorg/neogit :always }))
 
 (fn setup []
