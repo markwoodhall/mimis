@@ -9,7 +9,7 @@
   (plugins.register 
     {:nvim-lua/plenary.nvim :always
      :lewis6991/gitsigns.nvim :always
-     :neogitorg/neogit :always }))
+     :neogitorg/neogit :always}))
 
 (fn setup []
   (let [ng (require :neogit)]
