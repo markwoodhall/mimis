@@ -58,7 +58,7 @@
     :background :dark
     :post-setup (fn [])}
    :modules.telescope [:lsp :projects :finder :git :buffers] 
-   :modules.statusline {:lsp true :mimis-repl true :theme :duskfox} 
+   :modules.statusline {:lsp true :mimis-repl true :theme :catppuccin} 
    :modules.quickfix [] 
    :modules.indentline [] 
 
