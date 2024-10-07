@@ -41,7 +41,7 @@
    :modules.packages.fennel []
    :modules.packages.clojure []
    :modules.packages.sql []
-   :modules.org {:org-babel-like true}
+   :modules.org [:org-babel-like]
    ;;:modules.janet []
 
    ;; Command line wrappers

@@ -1,8 +1,9 @@
 (local plugins (require :plugins))
 
 (fn enable []
-  (plugins.register {:nvim-tree/nvim-web-devicons :always
-                     :nvim-lualine/lualine.nvim :always}))
+  (plugins.register 
+    {:nvim-tree/nvim-web-devicons :always
+     :nvim-lualine/lualine.nvim :always}))
 
 (fn theme [name]
   (case name
