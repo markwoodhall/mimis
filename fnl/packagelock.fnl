@@ -6,6 +6,7 @@
    :nvim-lualine/lualine.nvim :b431d228b7bbcdaea818bdc3e25b8cdbe861f056
    :tpope/vim-surround :3d188ed2113431cf8dac77be61b842acb64433d9
    :tpope/vim-fugitive :d4877e54cef67f5af4f950935b1ade19ed6b7370
+   :lukas-reineke/indent-blankline.nvim :e7a4442e055ec953311e77791546238d1eaae507
    :airblade/vim-rooter :4a0df2f1b0f3d69e8f7e19afe464a7c3a7af89a2
    :tpope/vim-eunuch :8fb3904be27b6b60d086f87c2570085902414069
    :jaawerth/fennel.vim :c6a9c035ca108cbb24273d96cd6277fb8fbc60b4

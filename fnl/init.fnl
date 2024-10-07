@@ -28,6 +28,7 @@
    :modules.telescope []
    :modules.statusline []
    :modules.quickfix []
+   :modules.indentline [] 
    :modules.colors []}
   :stable)
 
@@ -59,6 +60,7 @@
    :modules.telescope [:lsp :projects :finder :git :buffers] 
    :modules.statusline {:lsp true :mimis-repl true :theme :duskfox} 
    :modules.quickfix [] 
+   :modules.indentline [] 
 
    ;; Structure and syntax
    :modules.surround []
