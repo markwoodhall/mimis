@@ -51,7 +51,7 @@
    :modules.cmdline.common []
 
    ;; Editor integration
-   :modules.git []
+   :modules.git [:fugitive]
    :modules.colors 
    {:theme :catppuccin
     :colorscheme :catppuccin
