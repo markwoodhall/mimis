@@ -59,8 +59,6 @@
                      (theme :duskfox)
                      (theme :catppuccin))))]
 
-    (print (vim.inspect colors))
-
     (local conditions
       {:buffer_not_empty (fn []
                            (not= (vim.fn.empty (vim.fn.expand "%:t")) 1))
