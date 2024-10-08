@@ -46,11 +46,20 @@
      :yellow "#F9E2AF"}))
 
 (fn setup [options]
-  (let [lualine (require :lualine)
-        colors 
-        (or 
-          options.colors 
-          (theme (or options.theme :catppuccin)))]
+  (let [o (accumulate 
+            [r {} _ v (ipairs options)]
+            (do (set (. r v ) v)
+              r))
+        lualine (require :lualine)
+        colors (if (. o :catppuccin)
+                 (theme :catppuccin)
+                 (if (. o :tokyonight)
+                   (theme :tokyonight)
+                   (if (. o :duskfox)
+                     (theme :duskfox)
+                     (theme :catppuccin))))]
+
+    (print (vim.inspect colors))
 
     (local conditions
       {:buffer_not_empty (fn []
@@ -72,8 +81,7 @@
                            :lualine_z {}}
        :options {:component_separators ""
                  :globalStatus true
-                 :section_separators ""
-                 :theme (or options.theme :catppuccin-mocha)}
+                 :section_separators ""}
        :sections {:lualine_a {}
                   :lualine_b {}
                   :lualine_c {}
@@ -142,7 +150,7 @@
                :sources [:nvim_diagnostic]
                :symbols {:error "  " :info "  " :warn "  "}})
 
-    (when options.lsp 
+    (when (. o :lsp) 
       (ins-right {1 active-lsp
                  :color (fn [] (when (not= (active-lsp) "No Active Lsp") {:fg colors.green :gui :bold}))
                  :cond (fn [] (not= (active-lsp) "No Active Lsp"))
