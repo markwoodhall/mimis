@@ -77,7 +77,10 @@
                                [])
         servers (or (if options options.servers nil)
                                (. (. setup-hooks module-hook) :servers)
-                               [])]
+                               [])
+        disable-semantic-tokens (or (if options options.disable-semantic-tokens nil)
+                               (. (. setup-hooks module-hook) :disable-emantic-tokens)
+                               false)]
     (set lsp-servers (mimis.concat lsp-servers servers))
     (set lsp-completion-sources (mimis.concat lsp-completion-sources completion-sources))
     (vim.api.nvim_create_autocmd 
@@ -104,15 +107,16 @@
              (set lsp-setup-done true))
            (vim.cmd.LspStart)))})
 
-    (vim.api.nvim_create_autocmd 
-      :LspAttach
-      {:desc "LSP disable semantic tokens"
-       :group (vim.api.nvim_create_augroup "mimis-lsp-attach" {:clear true})
-       :callback 
-       (fn [args] 
-         (when args
-           (let [client (vim.lsp.get_client_by_id args.data.client_id)]
-             (set client.server_capabilities.semanticTokensProvider nil))))})
+    (when disable-semantic-tokens
+      (vim.api.nvim_create_autocmd 
+        :LspAttach
+        {:desc "LSP disable semantic tokens"
+         :group (vim.api.nvim_create_augroup "mimis-lsp-disable-semantic" {:clear true})
+         :callback 
+         (fn [args] 
+           (when args
+             (let [client (vim.lsp.get_client_by_id args.data.client_id)]
+               (set client.server_capabilities.semanticTokensProvider nil))))}))
 
     (vim.api.nvim_create_autocmd 
       ["BufWritePre"] 
