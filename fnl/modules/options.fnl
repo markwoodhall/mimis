@@ -46,6 +46,9 @@
 (set nvim.g.mapleader " ")
 (set nvim.g.maplocalleader ",")
 
+(set nvim.g.matchparen_timeout 10)
+(set nvim.g.matchparen_insert_timeout 10)
+
 (vim.cmd "set path+=**")
 (vim.cmd "set grepprg=rg\\ --vimgrep")
 (vim.cmd "set grepformat^=%f:%l:%c:%m")
