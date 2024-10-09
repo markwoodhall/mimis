@@ -61,6 +61,7 @@
     (when (. o :finder)
       (wk.add 
         [{1 (.. nvim.g.mapleader "b") :group "finder"}])
+      (mimis.leader-map "n" "fb" ":Telescope current_buffer_fuzzy_find<CR>" {:desc "find-in-buffer"})
       (mimis.leader-map "n" "ff" ":Telescope find_files hidden=true search_dirs={\"~/\"}<CR>" {:desc "find-files"})
       (mimis.leader-map "n" "fg" ":Telescope live_grep hidden=true<CR>" {:desc "grep"})
       (mimis.leader-map "n" "fr" ":lua require'telescope.builtin'.oldfiles{}<CR>" {:desc "recent-files"}))
