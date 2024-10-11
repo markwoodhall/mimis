@@ -32,6 +32,8 @@
    :modules.colors []}
   :stable)
 
+(set vim.g.mimis-notes-path "/home/markwoodhall/Insync/mark.woodhall@gmail.com/GoogleDrive/notes/markwoodhall")
+
 (package.setup
   {;; Keymaps
    :modules.whichkey []

@@ -1,7 +1,5 @@
 (local mimis (require :mimis))
-(local notes-path 
-  (or vim.g.mimis-notes-path
-      "/home/markwoodhall/Insync/mark.woodhall@gmail.com/GoogleDrive/notes/markwoodhall"))
+(local notes-path vim.g.mimis-notes-path)
 
 (fn the-date []
   (os.date "%d-%m-%Y"))
