@@ -33,6 +33,7 @@
   :stable)
 
 (set vim.g.mimis-notes-path "/home/markwoodhall/Insync/mark.woodhall@gmail.com/GoogleDrive/notes/markwoodhall")
+(set vim.g.mimis-notes-export-html-template "gtp.html")
 
 (package.setup
   {;; Keymaps

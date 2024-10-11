@@ -1,5 +1,6 @@
 (local mimis (require :mimis))
 (local notes-path vim.g.mimis-notes-path)
+(local export-html-template vim.g.mimis-notes-export-html-template)
 
 (fn the-date []
   (os.date "%d-%m-%Y"))
@@ -30,8 +31,8 @@
         out-md (.. (string.gsub file ".org$" ".md"))
         out-html ( .. (string.gsub file ".org$" ".html"))]
     (vim.cmd (.. "!pandoc --pdf-engine=xelatex -o " out-pdf " " file))
-    (vim.cmd (.. "silent !pandoc -o " out-md " " file))
-    (vim.cmd (.. "silent !pandoc --standalone --template gtp.html -o " out-html " " file))))
+    (vim.cmd (.. "!pandoc -o " out-md " " file))
+    (vim.cmd (.. "!pandoc --standalone --template " export-html-template " -o " out-html " " file))))
 
 (fn note-window [note-file]
   (mimis.bottom-pane "org" note-file true false)
@@ -164,6 +165,8 @@
 (vim.api.nvim_create_autocmd 
   "BufWritePost" 
   {:pattern (.. notes-path "/**/*.org") 
-   :callback (fn []
-               (let [file (vim.fn.expand "%:p")]
-                 (export file)))})
+   :callback (partial 
+               vim.schedule 
+               (fn []
+                 (let [file (vim.fn.expand "%:p")]
+                   (export file))))})
