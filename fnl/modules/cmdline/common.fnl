@@ -2,7 +2,8 @@
 (local nvim (require :nvim))
 
 (fn enable []
-  (plugins.register {:tpope/vim-eunuch :always}))
+  (plugins.register 
+    {:tpope/vim-eunuch :always}))
 
 (fn setup []
   (let [gather-args 
