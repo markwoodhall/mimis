@@ -173,13 +173,10 @@
                 shebang (. parsed-header :shebang)
                 dir (vim.fn.expand (vim.fn.fnamemodify (vim.fn.expand file) ":h"))]
             (when (= mkdirp "yes")
-              (print "making")
               (vim.fn.mkdir dir "p"))
             (when file
               (print (.. "Tangling code block to file " file))
               (when shebang 
-                (print "shebang")
-                (print shebang)
                 (if (mimis.exists? (vim.fn.expand file))
                   (vim.fn.writefile [shebang] (vim.fn.expand file) "a")
                   (vim.fn.writefile [shebang] (vim.fn.expand file))))
