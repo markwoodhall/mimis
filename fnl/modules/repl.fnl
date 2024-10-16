@@ -4,7 +4,7 @@
 (local 
   repl 
   {:repls {}
-   :hide-after 30000
+   :hide-after nil
    :window-options 
    {:relative :editor
     :border :none
@@ -67,6 +67,7 @@
       (set-project-repl r))))
 
 (fn show-repl [enter]
+  (hide-repl)
   (let [r (get-project-repl)]
     (if (> (vim.fn.buffer_exists r.buf) 0)
       (do 
@@ -75,6 +76,8 @@
                r.buf 
                enter
                repl.window-options))
+        (when enter
+          (vim.cmd.normal "G"))
         (set-project-repl r))
       (do (kill-project-repl)
         (print "Managed repl was closed, please start it again.")))))
@@ -122,15 +125,17 @@
           (hide-repl)
           (when data
             (vim.fn.chansend job (.. data "\n"))
-            (when r.timer
-              (r.timer:stop)
-              (r.timer:close))
-            (let [timer (vim.uv.new_timer)]
-              (timer:start 
-                repl.hide-after
-                0
-                (vim.schedule_wrap hide-repl))
-              (set r.timer timer))
+            (when (not (= nil repl.hide-after)) 
+              (when r.timer
+                (r.timer:stop)
+                (r.timer:close)))
+            (when (not (= nil repl.hide-after)) 
+              (let [timer (vim.uv.new_timer)]
+                (timer:start 
+                  repl.hide-after
+                  0
+                  (vim.schedule_wrap hide-repl))
+                (set r.timer timer)))
             (set-project-repl r))
           (show-repl false))
         (print "Repl not connected")))))
