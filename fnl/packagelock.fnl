@@ -18,7 +18,7 @@
    :nvim-orgmode/orgmode :1692af5a0dd363851b7846c3636040c53f9cdc79
    :akinsho/org-bullets.nvim :46ae687e22192fb806b5977d664ec98af9cf74f6
    :dhruvasagar/vim-table-mode :e4365bde024f73e205eefa2fb78e3029ddb92ea9
-   :folke/which-key.nvim :fb070344402cfc662299d9914f5546d840a22126
+   :folke/which-key.nvim :cc54b75fcbd8703e633f93cb0334fb13e2cfbd7e
    :tpope/vim-dadbod :7888cb7164d69783d3dce4e0283decd26b82538b 
    :kristijanhusak/vim-dadbod-ui :a5ff8bd69fcaf53cd24827b54492c8ce87806d18 
    :kristijanhusak/vim-dadbod-completion :880f7e9f2959e567c718d52550f9fae1aa07aa81
