@@ -62,6 +62,10 @@ QUICKFIX                                        *mimis-modules-quickfix*
 Sets up nvim-bqf, nvim better quick fix.
 
 STATUSLINE                                      *mimis-modules-statusline*
+
+Sets up and configures lualine statusline plugin with a minimal set of blocks.
+Matches colors for default set of mimis themes. 
+
 TELESCOPE                                       *mimis-modules-telescope*
 TREESITTER                                      *mimis-modules-treesitter*
 PAREDIT                                         *mimis-modules-paredit*
