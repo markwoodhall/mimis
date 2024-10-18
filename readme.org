@@ -35,7 +35,7 @@ git clone git@github.com:markwoodhall/mimis.git ~/.config/nvim
   Run the install script.
 
 #+begin_src bash
-cd ~/.config/
+cd ~/.config/nvim
 ./bin/mimis install
 #+end_src
 
@@ -65,18 +65,29 @@ nvim
    :modules.keymaps []
 
    ;; Structure and syntax
-   :modules.paredit [:fennel :clojure] 
-   :modules.treesitter [:fennel]
+   :modules.surround []
 
    ;; Language support
-   :modules.fennel []
+   :modules.packages.fennel []
+   :modules.packages.clojure []
+   :modules.packages.sql []
+   :modules.org []
+   ;;:modules.janet []
+
+   ;; Command line wrappers
+   :modules.cmdline.npm []
+   :modules.cmdline.aws []
+   :modules.cmdline.docker []
+   :modules.cmdline.common []
 
    ;; Editor integrations
-   :modules.lsp [:fennel]
    :modules.git []
    :modules.telescope []
    :modules.statusline []
-   :modules.colors []})
+   :modules.quickfix []
+   :modules.indentline [] 
+   :modules.colors []}
+  :stable)
 #+end_src
 
   You can setup a selection of modules using ~package.setup~. ~package.setup~ handles configuring 
@@ -89,25 +100,30 @@ nvim
    :modules.keymaps []
 
    ;; Language Support
-   :modules.fennel []
+   :modules.packages.fennel []
+   :modules.packages.clojure []
+   :modules.packages.sql []
+   :modules.org [:org-babel-like :notes]
+   ;;:modules.janet []
+
+   ;; Command line wrappers
+   :modules.cmdline.npm [] 
+   :modules.cmdline.aws [] 
+   :modules.cmdline.docker [] 
+   :modules.cmdline.common []
 
    ;; Editor integration
-   :modules.lsp 
-   {:servers [:fennel_ls]
-    :completion-sources 
-    {:fennel
-     [{:name "nvim_lsp" :keyword_length 2}
-      {:name "buffer" :keyword_length 2}]}}
-   :modules.git []
+   :modules.git [:fugitive]
    :modules.colors 
-   {:theme :catppuccin
-    :post-setup (fn []
-                  (vim.api.nvim_set_hl 0 "WinSeparator" {:fg "#1e1e2e" :bg "#1e1e2e"}))}
-   :modules.telescope [:lsp :projects :finder :git :buffers] 
-   :modules.statusline {:lsp true :theme :catppuccin} 
+   {:theme :tokyonight
+    :colorscheme :tokyonight
+    :background :dark
+    :post-setup (fn [])}
+   :modules.telescope [:lsp :projects :finder :git :buffers]
+   :modules.statusline [:lsp :tokyonight]
+   :modules.quickfix [] 
+   :modules.indentline [] 
 
    ;; Structure and syntax
-   :modules.paredit []
-   :modules.treesitter [:fennel]
-   })
+   :modules.surround []})
 #+end_src
