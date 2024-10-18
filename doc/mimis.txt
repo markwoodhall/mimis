@@ -143,6 +143,12 @@ These bindings can be discovered with |mimis-modules-whichkeyZ.
 
 SQL                                             *mimis-modules-sql*
 
+The sql module relies on |mimis-modules-treesitter| and |mimis-modules-lsp|,
+it sets up `tpope/vim-dadbod`, `kristijanhusak/vim-dadbod-ui`, and 
+`kristijanhusak/vim-dadbod-completion` 
+
+`vim-dadbod-completion` is set up as an `nvim-cmp` completion source.
+
 ==========================================================================
 
 PACKAGES                                        *mimis-packages*

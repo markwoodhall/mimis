@@ -1,7 +1,8 @@
 (local plugins (require :plugins))
 
 (fn depends []
-  [:modules.treesitter])
+  [:modules.treesitter
+   :modules.lsp])
 
 (fn enable []
   (plugins.register
