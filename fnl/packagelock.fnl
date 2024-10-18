@@ -30,6 +30,7 @@
    :catppuccin/nvim :63685e1562ef53873c9764b483d7ac5c7a608922 
    :EdenEast/nightfox.nvim :7557f26defd093c4e9bc17f28b08403f706f5a44
    :folke/tokyonight.nvim :817bb6ffff1b9ce72cdd45d9fcfa8c9cd1ad3839
+   :JoosepAlviste/palenightfall.nvim :25a1e7d43256834a671174e5d83edb57f7bec1e0
    :kevinhwang91/nvim-bqf :1b24dc6050c34e8cd377b6b4cd6abe40509e0187
    :nvim-treesitter/nvim-treesitter :b8ad0473f4d5d7b59e17a67ad0b68711b0232486})
 

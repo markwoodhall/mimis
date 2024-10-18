@@ -7,6 +7,19 @@
 
 (fn theme [name]
   (case name
+    :palenightfall
+    {:bg "#252837"
+     :fg "#a6accd"
+     :black "#393552"
+     :red "#ff5370"
+     :green "#c3e88d"
+     :grey "#373354"
+     :yellow "#ffcb6b"
+     :blue "#82aaff"
+     :magenta "#f07178"
+     :cyan "#89ddff"
+     :orange "#f78c6c"
+     :violet "#bb80b3"}
     :duskfox
     {:bg "#191726"
      :fg "#eae8ff"
@@ -57,7 +70,9 @@
                    (theme :tokyonight)
                    (if (. o :duskfox)
                      (theme :duskfox)
-                     (theme :catppuccin))))]
+                     (if (. o :palenightfall)
+                       (theme :palenightfall)
+                       (theme :catppuccin)))))]
 
     (local conditions
       {:buffer_not_empty (fn []

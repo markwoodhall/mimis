@@ -5,6 +5,7 @@
   (plugins.register
     {:catppuccin/nvim {:as :catppuccin}
      :EdenEast/nightfox.nvim {:as :nightfox}
+     :JoosepAlviste/palenightfall.nvim {:as :palenightfall}
      :folke/tokyonight.nvim {:as :tokyonight}}))
 
 (fn setup [options]

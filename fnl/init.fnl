@@ -56,12 +56,12 @@
    ;; Editor integration
    :modules.git [:fugitive]
    :modules.colors 
-   {:theme :tokyonight
-    :colorscheme :tokyonight
+   {:theme :palenightfall
+    :colorscheme :palenightfall
     :background :dark
     :post-setup (fn [])}
    :modules.telescope [:lsp :projects :finder :git :buffers]
-   :modules.statusline [:lsp :tokyonight]
+   :modules.statusline [:lsp :palenightfall]
    :modules.quickfix [] 
    :modules.indentline [] 
 
