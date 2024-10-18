@@ -10,6 +10,16 @@ Mimis was built with the following goals in mind.
 
 ========================================================================
 
+FENNEL                                          *mimis-fennel*
+
+Mimis is built with fennel. 
+
+Fennel is a lisp that compiles to lua. 
+
+Mimis is bundled with the fennel compiler for ease of distribution.
+
+========================================================================
+
 MODULES                                         *mimis-modules*
 
 Mimis is made up of modules that can be `enabled and setup`. 

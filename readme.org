@@ -1,4 +1,4 @@
-#+TITLE: mimis
+#+TITLE: Mimis
 #+AUTHOR: Mark Woodhall
 
 A "minimal" neovim distribution, crafted with love, and focused on lisps
@@ -6,9 +6,8 @@ A "minimal" neovim distribution, crafted with love, and focused on lisps
 * Goals
 
    1. Minimalism, both in terms of installed dependencies and plugins
-   2. Favour vim/neovim built-ins over plugins
-   3. Performance
-   4. Configurable with [[https://fennel-lang.org/][Fennel]]
+   2. Performance, both start up time, and general usage
+   3. Configurable with [[https://fennel-lang.org/][Fennel]]
   
 * Installation
 
