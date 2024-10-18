@@ -79,6 +79,9 @@ For example, you can configure bindings to be created for `lsp`, `projects`,
 `:modules.telescope [:lsp :projects :finder :git :buffers]`
 
 TREESITTER                                      *mimis-modules-treesitter*
+
+Sets up `nvim-treesitter` for supplied languages.
+
 PAREDIT                                         *mimis-modules-paredit*
 
 Sets up `kovisoft/paredit` for required languages, primarily of the lisp
