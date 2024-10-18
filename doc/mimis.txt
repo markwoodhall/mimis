@@ -132,8 +132,30 @@ PACKAGES                                        *mimis-packages*
 Modules can be combined together to form packages. 
 
 FENNEL                                          *mimis-packages-fennel*
+
+The fennel package pulls together the following modules:
+
+|mimis-modules-fennel|
+|mimis-modules-treesitter|
+|mimis-modules-paredit|
+|mimis-modules-lsp|
+
 CLOJURE                                         *mimis-packages-clojure*
+
+The clojure package pulls together the following modules:
+
+|mimis-modules-clojure|
+|mimis-modules-treesitter|
+|mimis-modules-paredit|
+|mimis-modules-lsp|
+
 SQL                                             *mimis-packages-sql*
+
+The clojure package pulls together the following modules:
+
+|mimis-modules-clojure|
+|mimis-modules-treesitter|
+|mimis-modules-lsp|
 
 ========================================================================
 
