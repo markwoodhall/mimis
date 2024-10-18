@@ -97,31 +97,31 @@ language and/or project system in use for the current file and/or buffer.
 
 CLOJURE                                         *mimis-modules-clojure*
 
-The clojure module relies on *mimis-modules-projects* and *mimis-modules-treesitter*
-in order to connect and send expressions to *mimis-modules-repl*. 
+The clojure module relies on |mimis-modules-projects| and |mimis-modules-treesitter|
+in order to connect and send expressions to |mimis-modules-repl|. 
 
 It also sets up a range of keybindings that support the clojure reloaded
 workflow. 
 
-These bindings can be discovered with *mimis-modules-whichkey*.
+These bindings can be discovered with |mimis-modules-whichkey|.
 
 FENNEL                                          *mimis-modules-fennel*
 
-The fennel module relies on *mimis-modules-projects* and *mimis-modules-treesitter*
-in order to connect and send expressions to *mimis-modules-repl*. 
+The fennel module relies on |mimis-modules-projects| and |mimis-modules-treesitter|
+in order to connect and send expressions to |mimis-modules-repl|. 
 
 It also sets up a range of keybindings for interacting with the repl.
 
-These bindings can be discovered with *mimis-modules-whichkey*.
+These bindings can be discovered with |mimis-modules-whichkey|.
 
 JANET                                           *mimis-modules-janet*
 
-The janet module relies on *mimis-modules-projects* and *mimis-modules-treesitter*
-in order to connect and send expressions to *mimis-modules-repl*. 
+The janet module relies on |mimis-modules-projects| and |mimis-modules-treesitter|
+in order to connect and send expressions to |mimis-modules-repl|. 
 
 It also sets up a range of keybindings for interacting with the repl.
 
-These bindings can be discovered with *mimis-modules-whichkey*.
+These bindings can be discovered with |mimis-modules-whichkeyZ.
 
 SQL                                             *mimis-modules-sql*
 
@@ -137,7 +137,7 @@ SQL                                             *mimis-packages-sql*
 
 ========================================================================
 
-PACKAGE LOCK                                   *mimis-package-lock
+PACKAGE LOCK                                    *mimis-package-lock
 
 When enabling packages it is possible to specify a "channel". The default
 channel is `:stable`, channels are defined in `packagelock.fnl`. 
