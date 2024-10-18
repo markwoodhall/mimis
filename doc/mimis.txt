@@ -12,7 +12,15 @@ Mimis was built with the following goals in mind.
 
 MODULES                                         *mimis-modules*
 
-Mimis is made up of modules that can be "enabled" and "setup". 
+Mimis is made up of modules that can be `enabled and setup`. 
+
+Generally, the `enable` operation of a module will register required plugins
+and the `setup` operation will make sure they are in the right state to be
+used.
+
+Every effort is made to try to keep these operations distict and free of
+terrible side effects, since when modules are wrapped as `packages` they may
+be `enabled` and `setup` multiple times.
 
 OPTIONS                                         *mimis-modules-options*
 
@@ -40,21 +48,66 @@ which can be used to determine the root directory "project" for the
 current file.
 
 GIT                                             *mimis-modules-git*
+
+Sets up plugins related to git source control. This currently includes
+vim-fugitive and neogit, when calling setup it is possible to specify which 
+one to enable. 
+
+For example:
+
+`(package.setup {:modules.git [:fugitive]})`
+
 QUICKFIX                                        *mimis-modules-quickfix*
+
+Sets up nvim-bqf, nvim better quick fix.
+
 STATUSLINE                                      *mimis-modules-statusline*
 TELESCOPE                                       *mimis-modules-telescope*
 TREESITTER                                      *mimis-modules-treesitter*
 PAREDIT                                         *mimis-modules-paredit*
+
+Sets up `kovisoft/paredit` for required languages, primarily of the lisp
+family. 
+
 SURROUND                                        *mimis-modules-surround*
+
+Sets up `tpope/vim-surround`. 
+
 LSP                                             *mimis-modules-lsp*
+
+Sets up a range of plugins related to lsp and completion. `nvim-cmp` is used
+for completion and `nvim-lspconfig` to setup various lsp servers. 
+
+For now, lsp and completion are coupled together, but this may change in the
+future. The configuration of `nvim-cmp` and lsp default capabilities make this
+a little awkward to do right now. 
+
+REPL                                            *mimis-modules-repl*
+
+Repl is a module that doesn't rely on any other plugins. It uses neovims
+floating windows to setup jobs for running repls. 
+
+These jobs can then have data sent to them and evaluated. This could be
+considered somewhat like vim-slime. 
+
+Clojure, fennel, and Janet modules all make use of this. 
+
+The repl module makes a best guess at what process to start based on the
+language and/or project system in use for the current file and/or buffer.
+
 CLOJURE                                         *mimis-modules-clojure*
 FENNEL                                          *mimis-modules-fennel*
 JANET                                           *mimis-modules-janet*
 SQL                                             *mimis-modules-sql*
-REPL                                            *mimis-modules-repl*
 
 ==========================================================================
 
 PACKAGES                                        *mimis-packages*
+
+Modules can be combined together to form packages. 
+
+FENNEL                                          *mimis-packages-fennel*
+CLOJURE                                         *mimis-packages-clojure*
+SQL                                             *mimis-packages-sql*
 
 vim:ft=help
