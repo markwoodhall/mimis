@@ -4,7 +4,7 @@
 (local 
   repl 
   {:repls {}
-   :hide-after nil
+   :hide-after 30000
    :window-options 
    {:relative :editor
     :border :none
