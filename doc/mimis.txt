@@ -67,6 +67,17 @@ Sets up and configures lualine statusline plugin with a minimal set of blocks.
 Matches colors for default set of mimis themes. 
 
 TELESCOPE                                       *mimis-modules-telescope*
+
+Sets up telescope with a consistent look and feel based on the emacs ivy
+style. 
+
+Various options can be enabled when setting up.
+
+For example, you can configure bindings to be created for `lsp`, `projects`,
+`finder`, `git`, and `buffers`, like so:
+
+`:modules.telescope [:lsp :projects :finder :git :buffers]`
+
 TREESITTER                                      *mimis-modules-treesitter*
 PAREDIT                                         *mimis-modules-paredit*
 
