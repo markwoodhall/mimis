@@ -177,7 +177,7 @@ The clojure package pulls together the following modules:
 
 ========================================================================
 
-PACKAGE LOCK                                    *mimis-package-lock
+PACKAGE LOCK                                    *mimis-package-lock*
 
 When enabling packages it is possible to specify a "channel". The default
 channel is `:stable`, channels are defined in `packagelock.fnl`. 
