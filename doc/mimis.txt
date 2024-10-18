@@ -96,8 +96,33 @@ The repl module makes a best guess at what process to start based on the
 language and/or project system in use for the current file and/or buffer.
 
 CLOJURE                                         *mimis-modules-clojure*
+
+The clojure module relies on *mimis-modules-projects* and *mimis-modules-treesitter*
+in order to connect and send expressions to *mimis-modules-repl*. 
+
+It also sets up a range of keybindings that support the clojure reloaded
+workflow. 
+
+These bindings can be discovered with *mimis-modules-whichkey*.
+
 FENNEL                                          *mimis-modules-fennel*
+
+The fennel module relies on *mimis-modules-projects* and *mimis-modules-treesitter*
+in order to connect and send expressions to *mimis-modules-repl*. 
+
+It also sets up a range of keybindings for interacting with the repl.
+
+These bindings can be discovered with *mimis-modules-whichkey*.
+
 JANET                                           *mimis-modules-janet*
+
+The janet module relies on *mimis-modules-projects* and *mimis-modules-treesitter*
+in order to connect and send expressions to *mimis-modules-repl*. 
+
+It also sets up a range of keybindings for interacting with the repl.
+
+These bindings can be discovered with *mimis-modules-whichkey*.
+
 SQL                                             *mimis-modules-sql*
 
 ==========================================================================
