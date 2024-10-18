@@ -135,4 +135,18 @@ FENNEL                                          *mimis-packages-fennel*
 CLOJURE                                         *mimis-packages-clojure*
 SQL                                             *mimis-packages-sql*
 
+========================================================================
+
+PACKAGE LOCK                                   *mimis-package-lock
+
+When enabling packages it is possible to specify a "channel". The default
+channel is `:stable`, channels are defined in `packagelock.fnl`. 
+
+The `:stable` channel contains a commit SHA for every used plugin and will be
+periodically updated as more stable versions emerge. 
+
+In order to use the latest version of all plugins, the `:latest` channel can
+be used.
+
+
 vim:ft=help
