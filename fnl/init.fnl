@@ -66,5 +66,4 @@
    :modules.indentline [] 
 
    ;; Structure and syntax
-   :modules.surround []
-   })
+   :modules.surround []})
