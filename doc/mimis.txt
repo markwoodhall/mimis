@@ -159,6 +159,30 @@ it sets up `tpope/vim-dadbod`, `kristijanhusak/vim-dadbod-ui`, and
 
 `vim-dadbod-completion` is set up as an `nvim-cmp` completion source.
 
+CMDLINE                                         *mimis-modules-cmdline*
+
+    COMMON                                      *mimis-modules-cmdline-common*
+
+    The common cmdline module makes use of `tpope/vim-eunuch` to provide
+    commands like `:Remove` and also provides other user commands, that will
+    run an executable using `:terminal` and provide the output as a bottom
+    panel. An example of these commands include `:Tail`.
+
+    AWS                                         *mimis-modules-cmdline-aws*
+
+    As per the |mimis-modules-cmdline-common| but wraps various aws cli
+    commands.
+
+    NPM                                         *mimis-modules-cmdline-npm*
+
+    As per the |mimis-modules-cmdline-common| but wraps various aws cli
+    commands.
+
+    DOCKER                                      *mimis-modules-cmdline-npm*
+
+    As per the |mimis-modules-cmdline-common| but wraps various docker
+    commands.
+
 ==========================================================================
 
 PACKAGES                                        *mimis-packages*
