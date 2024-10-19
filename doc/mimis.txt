@@ -178,7 +178,7 @@ CMDLINE                                         *mimis-modules-cmdline*
     As per the |mimis-modules-cmdline-common| but wraps various aws cli
     commands.
 
-    DOCKER                                      *mimis-modules-cmdline-npm*
+    DOCKER                                      *mimis-modules-cmdline-docker*
 
     As per the |mimis-modules-cmdline-common| but wraps various docker
     commands.
