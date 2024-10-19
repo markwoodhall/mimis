@@ -1,5 +1,5 @@
 (local mimis (require :mimis))
-(local notes-path vim.g.mimis-notes-path)
+(local notes-path (fn [] vim.g.mimis-notes-path))
 (local export-html-template vim.g.mimis-notes-export-html-template)
 
 (fn the-date []
@@ -17,11 +17,11 @@
 (fn completion [_ c]
   (let [c-parts (mimis.split c " ")]
     (if (< (mimis.count-matches c "%s") 2)
-      (let [dirs (mimis.glob (.. notes-path "/" (or (?. c-parts 2) "") "*"))]
+      (let [dirs (mimis.glob (.. (notes-path) "/" (or (?. c-parts 2) "") "*"))]
         (icollect [_ v (ipairs dirs)]
           (let [parts (mimis.split v "/")]
             (. parts (length parts)))))
-      (let [notes (mimis.glob (.. notes-path "/" (. c-parts 2) "/" (or (?. c-parts 3) "") "*.org"))]
+      (let [notes (mimis.glob (.. (notes-path) "/" (. c-parts 2) "/" (or (?. c-parts 3) "") "*.org"))]
         (icollect [_ v (ipairs notes)]
           (let [parts (mimis.split v "/")]
             (string.gsub (. parts (length parts)) ".org" "")))))))
@@ -49,34 +49,34 @@
     (fout:write (.. "#+OPTIONS: tags:nil:"))
     (fout:write "\n")
     (fout:write "\n\n")
-    (fout:write (.. "[[../" workspace "/index.org][Org]] [[../" workspace "/index.html][Index]]"))
+    (fout:write (.. "[[../" workspace "/index.html][Index]] [[../" workspace "/index.org][~Org~]]"))
     (when include-date (fout:write "\n\n"))
     (when include-date (fout:write (.. "* " (the-date))))
     (fout:write "\n\n")))
 
 (fn workspace-index [workspace id]
   (let [link (.. id ".html")
-        note-file (note-file notes-path "index" workspace ".org")]
+        note-file (note-file (notes-path) "index" workspace ".org")]
     (if (not (mimis.exists? note-file))
       (do 
-        (os.execute (.. "mkdir " (note-dir notes-path workspace)))
+        (os.execute (.. "mkdir " (note-dir (notes-path) workspace)))
         (start-note workspace note-file false)
         (with-open [fout (io.open note-file :a)]
-          (fout:write (.. "- [[../" workspace "/" id ".org][" id " Org]] [[../" workspace "/" id ".html][" id "]]"))
+          (fout:write (.. "-  [[../" workspace "/" link "][" id "]] [[../" workspace "/" id ".org][~Org~]]"))
           (fout:write "\n"))
         (export note-file))
       (do 
         (with-open [fout (io.open note-file :a)]
           (fout:write "\n")
-          (fout:write (.. "- [[../" workspace "/" id ".org][" id " Org]] [[../" workspace "/" link "][" id "]]"))
+          (fout:write (.. "-  [[../" workspace "/" link "][" id "]] [[../" workspace "/" id ".org][~Org~]]"))
           (fout:write "\n"))
         (export note-file)))))
 
 (fn new-note [id workspace]
-  (let [note-file (note-file notes-path id workspace ".org")]
+  (let [note-file (note-file (notes-path) id workspace ".org")]
     (if (not (mimis.exists? note-file))
       (do 
-        (os.execute (.. "mkdir " (note-dir notes-path workspace)))
+        (os.execute (.. "mkdir " (note-dir (notes-path) workspace)))
         (start-note workspace note-file true)
         (workspace-index workspace id))
       (with-open [fout (io.open note-file :a)]
@@ -86,14 +86,14 @@
     (note-window note-file)))
 
 (fn review-note [id workspace]
-  (let [note-file (note-file notes-path id workspace ".org")]
+  (let [note-file (note-file (notes-path) id workspace ".org")]
     (when (not (mimis.exists? note-file))
-      (os.execute (.. "mkdir " (note-dir notes-path workspace)))
+      (os.execute (.. "mkdir " (note-dir (notes-path) workspace)))
       (start-note workspace note-file true))
     (note-window note-file)))
 
 (fn insert-note-link [id workspace]
-  (let [note-file (note-file notes-path id workspace ".org")]
+  (let [note-file (note-file (notes-path) id workspace ".org")]
     (when (mimis.exists? note-file)
       (vim.cmd (.. "normal! i [[../" workspace "/" id ".org.html][" workspace "/" id "]]")))))
 
@@ -132,7 +132,7 @@
                       "default"
                       workspace)
           n-id (if id id (note-id))]
-      (vim.cmd (.. "silent !xdg-open " notes-path "/" workspace "/" n-id ".pdf"))))
+      (vim.cmd (.. "silent !xdg-open " (notes-path) "/" workspace "/" n-id ".pdf"))))
   {:bang false :desc "View a Note" :nargs "*"
    :complete completion})
 
@@ -145,7 +145,7 @@
                       "default"
                       workspace)
           n-id (if id id (note-id))]
-      (vim.cmd (.. "silent !xdg-open " notes-path "/" workspace "/" n-id ".html"))))
+      (vim.cmd (.. "silent !xdg-open " (notes-path) "/" workspace "/" n-id ".html"))))
   {:bang false :desc "View a Note" :nargs "*"
    :complete completion})
 
@@ -162,9 +162,25 @@
   {:bang false :desc "Insert Note Link" :nargs "*"
    :complete completion})
 
+(vim.api.nvim_create_user_command
+  "SwitchNotesPath"
+  (fn [opts]
+    (let [path (?. (?. opts :fargs) 1)]
+      (set vim.g.mimis-notes-path path)
+      (vim.api.nvim_create_autocmd 
+        "BufWritePost" 
+        {:pattern (.. (notes-path) "/**/*.org") 
+         :callback (partial 
+                     vim.schedule 
+                     (fn []
+                       (let [file (vim.fn.expand "%:p")]
+                         (export file))))})))
+  {:bang false :desc "Change notes path" :nargs "*"
+   :complete (fn [] (vim.fn.glob "**"))})
+
 (vim.api.nvim_create_autocmd 
   "BufWritePost" 
-  {:pattern (.. notes-path "/**/*.org") 
+  {:pattern (.. (notes-path) "/**/*.org") 
    :callback (partial 
                vim.schedule 
                (fn []
