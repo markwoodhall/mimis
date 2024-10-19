@@ -2,3 +2,5 @@
 
 -   [Introduction](../docs/Introduction.html)
     [`Org`](../docs/Introduction.org)
+
+-   [Modules](../docs/Modules.html) [`Org`](../docs/Modules.org)

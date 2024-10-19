@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="Mark Woodhall" />
+  <title>Modules</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="https://cdn.simplecss.org/simple.min.css" />
+  <!--[if lt IE 9]>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+  <![endif]-->
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Modules</h1>
+<p class="author">Mark Woodhall</p>
+<p class="date">19-10-2024</p>
+</header>
+<p><a href="../docs/index.html">Index</a> <a
+href="../docs/index.org"><code>Org</code></a></p>
+<p>Mimis is made up of modules that can be enabled and setup.</p>
+<p>Generally, the enable operation of a module will register required
+plugins and the setup operation will make sure they are in the right
+state to be used.</p>
+<p>Every effort is made to try to keep these operations distict and free
+of terrible side effects, since when modules are wrapped as packages
+they may be enabled and setup multiple times.</p>
+<h1 id="options">Options</h1>
+<p>Sets many defaults for the editor.</p>
+<h1 id="which-key">Which Key</h1>
+<p>Discoverable keybindings. Bound to nvim.g.mapleader by default.
+Whichkey is a "core" module used by many other modules in order to
+register bindings.</p>
+<h1 id="colors">Colors</h1>
+<p>Manages colorschemes. Catppuccin and Tokyonight are available.</p>
+<h1 id="keymaps">Keymaps</h1>
+<p>Sets up useful keybindings that don't rely on other modules or third
+party plugins.</p>
+<h1 id="projects">Projects</h1>
+<p>Used to setup project related plugins. For example, vim-rooter which
+can be used to determine the root directory "project" for the current
+file.</p>
+<h1 id="git">Git</h1>
+<p>Sets up plugins related to git source control. This currently
+includes vim-fugitive and neogit, when calling setup it is possible to
+specify which one to enable.</p>
+<p>For example:</p>
+<p><code>(package.setup {:modules.git [:fugitive]})</code></p>
+<h1 id="quick-fix">Quick fix</h1>
+<p>Sets up nvim-bqf, nvim better quick fix.</p>
+<h1 id="status-line">Status line</h1>
+<p>Sets up and configures lualine statusline plugin with a minimal set
+of blocks. Matches colors for default set of mimis themes.</p>
+<h1 id="telescope">Telescope</h1>
+<p>Sets up telescope with a consistent look and feel based on the emacs
+ivy style.</p>
+<p>Various options can be enabled when setting up.</p>
+<p>For example, you can configure bindings to be created for lsp,
+projects, finder, git, and buffers, like so:</p>
+<p><code>:modules.telescope [:lsp :projects :finder :git :buffers]</code></p>
+<h1 id="treesitter">Treesitter</h1>
+<p>Sets up nvim-treesitter for supplied languages.</p>
+<h1 id="paredit">Paredit</h1>
+<p>Sets up kovisoft/paredit for required languages, primarily of the
+lisp family.</p>
+<h1 id="surround">Surround</h1>
+<p>Sets up tpope/vim-surround.</p>
+<h1 id="lsp">Lsp</h1>
+<p>Sets up a range of plugins related to lsp and completion. nvim-cmp is
+used for completion and nvim-lspconfig to setup various lsp servers.</p>
+<p>For now, lsp and completion are coupled together, but this may change
+in the future. The configuration of nvim-cmp and lsp default
+capabilities make this a little awkward to do right now.</p>
+<h1 id="repl">Repl</h1>
+<p>Repl is a module that doesn't rely on any other plugins. It uses
+neovims floating windows to setup jobs for running repls.</p>
+<p>These jobs can then have data sent to them and evaluated. This could
+be considered somewhat like vim-slime.</p>
+<p>Clojure, fennel, and Janet modules all make use of this.</p>
+<p>The repl module makes a best guess at what process to start based on
+the language and/or project system in use for the current file and/or
+buffer.</p>
+<h1 id="clojure">Clojure</h1>
+<p>The clojure module relies on |mimis-modules-projects| and
+|mimis-modules-treesitter| in order to connect and send expressions to
+|mimis-modules-repl|.</p>
+<p>It also sets up a range of keybindings that support the clojure
+reloaded workflow.</p>
+<p>These bindings can be discovered with |mimis-modules-whichkey|.</p>
+<h1 id="fennel">Fennel</h1>
+<p>The fennel module relies on |mimis-modules-projects| and
+|mimis-modules-treesitter| in order to connect and send expressions to
+|mimis-modules-repl|.</p>
+<p>It also sets up a range of keybindings for interacting with the
+repl.</p>
+<p>These bindings can be discovered with |mimis-modules-whichkey|.</p>
+<h1 id="janet">Janet</h1>
+<p>The janet module relies on |mimis-modules-projects| and
+|mimis-modules-treesitter| in order to connect and send expressions to
+|mimis-modules-repl|.</p>
+<p>It also sets up a range of keybindings for interacting with the
+repl.</p>
+<p>These bindings can be discovered with |mimis-modules-whichkeyZ.</p>
+<h1 id="sql">SQL</h1>
+<p>The sql module relies on |mimis-modules-treesitter| and
+|mimis-modules-lsp|, it sets up tpope/vim-dadbod,
+kristijanhusak/vim-dadbod-ui, and
+kristijanhusak/vim-dadbod-completion</p>
+<p>vim-dadbod-completion is set up as an nvim-cmp completion source.</p>
+<h1 id="cmdline">Cmdline</h1>
+<h2 id="common">Common</h2>
+<p>The common cmdline module makes use of tpope/vim-eunuch to provide
+commands like :Remove and also provides other user commands, that will
+run an executable using :terminal and provide the output as a bottom
+panel. An example of these commands include :Tail.</p>
+<h2 id="aws">Aws</h2>
+<p>As per the <code>common</code> module but wraps various aws cli
+commands.</p>
+<h2 id="npm">Npm</h2>
+<p>As per the <code>common</code> module but wraps various aws cli
+commands.</p>
+<h2 id="docker">Docker</h2>
+<p>As per the <code>common</code> module but wraps various docker
+commands.</p>
+</body>
+</html>

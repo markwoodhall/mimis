@@ -1,9 +1,10 @@
-#+TITLE: Mimis Documentation
+#+TITLE: Documentation
 #+AUTHOR: Mark Woodhall
 #+DATE: 19-10-2024
 #+OPTIONS: tags:mimis:
 
-
 [[../docs/index.html][Index]] [[../docs/index.org][~Org~]]
 
 -  [[../docs/Introduction.html][Introduction]] [[../docs/Introduction.org][~Org~]]
+
+-  [[../docs/Modules.html][Modules]] [[../docs/Modules.org][~Org~]]
