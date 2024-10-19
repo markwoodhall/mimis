@@ -4,7 +4,7 @@
 #+OPTIONS: tags:mimis
 
 
-[[../docs/index.html][Index]] [[../docs/index.org][~Org~]]
+[[../mimis/index.html][Index]] [[../mimis/index.org][~Org~]]
 
 * Why?
 

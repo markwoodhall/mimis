@@ -1,4 +1,4 @@
-[Index](../docs/index.html) [`Org`](../docs/index.org)
+[Index](../mimis/index.html) [`Org`](../mimis/index.org)
 
 Mimis is made up of modules that can be enabled and setup.
 
