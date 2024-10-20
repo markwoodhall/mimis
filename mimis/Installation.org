@@ -1,0 +1,46 @@
+#+TITLE: Installation
+#+AUTHOR: Mark Woodhall
+#+DATE: 20-10-2024
+#+OPTIONS: tags:mimis:
+
+
+[[../mimis/index.html][Index]] [[../mimis/index.org][~Org~]]
+
+  Backup your existing nvim config.
+
+#+begin_src bash
+mv ~/.config/nvim{,.bak}
+#+end_src
+
+  Backup existing nvim state.
+
+#+begin_src bash
+mv ~/.local/share/nvim{,.bak}
+mv ~/.local/state/nvim{,.bak}
+mv ~/.cache/nvim{,.bak}
+#+end_src
+
+  Clone this repo.
+
+#+begin_src bash
+git clone git@github.com:markwoodhall/mimis.git ~/.config/nvim
+#+end_src
+
+  Run the install script.
+
+#+begin_src bash
+cd ~/.config/nvim
+./bin/mimis install
+#+end_src
+
+  Run nvim.
+
+#+begin_src bash
+nvim
+#+end_src
+
+  Check out mimis help.
+
+#+begin_src bash
+:help mimis
+#+end_src
