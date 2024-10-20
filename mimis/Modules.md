@@ -43,7 +43,9 @@ which one to enable.
 
 For example:
 
-`(package.setup {:modules.git [:fugitive]})`
+``` fennel
+(package.setup {:modules.git [:fugitive]})
+```
 
 # Quick fix
 
@@ -64,7 +66,9 @@ Various options can be enabled when setting up.
 For example, you can configure bindings to be created for lsp, projects,
 finder, git, and buffers, like so:
 
-`:modules.telescope [:lsp :projects :finder :git :buffers]`
+``` fennel
+:modules.telescope [:lsp :projects :finder :git :buffers]
+```
 
 # Treesitter
 

@@ -63,7 +63,8 @@ file.</p>
 includes vim-fugitive and neogit, when calling setup it is possible to
 specify which one to enable.</p>
 <p>For example:</p>
-<p><code>(package.setup {:modules.git [:fugitive]})</code></p>
+<pre class="fennel"><code>(package.setup {:modules.git [:fugitive]})
+</code></pre>
 <h1 id="quick-fix">Quick fix</h1>
 <p>Sets up nvim-bqf, nvim better quick fix.</p>
 <h1 id="status-line">Status line</h1>
@@ -75,7 +76,8 @@ ivy style.</p>
 <p>Various options can be enabled when setting up.</p>
 <p>For example, you can configure bindings to be created for lsp,
 projects, finder, git, and buffers, like so:</p>
-<p><code>:modules.telescope [:lsp :projects :finder :git :buffers]</code></p>
+<pre class="fennel"><code>:modules.telescope [:lsp :projects :finder :git :buffers]
+</code></pre>
 <h1 id="treesitter">Treesitter</h1>
 <p>Sets up nvim-treesitter for supplied languages.</p>
 <h1 id="paredit">Paredit</h1>
