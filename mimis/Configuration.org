@@ -1,6 +1,4 @@
 #+TITLE: Configuration
-#+AUTHOR: Mark Woodhall
-#+DATE: 20-10-2024
 #+OPTIONS: tags:mimis:
 
 

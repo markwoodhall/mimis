@@ -1,4 +1,6 @@
-[Index](../mimis/index.html) [`Org`](../mimis/index.org)
+A neovim distribution built for lisps and org-mode
+
+# Documentation
 
 -   [Introduction](../mimis/Introduction.html)
     [`Org`](../mimis/Introduction.org)

@@ -1,8 +1,5 @@
 #+TITLE: Installation
-#+AUTHOR: Mark Woodhall
-#+DATE: 20-10-2024
 #+OPTIONS: tags:mimis:
-
 
 [[../mimis/index.html][Index]] [[../mimis/index.org][~Org~]]
 

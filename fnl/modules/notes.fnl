@@ -29,10 +29,13 @@
 (fn export [file]
   (let [out-pdf (.. (string.gsub file ".org$" ".pdf"))
         out-md (.. (string.gsub file ".org$" ".md"))
-        out-html ( .. (string.gsub file ".org$" ".html"))]
+        out-html ( .. (string.gsub file ".org$" ".html"))
+        toc (> (mimis.count-matches (mimis.join (vim.fn.readfile file) "") "toc:t") 0)]
     (vim.cmd (.. "!pandoc --pdf-engine=xelatex -o " out-pdf " " file))
     (vim.cmd (.. "!pandoc -o " out-md " " file))
-    (vim.cmd (.. "!pandoc --standalone --template " export-html-template " -o " out-html " " file))))
+    (if toc
+      (vim.cmd (.. "!pandoc --standalone --toc --template " export-html-template " -o " out-html " " file))
+      (vim.cmd (.. "!pandoc --standalone --template " export-html-template " -o " out-html " " file)))))
 
 (fn note-window [note-file]
   (mimis.bottom-pane "org" note-file true false)

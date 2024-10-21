@@ -1,9 +1,11 @@
-#+TITLE: Documentation
-#+AUTHOR: Mark Woodhall
-#+DATE: 19-10-2024
-#+OPTIONS: tags:mimis:
+#+TITLE: Mimis
+#+OPTIONS: tags:mimis
 
-[[../mimis/index.html][Index]] [[../mimis/index.org][~Org~]]
+A neovim distribution built for lisps and org-mode
+
+
+* Documentation 
+
 
 -  [[../mimis/Introduction.html][Introduction]] [[../mimis/Introduction.org][~Org~]]
 -  [[../mimis/Installation.html][Installation]] [[../mimis/Installation.org][~Org~]]

@@ -1,8 +1,5 @@
 #+TITLE: Introduction
-#+AUTHOR: Mark Woodhall
-#+DATE: 19-10-2024
 #+OPTIONS: tags:mimis
-
 
 [[../mimis/index.html][Index]] [[../mimis/index.org][~Org~]]
 
