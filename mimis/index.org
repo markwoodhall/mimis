@@ -7,4 +7,5 @@
 
 -  [[../mimis/Introduction.html][Introduction]] [[../mimis/Introduction.org][~Org~]]
 -  [[../mimis/Installation.html][Installation]] [[../mimis/Installation.org][~Org~]]
+-  [[../mimis/Configuration.html][Configuration]] [[../mimis/Configuration.org][~Org~]]
 -  [[../mimis/Modules.html][Modules]] [[../mimis/Modules.org][~Org~]]

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="Mark Woodhall" />
+  <title>Configuration</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="https://cdn.simplecss.org/simple.min.css" />
+  <!--[if lt IE 9]>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+  <![endif]-->
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Configuration</h1>
+<p class="author">Mark Woodhall</p>
+<p class="date">20-10-2024</p>
+</header>
+<p><a href="../mimis/index.html">Index</a> <a
+href="../mimis/index.org"><code>Org</code></a></p>
+<p>The entry point for configuring mimis is
+<code>./fnl/init.fnl</code>.</p>
+<h1 id="enable-modules">Enable modules</h1>
+<p>You can enable a selection of modules using the <code>package</code>
+module. <code>package.enable</code> is an init function that will
+register plugins.</p>
+<pre class="fennel"><code>(package.enable 
+  {;; Keymaps
+   :modules.whichkey []
+   :modules.keymaps []
+
+   ;; Structure and syntax
+   :modules.surround []
+
+   ;; Language support
+   :modules.packages.fennel []
+   :modules.packages.clojure []
+   :modules.packages.sql []
+   :modules.org []
+   ;;:modules.janet []
+
+   ;; Command line wrappers
+   :modules.cmdline.npm []
+   :modules.cmdline.aws []
+   :modules.cmdline.docker []
+   :modules.cmdline.common []
+
+   ;; Editor integrations
+   :modules.git []
+   :modules.telescope []
+   :modules.statusline []
+   :modules.quickfix []
+   :modules.indentline [] 
+   :modules.colors []}
+  :stable)
+</code></pre>
+<h1 id="setup-modules">Setup modules</h1>
+<p>You can setup a selection of modules using
+<code>package.setup</code>. <code>package.setup</code> handles
+configuring plugins once they have been registered.</p>
+<pre class="fennel"><code>(package.setup
+  {;; Keymaps
+   :modules.whichkey []
+   :modules.keymaps []
+
+   ;; Language Support
+   :modules.packages.fennel []
+   :modules.packages.clojure []
+   :modules.packages.sql []
+   :modules.org [:org-babel-like :notes]
+   ;;:modules.janet []
+
+   ;; Command line wrappers
+   :modules.cmdline.npm [] 
+   :modules.cmdline.aws [] 
+   :modules.cmdline.docker [] 
+   :modules.cmdline.common []
+
+   ;; Editor integration
+   :modules.git [:fugitive]
+   :modules.colors 
+   {:theme :tokyonight
+    :colorscheme :tokyonight
+    :background :dark
+    :post-setup (fn [])}
+   :modules.telescope [:lsp :projects :finder :git :buffers]
+   :modules.statusline [:lsp :tokyonight]
+   :modules.quickfix [] 
+   :modules.indentline [] 
+
+   ;; Structure and syntax
+   :modules.surround []})
+</code></pre>
+</body>
+</html>
