@@ -1,6 +1,6 @@
 (local mimis (require :mimis))
 (local notes-path (fn [] vim.g.mimis-notes-path))
-(local notes-css vim.g.mimis-notes-css)
+(local export-html-template vim.g.mimis-notes-export-html-template)
 
 (fn the-date []
   (os.date "%d-%m-%Y"))
@@ -32,7 +32,7 @@
         out-html ( .. (string.gsub file ".org$" ".html"))]
     (vim.cmd (.. "!pandoc --pdf-engine=xelatex -o " out-pdf " " file))
     (vim.cmd (.. "!pandoc -o " out-md " " file))
-    (vim.cmd (.. "!pandoc --standalone -c " notes-css " -o " out-html " " file))))
+    (vim.cmd (.. "!pandoc --standalone --template " export-html-template " -o " out-html " " file))))
 
 (fn note-window [note-file]
   (mimis.bottom-pane "org" note-file true false)
