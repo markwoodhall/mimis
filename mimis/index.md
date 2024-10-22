@@ -1,4 +1,4 @@
-A neovim distribution built for lisps and org-mode.
+Mimis is a neovim distribution built for lisps and org-mode.
 
 # Documentation
 

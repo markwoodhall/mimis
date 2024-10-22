@@ -21,4 +21,4 @@
 
 * About this documentation
 
-  This documentation is built using this neovim configuration. A combination of nvim-orgmode and the Mimis notes module. 
+  This documentation is built using Mimis with a combination of nvim-orgmode and the Mimis notes module. 
