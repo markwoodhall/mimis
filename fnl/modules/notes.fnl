@@ -1,6 +1,6 @@
 (local mimis (require :mimis))
-(local notes-path (fn [] vim.g.mimis-notes-path))
-(local export-html-template vim.g.mimis-notes-export-html-template)
+(local notes-path (fn [] (or vim.g.mimis-notes-path (vim.fn.expand "~/mimis-notes"))))
+(local pandoc-opts (fn [] (or vim.g.mimis-notes-pandoc-opts "")))
 
 (fn the-date []
   (os.date "%d-%m-%Y"))
@@ -34,8 +34,8 @@
     (vim.cmd (.. "!pandoc --pdf-engine=xelatex -o " out-pdf " " file))
     (vim.cmd (.. "!pandoc -o " out-md " " file))
     (if toc
-      (vim.cmd (.. "!pandoc --standalone --toc --template " export-html-template " -o " out-html " " file))
-      (vim.cmd (.. "!pandoc --standalone --template " export-html-template " -o " out-html " " file)))))
+      (vim.cmd (.. "!pandoc --standalone --toc " (pandoc-opts) " -o " out-html " " file))
+      (vim.cmd (.. "!pandoc --standalone " (pandoc-opts) " -o " out-html " " file)))))
 
 (fn note-window [note-file]
   (mimis.bottom-pane "org" note-file true false)
@@ -179,7 +179,7 @@
                        (let [file (vim.fn.expand "%:p")]
                          (export file))))})))
   {:bang false :desc "Change notes path" :nargs "*"
-   :complete (fn [] (vim.fn.glob "**"))})
+   :complete (fn [] (vim.fn.glob "*"))})
 
 (vim.api.nvim_create_autocmd 
   "BufWritePost" 
