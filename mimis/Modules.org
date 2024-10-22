@@ -1,4 +1,4 @@
-#+TITLE: Modules
+#+TITLE: Mimis Modules
 #+OPTIONS: toc:t tags:mimis:
 
 [[../mimis/index.html][Index]] [[../mimis/index.org][~Org~]]

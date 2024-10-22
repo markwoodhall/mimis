@@ -1,4 +1,4 @@
-#+TITLE: Introduction
+#+TITLE: Mimis Introduction
 #+OPTIONS: tags:mimis
 
 [[../mimis/index.html][Index]] [[../mimis/index.org][~Org~]]

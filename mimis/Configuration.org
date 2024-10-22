@@ -1,9 +1,7 @@
-#+TITLE: Configuration
+#+TITLE: Mimis Configuration
 #+OPTIONS: tags:mimis:
 
-
 [[../mimis/index.html][Index]] [[../mimis/index.org][~Org~]]
-
 
 The entry point for configuring mimis is ~./fnl/init.fnl~. 
 

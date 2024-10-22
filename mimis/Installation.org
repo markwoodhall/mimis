@@ -1,4 +1,4 @@
-#+TITLE: Installation
+#+TITLE: Mimis Installation
 #+OPTIONS: tags:mimis:
 
 [[../mimis/index.html][Index]] [[../mimis/index.org][~Org~]]
