@@ -62,7 +62,7 @@
 (fn hide-repl []
   (let [r (get-project-repl)]
     (when r.win
-      (vim.api.nvim_win_close (unpack [r.win true]))
+      (pcall (fn [] (vim.api.nvim_win_close (unpack [r.win true]))))
       (set r.win nil)
       (set-project-repl r))))
 
