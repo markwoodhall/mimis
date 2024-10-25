@@ -104,7 +104,11 @@
 
 (fn get-command [filetype]
   (match filetype
-    :fennel :fennel
+    :fennel
+    (let [root (vim.fn.call "FindRootDirectory" [])]
+      (if (mimis.exists? (.. root "/.mimis.repl.fennel"))
+        (?. (vim.fn.readfile (.. root "/.mimis.repl.fennel")) 1)
+        :fennel))
     :janet :janet
     :clojure 
     (let [root (vim.fn.call "FindRootDirectory" [])
