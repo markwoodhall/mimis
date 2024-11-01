@@ -41,12 +41,14 @@
            (m-binding "sh" r.hide-repl "hide-repl")
            (m-binding "sx" r.kill-repl "kill-repl")
            (m-binding "si" (partial r.jack-in :fennel) "jack-in")
-           (eval-binding "e" (partial r.send root-expression :none) "expression-to-repl"))
+           (eval-binding "e" (partial r.send root-expression :none) "expression-to-repl")
+           (m-binding "rm" (partial r.send (.. ",reload " (vim.fn.expand "%:r")) :none) "reload-module"))
          (let [wk (require :which-key)
                buffer (vim.api.nvim_get_current_buf)] 
            (wk.add 
              [{1 (.. nvim.g.mapleader "m") :group "fennel" :buffer buffer}
               {1 (.. nvim.g.mapleader "ms") :group "sesman" :buffer buffer}
+              {1 (.. nvim.g.mapleader "mr") :group "reload" :buffer buffer}
               {1 (.. nvim.g.mapleader "me") :group "evaluation" :buffer buffer}]))))}))
 
 {: enable 
