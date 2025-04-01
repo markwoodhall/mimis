@@ -11,7 +11,6 @@
      :kristijanhusak/vim-dadbod-completion {:for :sql}}))
 
 (fn setup []
-  (set vim.g.db_ui_save_location "~/dotfiles")
   (let [group (vim.api.nvim_create_augroup "mimis-sql-lsp-dadbod" {:clear true})]
     (vim.api.nvim_create_autocmd 
       "FileType" 

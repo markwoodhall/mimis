@@ -105,7 +105,7 @@
     (fn active-lsp []
       (var msg "No Active Lsp")
       (let [buf-ft (vim.api.nvim_buf_get_option 0 :filetype)
-            clients (vim.lsp.get_active_clients)]
+            clients (vim.lsp.get_clients)]
         (if (= (next clients) nil)
           msg
           (do 
