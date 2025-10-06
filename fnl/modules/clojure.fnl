@@ -54,7 +54,7 @@
                         :current)
                reload-all (partial 
                             r.send 
-                            (fn [] (.. "(clojure.core/require '" (r.current-ns) " :reload)"))
+                            (fn [] (.. "(clojure.core/require '" (r.current-ns) " :reload-all)"))
                             (r.current-ns))
                test (partial 
                       r.send
