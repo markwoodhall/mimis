@@ -33,7 +33,7 @@
    :modules.colors []}
   :latest)
 
-(set vim.g.mimis-notes-path "/home/markwoodhall/Insync/mark.woodhall@gmail.com/GoogleDrive/notes/markwoodhall")
+(set vim.g.mimis-notes-path "/home/markwoodhall/notes")
 (set vim.g.mimis-notes-pandoc-opts "--template default.html -c https://cdn.simplecss.org/simple.min.css")
 (set vim.g.db_ui_save_location "~/src/mark/dotfiles")
 
