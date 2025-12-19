@@ -34,7 +34,7 @@
    :kevinhwang91/nvim-bqf :1b24dc6050c34e8cd377b6b4cd6abe40509e0187
    :nvim-treesitter/nvim-treesitter :b8ad0473f4d5d7b59e17a67ad0b68711b0232486})
 
-(local latest {})
+(local latest {:nvim-treesitter/nvim-treesitter :master})
 
 {: stable
  : latest }
