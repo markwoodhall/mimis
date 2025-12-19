@@ -22,10 +22,14 @@
                                   :whoami])]
                     (mimis.add-match v (mimis.second c-parts) results))
                 2 (if (= (mimis.second c-parts) "run")
-                    (let [runs 
-                          (vim.fn.system 
-                            "jq '.scripts|keys[]' package.json | sed 's/\\\"//g'")]
-                      (mimis.split runs "\n"))
+                    (let [runs
+                          (vim.fn.system
+                            "jq '.scripts|keys[]' package.json | sed 's/\\\"//g'")
+                          input (mimis.nth c-parts 3)]
+                      (accumulate
+                        [results []
+                         _ v (ipairs (mimis.split runs "\n"))]
+                        (mimis.add-match v input results)))
                     [])))))]
     (vim.api.nvim_create_user_command
       "Npm"

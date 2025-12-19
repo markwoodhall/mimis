@@ -61,11 +61,12 @@
     {:pattern "*"
      :group (vim.api.nvim_create_augroup "mimis-terminal-open" {:clear true})
      :desc "Autocmds for terminal open"
-     :callback 
-     (partial 
-       vim.schedule 
-       (fn [] 
-         (vim.cmd.normal "G")
+     :callback
+     (partial
+       vim.schedule
+       (fn []
+         (when (not= (vim.fn.mode) "t")
+           (vim.cmd.normal "G"))
          ;; Set scrollback
          (nvim.ex.setlocal "scrollback=25000")))})
 
