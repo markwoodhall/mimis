@@ -1,17 +1,29 @@
 #+TITLE: Mimis
 #+AUTHOR: Mark Woodhall
 
-A "minimal" neovim distribution, crafted with love, and focused on lisps
+A "minimal" neovim distribution, crafted with love, and focused on lisps and org-mode.
+
+For detailed documentation, visit [[https://markwoodhall.github.io/mimis][markwoodhall.github.io/mimis]].
 
 * Goals
 
    1. Minimalism, both in terms of installed dependencies and plugins
-   2. Performance, both start up time, and general usage
+   2. Performance, both startup time and general usage
    3. Configurable with [[https://fennel-lang.org/][Fennel]]
-  
+
+* Features
+
+  - *Lisp-first*: Built-in support for Clojure, Fennel, and Janet with REPL integration
+  - *Org-mode*: nvim-orgmode with org-babel-like evaluation and notes module
+  - *Module system*: Enable only what you need via a two-phase enable/setup pattern
+  - *Plugin management*: vim-plug with lockfile support for reproducible builds
+  - *LSP & Completion*: nvim-lspconfig and nvim-cmp configured out of the box
+  - *Git integration*: vim-fugitive or neogit
+  - *Telescope*: Fuzzy finding with an ivy-style interface
+
 * Installation
 
-  Backup yourexisting nvim config.
+  Backup your existing nvim config.
 
 #+begin_src bash
 mv ~/.config/nvim{,.bak}
