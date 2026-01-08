@@ -12,6 +12,8 @@
         wk (require :which-key)]
     (cc.setup)
     (mimis.leader-map "n" "cs" "<cmd>ClaudeCode<cr>" {:desc "claude-code-start"})
+    (mimis.leader-map "n" "co" "<cmd>ClaudeCodeOpen<cr>" {:desc "claude-code-open"})
+    (mimis.leader-map "n" "cc" "<cmd>ClaudeCodeClose<cr>" {:desc "claude-code-close"})
     (mimis.leader-map "n" "cf" "<cmd>ClaudeCodeFocus<cr>" {:desc "claude-code-focus"})
     (mimis.leader-map "n" "cda" "<cmd>ClaudeCodeDiffAccept<cr>" {:desc "diff-accept"})
     (mimis.leader-map "n" "cdd" "<cmd>ClaudeCodeDiffDeny<cr>" {:desc "diff-deny"})
