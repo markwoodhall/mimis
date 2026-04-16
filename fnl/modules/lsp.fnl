@@ -26,7 +26,8 @@
         capabilities (cmp-nvim-lsp.default_capabilities)]
     (each [_ server (pairs servers)]
       (vim.lsp.config server {:autostart false
-                                    :capabilities capabilities}))
+                              :capabilities capabilities})
+      (vim.lsp.enable server))
 
     (cmp.setup
       {:mapping (cmp.mapping.preset.insert
@@ -103,7 +104,6 @@
                   {1 (.. nvim.g.mapleader "ld") :group "diagnostics"}
                   {1 (.. nvim.g.mapleader "lg") :group "goto"}]))
              (set lsp-setup-done true))
-           (vim.cmd.LspStart)
            ))})
 
     (when disable-semantic-tokens
