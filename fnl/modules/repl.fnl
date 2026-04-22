@@ -116,7 +116,7 @@
           shadow-cljs (mimis.exists? (.. root "/shadow-cljs.edn"))
           deps-edn  (mimis.exists? (.. root "/deps.edn"))]
       (match [project-clj shadow-cljs deps-edn]
-        [true false false] "lein update-in :dependencies conj \\[nrepl/nrepl\\ \\\"1.5.1\\\"\\] -- update-in :plugins     conj \\[cider/cider-nrepl\\ \\\"0.58.0\\\"\\] -- repl :headless"
+        [true false false] "lein update-in :dependencies conj \\[nrepl/nrepl\\ \\\"1.5.1\\\"\\] -- update-in :plugins     conj \\[cider/cider-nrepl\\ \\\"0.58.0\\\"\\] -- repl"
         [false true false] "npx shadow-cljs clj-repl"
         [false false true] "clojure -A:dev:dev/nrepl"
         _ "lein repl"))))
