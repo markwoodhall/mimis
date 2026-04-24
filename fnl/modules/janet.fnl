@@ -17,10 +17,9 @@
   (m-binding (.. "e" bind) action desc))
 
 (fn root-expression []
-  (let [ts-utils (require "nvim-treesitter.ts_utils")
-        value (ts-utils.get_node_at_cursor 0 true)
+  (let [value (vim.treesitter.get_node {:ignore_injections true})
         data (vim.treesitter.get_node_text value 0)]
-    (.. data 
+    (.. data
         "\r")))
 
 (fn enable []

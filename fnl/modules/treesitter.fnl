@@ -2,44 +2,45 @@
 (local ft (require :modules.filetypes))
 
 (var treesitter-languages [])
-(var treesitter-parsers [])
-(var treesitter-loaded nil)
+(var treesitter-parsers [:markdown :markdown_inline])
+(var treesitter-configured nil)
 
 (fn enable [languages module-hook]
-  (let [mimis (require :mimis) 
-        languages (or languages 
-                      (. ft.module-filetypes module-hook) 
+  (let [mimis (require :mimis)
+        languages (or languages
+                      (. ft.module-filetypes module-hook)
                       [])]
     (set treesitter-languages (mimis.concat treesitter-languages languages))
-    (plugins.register {:nvim-treesitter/nvim-treesitter {:do ":TSUpdate" :for treesitter-languages}})))
+    (plugins.register {:nvim-treesitter/nvim-treesitter {:branch "main" :do ":TSUpdate"}})))
 
 (local module-parsers ft.module-filetypes)
 
+(local ignore-install {:org true})
+
+(fn install-parsers []
+  (let [nts (require :nvim-treesitter)
+        to-install (icollect [_ p (ipairs treesitter-parsers)]
+                     (when (not (. ignore-install p)) p))]
+    (when (not treesitter-configured)
+      (nts.setup)
+      (set treesitter-configured true))
+    (when (> (length to-install) 0)
+      (nts.install to-install))))
+
 (fn setup [parsers module-hook]
   (let [mimis (require :mimis)
-        parsers (or parsers 
-                    (. module-parsers module-hook) 
+        parsers (or parsers
+                    (. module-parsers module-hook)
                     [])]
     (set treesitter-parsers (mimis.concat treesitter-parsers parsers))
-    (vim.api.nvim_create_autocmd 
-      "FileType" 
+    (install-parsers)
+    (vim.api.nvim_create_autocmd
+      "FileType"
       {:pattern treesitter-languages
        :group (vim.api.nvim_create_augroup "mimis-treesitter" {:clear true})
-       :desc "Setup treesitter for specific filetypes"
-       :callback 
-       (partial 
-         vim.schedule 
-         (fn []
-           (when (not treesitter-loaded)
-             (let [ts (require "nvim-treesitter.configs")]
-               (ts.setup 
-                 {:ensure_installed treesitter-parsers
-                  :sync_install false
-                  :ignore_install ["org"]
-                  :auto_install true
-                  :highlight 
-                  {:enable true :additional_vim_regex_highlighting []}}))
-             (set treesitter-loaded true))))})))
+       :desc "Start treesitter for specific filetypes"
+       :callback (fn [args]
+                   (pcall vim.treesitter.start args.buf))})))
 
-{: enable 
+{: enable
  : setup }

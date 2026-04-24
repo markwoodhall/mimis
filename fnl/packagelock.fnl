@@ -32,9 +32,9 @@
    :folke/tokyonight.nvim :817bb6ffff1b9ce72cdd45d9fcfa8c9cd1ad3839
    :JoosepAlviste/palenightfall.nvim :25a1e7d43256834a671174e5d83edb57f7bec1e0
    :kevinhwang91/nvim-bqf :1b24dc6050c34e8cd377b6b4cd6abe40509e0187
-   :nvim-treesitter/nvim-treesitter :b8ad0473f4d5d7b59e17a67ad0b68711b0232486})
+   :nvim-treesitter/nvim-treesitter :b9933f0e1386c7b63fe131d9979d9c2613da551a})
 
-(local latest {:nvim-treesitter/nvim-treesitter :master})
+(local latest {:nvim-treesitter/nvim-treesitter :main})
 
 {: stable
  : latest }

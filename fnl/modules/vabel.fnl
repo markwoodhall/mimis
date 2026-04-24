@@ -1,4 +1,3 @@
-(local parsers (require "nvim-treesitter.parsers"))
 (local mimis (require :mimis))
 
 (fn ->output-lang [lang]
@@ -140,7 +139,7 @@
       kvs)))
 
 (fn tangle-blocks []
-  (let [parser (parsers.get_parser 0)
+  (let [parser (vim.treesitter.get_parser 0)
         tree (unpack (parser:parse))
         query (vim.treesitter.query.parse 
                 "org"
