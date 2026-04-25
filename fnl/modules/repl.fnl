@@ -121,27 +121,30 @@
         [false false true] "clojure -A:dev:dev/nrepl"
         _ "lein repl"))))
 
+(fn ensure-shown [r]
+  (when (or (not r.win) (not (vim.api.nvim_win_is_valid r.win)))
+    (set r.win (vim.api.nvim_open_win r.buf false repl.window-options))
+    (set-project-repl r))
+  (pcall (fn [] (vim.api.nvim_win_call r.win (fn [] (vim.cmd.normal "G"))))))
+
 (fn sender [r job data]
   (vim.schedule
     (fn []
       (if r.buf
-        (do 
-          (hide-repl)
-          (when data
-            (vim.fn.chansend job (.. data "\n"))
-            (when (not (= nil repl.hide-after)) 
-              (when r.timer
-                (r.timer:stop)
-                (r.timer:close)))
-            (when (not (= nil repl.hide-after)) 
-              (let [timer (vim.uv.new_timer)]
-                (timer:start 
-                  repl.hide-after
-                  0
-                  (vim.schedule_wrap hide-repl))
-                (set r.timer timer)))
-            (set-project-repl r))
-          (show-repl false))
+        (when data
+          (vim.fn.chansend job (.. data "\n"))
+          (when (not (= nil repl.hide-after))
+            (when r.timer
+              (r.timer:stop)
+              (r.timer:close))
+            (let [timer (vim.uv.new_timer)]
+              (timer:start
+                repl.hide-after
+                0
+                (vim.schedule_wrap hide-repl))
+              (set r.timer timer)))
+          (set-project-repl r)
+          (ensure-shown r))
         (print "Repl not connected")))))
 
 (fn connect-repl [filetype connection]
