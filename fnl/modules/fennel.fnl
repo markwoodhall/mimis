@@ -21,9 +21,9 @@
   (m-binding (.. "e" bind) action desc))
 
 (fn root-expression []
-  (let [value (vim.treesitter.get_node {:ignore_injections true})
-        data (vim.treesitter.get_node_text value 0)]
-    data))
+  (let [value (vim.treesitter.get_node {:ignore_injections true})]
+    (when value
+      (vim.treesitter.get_node_text value 0))))
 
 (fn setup []
   (vim.api.nvim_create_autocmd 

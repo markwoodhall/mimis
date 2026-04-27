@@ -25,7 +25,7 @@
       (nts.setup)
       (set treesitter-configured true))
     (when (> (length to-install) 0)
-      (nts.install to-install))))
+      (nts.update to-install))))
 
 (fn setup [parsers module-hook]
   (let [mimis (require :mimis)

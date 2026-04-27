@@ -17,10 +17,10 @@
   (m-binding (.. "e" bind) action desc))
 
 (fn root-expression []
-  (let [value (vim.treesitter.get_node {:ignore_injections true})
-        data (vim.treesitter.get_node_text value 0)]
-    (.. data
-        "\r")))
+  (let [value (vim.treesitter.get_node {:ignore_injections true})]
+    (when value
+      (.. (vim.treesitter.get_node_text value 0)
+          "\r"))))
 
 (fn enable []
   (plugins.register {:janet-lang/janet.vim {:for :janet}})
