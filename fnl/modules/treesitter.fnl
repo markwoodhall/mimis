@@ -2,7 +2,7 @@
 (local ft (require :modules.filetypes))
 
 (var treesitter-languages [])
-(var treesitter-parsers [:markdown :markdown_inline])
+(var treesitter-parsers [:markdown :markdown_inline :gitcommit])
 (var treesitter-configured nil)
 
 (fn enable [languages module-hook]
