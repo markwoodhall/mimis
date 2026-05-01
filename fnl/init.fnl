@@ -58,12 +58,12 @@
    ;; Editor integration
    :modules.git [:fugitive]
    :modules.colors 
-   {:theme :tokyonight
-    :colorscheme :tokyonight
+   {:theme :catppuccin
+    :colorscheme :catppuccin
     :background :dark
     :post-setup (fn [])}
    :modules.telescope [:lsp :projects :finder :git :buffers]
-   :modules.statusline [:lsp :tokynight]
+   :modules.statusline [:lsp :catppuccin]
    :modules.quickfix [] 
    :modules.claude [] 
    :modules.indentline [] 
