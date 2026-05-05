@@ -5,7 +5,6 @@
 
 (local aws-command "aws --no-cli-pager ")
 
-
 (local get-profile (partial commands.get-command-value "--profile"))
 
 ;; logs
@@ -105,13 +104,22 @@
         "--attribute-names" (for-command c :sqs :get-queue-attributes (fn [_] ["All"])) 
         "--profile" (profiles)
         "--start-time" (for-command c :logs :filter-log-events
-                                    (fn [_] ["`date -d \"5 minutes ago\" +%s000`"
-                                             "`date -d \"15 minutes ago\" +%s000`"
-                                             "`date -d \"30 minutes ago\" +%s000`"
-                                             "`date -d \"45 minutes ago\" +%s000`"
-                                             "`date -d \"1 hour ago\" +%s000`"
-                                             "`date -d \"2 hour ago\" +%s000`"
-                                             "`date -d \"24 hours ago\" +%s000`"])) 
+                                    (fn [_] ["`date -d \"5 minutes ago\" +\\%s000`"
+                                             "`date -d \"15 minutes ago\" +\\%s000`"
+                                             "`date -d \"30 minutes ago\" +\\%s000`"
+                                             "`date -d \"45 minutes ago\" +\\%s000`"
+                                             "`date -d \"1 hour ago\" +\\%s000`"
+                                             "`date -d \"2 hour ago\" +\\%s000`"
+                                             "`date -d \"24 hours ago\" +\\%s000`"])) 
+
+        "--end-time" (for-command c :logs :filter-log-events
+                                    (fn [_] ["`date -d \"5 minutes ago\" +\\%s000`"
+                                             "`date -d \"15 minutes ago\" +\\%s000`"
+                                             "`date -d \"30 minutes ago\" +\\%s000`"
+                                             "`date -d \"45 minutes ago\" +\\%s000`"
+                                             "`date -d \"1 hour ago\" +\\%s000`"
+                                             "`date -d \"2 hour ago\" +\\%s000`"
+                                             "`date -d \"24 hours ago\" +\\%s000`"])) 
         "|" (for-command c :logs :filter-log-events (fn [_] [" jq '.events[].message | fromjson | {timestamp, exception}'"
                                                              " jq '.events[].message | fromjson | {timestamp, message}'"]))
         _ (match (commands.get-last-double-switch c)
@@ -127,7 +135,7 @@
                      [s ""
                       _ v (ipairs (?. opts :fargs))]
                      (.. s " " v))]
-          (mimis.bottom-pane-shell (.. "aws" args))
+          (mimis.bottom-pane-shell (.. aws-command args))
           (set nvim.bo.syntax :json)))
       {:bang false :desc "AWS command line wrapper" :nargs "*"
        :complete completion}))
