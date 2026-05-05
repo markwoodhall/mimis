@@ -21,7 +21,6 @@
 
 (fn setup-cmp [servers]
   (let [cmp-nvim-lsp (require :cmp_nvim_lsp)
-        lsp-config (require :lspconfig)
         cmp (require :cmp)
         capabilities (cmp-nvim-lsp.default_capabilities)]
     (each [_ server (pairs servers)]
@@ -103,8 +102,7 @@
                   {1 (.. nvim.g.mapleader "lr") :group "refactor"}
                   {1 (.. nvim.g.mapleader "ld") :group "diagnostics"}
                   {1 (.. nvim.g.mapleader "lg") :group "goto"}]))
-             (set lsp-setup-done true))
-           ))})
+             (set lsp-setup-done true))))})
 
     (when disable-semantic-tokens
       (vim.api.nvim_create_autocmd 
@@ -131,20 +129,19 @@
 
     (let [group (vim.api.nvim_create_augroup "mimis-lsp-filetype" {:clear true})]
       (icollect [k v (pairs lsp-completion-sources)]
-        (do
-          (vim.api.nvim_create_autocmd 
-            "FileType" 
-            {:pattern k
-             :group group
-             :desc "Setup lsp completion sources for specific filetypes"
-             :callback 
-             (partial 
-               vim.schedule 
-               (fn []
-                 (let [cmp (require :cmp)]
-                   (cmp.setup.filetype 
-                     k
-                     {:sources (cmp.config.sources v)}))))}))))))
+        (vim.api.nvim_create_autocmd 
+          "FileType" 
+          {:pattern k
+           :group group
+           :desc "Setup lsp completion sources for specific filetypes"
+           :callback 
+           (partial 
+             vim.schedule 
+             (fn []
+               (let [cmp (require :cmp)]
+                 (cmp.setup.filetype 
+                   k
+                   {:sources (cmp.config.sources v)}))))})))))
 
 {: enable 
  : setup }
