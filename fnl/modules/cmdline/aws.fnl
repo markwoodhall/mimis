@@ -3,6 +3,8 @@
 
 (fn enable [])
 
+(local aws-command "aws --no-cli-pager ")
+
 
 (local get-profile (partial commands.get-command-value "--profile"))
 
@@ -11,7 +13,7 @@
   (let [mimis (require :mimis) 
         profile (get-profile command)]
     (if profile
-      (let [lgs (vim.fn.system (.. "aws --profile " profile " logs describe-log-groups | jq '.logGroups[].logGroupName'"))]
+      (let [lgs (vim.fn.system (.. aws-command "--profile " profile " logs describe-log-groups | jq '.logGroups[].logGroupName'"))]
         (mimis.split lgs "\n"))
       [])))
 
@@ -20,7 +22,7 @@
   (let [mimis (require :mimis)
         profile (get-profile command)]
     (if profile
-      (let [lgs (vim.fn.system (.. "aws --profile " profile " sqs list-queues | jq '.QueueUrls[]'"))]
+      (let [lgs (vim.fn.system (.. aws-command "--profile " profile " sqs list-queues | jq '.QueueUrls[]'"))]
         (mimis.split lgs "\n"))
       [])))
 
@@ -29,7 +31,7 @@
   (let [mimis (require :mimis)
         profile (get-profile command)]
     (if profile
-      (let [lgs (vim.fn.system (.. "aws --profile " profile " ecs list-clusters | jq '.clusterArns[]'"))]
+      (let [lgs (vim.fn.system (.. aws-command "--profile " profile " ecs list-clusters | jq '.clusterArns[]'"))]
         (mimis.split lgs "\n"))
       [])))
 
@@ -38,7 +40,7 @@
         profile (get-profile command)
         cluster (commands.get-command-value "--cluster" command)]
     (if profile
-      (let [lgs (vim.fn.system (.. "aws --profile " profile " ecs list-services --cluster " cluster " | jq '.serviceArns[]'"))]
+      (let [lgs (vim.fn.system (.. aws-command "--profile " profile " ecs list-services --cluster " cluster " | jq '.serviceArns[]'"))]
         (mimis.split lgs "\n"))
       [])))
 
@@ -47,7 +49,7 @@
         profile (get-profile command)
         cluster (commands.get-command-value "--cluster" command)]
     (if (and profile cluster)
-      (let [lgs (vim.fn.system (.. "aws --profile " profile " ecs list-tasks --cluster " cluster " | jq '.taskArns[]'"))]
+      (let [lgs (vim.fn.system (.. aws-command "--profile " profile " ecs list-tasks --cluster " cluster " | jq '.taskArns[]'"))]
         (mimis.split lgs "\n"))
       [])))
 
@@ -56,7 +58,7 @@
   (let [mimis (require :mimis)
         profile (get-profile command) ]
     (if profile
-      (let [lgs (vim.fn.system (.. "aws --profile " profile " rds describe-db-instances | jq '.DBInstances[].DBInstanceIdentifier'"))]
+      (let [lgs (vim.fn.system (.. aws-command "--profile " profile " rds describe-db-instances | jq '.DBInstances[].DBInstanceIdentifier'"))]
         (mimis.split lgs "\n"))
       [])))
 
