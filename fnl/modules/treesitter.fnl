@@ -39,8 +39,11 @@
       {:pattern treesitter-languages
        :group (vim.api.nvim_create_augroup "mimis-treesitter" {:clear true})
        :desc "Start treesitter for specific filetypes"
-       :callback (fn [args]
-                   (pcall vim.treesitter.start args.buf))})))
+       :callback (fn [args] 
+                   (vim.schedule 
+                     (fn []
+                       (print "HELLO")
+                       (pcall vim.treesitter.start args.buf))))})))
 
 {: enable
  : setup }
