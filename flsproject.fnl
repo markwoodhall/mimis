@@ -8,5 +8,4 @@
          :unnecessary-method true
          :bad-unpack true
          :var-never-set true
-         :op-with-no-arguments true
-         :multival-in-middle-of-call true}}
+         :op-with-no-arguments true }}
