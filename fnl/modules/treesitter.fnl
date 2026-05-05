@@ -42,7 +42,6 @@
        :callback (fn [args] 
                    (vim.schedule 
                      (fn []
-                       (print "HELLO")
                        (pcall vim.treesitter.start args.buf))))})))
 
 {: enable
