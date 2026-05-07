@@ -29,7 +29,6 @@
    :modules.statusline []
    :modules.quickfix []
    :modules.indentline [] 
-   :modules.claude [] 
    :modules.colors []}
   :latest)
 
@@ -65,7 +64,6 @@
    :modules.telescope [:lsp :projects :finder :git :buffers]
    :modules.statusline [:lsp :catppuccin]
    :modules.quickfix [] 
-   :modules.claude [] 
    :modules.indentline [] 
 
    ;; Structure and syntax
