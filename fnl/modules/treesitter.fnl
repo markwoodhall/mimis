@@ -42,7 +42,8 @@
        :callback (fn [args] 
                    (vim.schedule 
                      (fn []
-                       (pcall vim.treesitter.start args.buf))))})))
+                       (when (not= vim.bo.buftype :terminal) 
+                         (pcall vim.treesitter.start args.buf)))))})))
 
 {: enable
  : setup }

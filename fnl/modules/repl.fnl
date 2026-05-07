@@ -1,5 +1,4 @@
 (local mimis (require :mimis))
-(local nvim (require :nvim))
 
 (local 
   repl 
@@ -94,7 +93,7 @@
         e (if (= (type expression) "string") expression (expression))]
     (if (and r r.repl r.buf)
       (do
-        (when (and (not= :none ns)) 
+        (when (not= :none ns)
            (if (or (not ns)
                    (= :current ns))
              (in-ns)
@@ -103,7 +102,7 @@
       (print "Repl not connected"))))
 
 (fn get-command [filetype]
-  (match filetype
+  (case filetype
     :fennel
     (let [root (vim.fn.call "FindRootDirectory" [])]
       (if (mimis.exists? (.. root "/.mimis.repl.fennel"))
@@ -115,7 +114,7 @@
           project-clj (mimis.exists? (.. root "/project.clj"))
           shadow-cljs (mimis.exists? (.. root "/shadow-cljs.edn"))
           deps-edn  (mimis.exists? (.. root "/deps.edn"))]
-      (match [project-clj shadow-cljs deps-edn]
+      (case [project-clj shadow-cljs deps-edn]
         [true false false] "lein update-in :dependencies conj \\[nrepl/nrepl\\ \\\"1.5.1\\\"\\] -- update-in :plugins     conj \\[cider/cider-nrepl\\ \\\"0.58.0\\\"\\] -- repl"
         [false true false] "npx shadow-cljs clj-repl"
         [false false true] "clojure -A:dev:dev/nrepl"
@@ -155,10 +154,7 @@
           job (when command (vim.fn.termopen command))]
       (if job 
         (do
-          (vim.cmd "setlocal norelativenumber")
-          (vim.cmd "setlocal nonumber")
-          (set nvim.bo.filetype filetype)
-          (set nvim.bo.syntax filetype)
+          (set vim.bo.filetype filetype)
           {:job job
            :send (partial sender r job)})
         (print "Cannot find a repl type to connect to for this project")))))
@@ -167,10 +163,7 @@
   (let [r (get-project-repl)]
     (let [command (get-command filetype)
           job (vim.fn.termopen command)]
-      (vim.cmd "setlocal norelativenumber")
-      (vim.cmd "setlocal nonumber")
-      (set nvim.bo.filetype filetype)
-      (set nvim.bo.syntax filetype)
+      (set vim.bo.filetype filetype)
       {:job job
        :send (partial sender r job)})))
 
