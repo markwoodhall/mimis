@@ -1,13 +1,13 @@
 (local mimis (require :mimis))
+(local nvim (require "nvim"))
 
 (local 
   repl 
   {:repls {}
-   :hide-after 30000
    :window-options 
    {:relative :editor
-    :border :none
     :style :minimal
+    :border nvim.o.winborder
     :anchor :NE
     :row 1
     :col (-> (vim.api.nvim_list_uis)
@@ -27,7 +27,6 @@
       (. repl :repls path)
       (let [buf (vim.api.nvim_create_buf true true)
               r {:last-ns nil
-                 :want-hide false
                  :buf buf
                  :win (vim.api.nvim_open_win 
                         buf
@@ -66,20 +65,20 @@
       (set-project-repl r))))
 
 (fn show-repl [enter]
-  (hide-repl)
   (let [r (get-project-repl)]
-    (if (> (vim.fn.buffer_exists r.buf) 0)
-      (do 
-        (set r.win 
-             (vim.api.nvim_open_win 
-               r.buf 
-               enter
-               repl.window-options))
-        (when enter
-          (vim.cmd.normal "G"))
-        (set-project-repl r))
-      (do (kill-project-repl)
-        (print "Managed repl was closed, please start it again.")))))
+    (when (not r.win)
+      (if (and (not r.win) (> (vim.fn.buffer_exists r.buf) 0))
+        (do 
+          (set r.win 
+               (vim.api.nvim_open_win 
+                 r.buf 
+                 enter
+                 repl.window-options))
+          (when enter
+            (vim.cmd.normal "G"))
+          (set-project-repl r))
+        (do (kill-project-repl)
+          (print "Managed repl was closed, please start it again."))))))
 
 (fn kill-repl []
   (let [r (get-project-repl)]
@@ -170,7 +169,7 @@
 (fn jack-in [filetype]
   (let [r (get-project-repl)]
     (if (and r r.repl)
-      (do (hide-repl) (show-repl true))
+      (show-repl true)
       (do 
         (set r.repl (start-repl filetype))
         (set-project-repl r)))))
@@ -178,7 +177,7 @@
 (fn connect-in [filetype connection-str]
   (let [r (get-project-repl)]
     (if (and r r.repl)
-      (do (hide-repl) (show-repl true))
+      (show-repl true)
       (do 
         (set r.repl (connect-repl filetype connection-str))
         (set-project-repl r)))))

@@ -21,6 +21,7 @@
 (set nvim.o.encoding "utf-8")
 (set nvim.o.signcolumn "number")
 (set nvim.o.cmdheight 0) 
+(set nvim.o.winborder :rounded) 
 
 (nvim.ex.set :ruler)
 (nvim.ex.set :undofile)
