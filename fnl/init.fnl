@@ -14,8 +14,9 @@
    :modules.packages.fennel []
    :modules.packages.clojure []
    :modules.packages.sql []
+   :modules.packages.janet []
+
    :modules.org []
-   ;;:modules.janet []
 
    ;; Command line wrappers
    :modules.cmdline.npm []
@@ -45,8 +46,9 @@
    :modules.packages.fennel []
    :modules.packages.clojure []
    :modules.packages.sql []
+   :modules.packages.janet []
+
    :modules.org [:org-babel-like :notes]
-   ;;:modules.janet []
 
    ;; Command line wrappers
    :modules.cmdline.npm [] 

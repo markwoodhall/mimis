@@ -23,10 +23,10 @@
           "\r"))))
 
 (fn enable []
-  (plugins.register {:janet-lang/janet.vim {:for :janet}})
-  (set vim.g.clojure_max_lines 1000))
+  (plugins.register {:janet-lang/janet.vim {:for :janet}}))
 
 (fn setup []
+  (set vim.g.clojure_max_lines 1000)
   (vim.api.nvim_create_autocmd 
     "FileType" 
     {:pattern :janet
