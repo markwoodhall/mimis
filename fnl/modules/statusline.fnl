@@ -1,4 +1,5 @@
 (local plugins (require :plugins))
+(local nvim (require "nvim"))
 
 (fn enable []
   (plugins.register 
@@ -93,7 +94,8 @@
                            :lualine_y {}
                            :lualine_z {}}
        :options {:component_separators ""
-                 :globalStatus true
+                 :globalStatus 
+                 (not (= nvim.o.laststatus 1))
                  :section_separators ""}
        :sections {:lualine_a {}
                   :lualine_b {}
