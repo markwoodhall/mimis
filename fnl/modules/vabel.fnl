@@ -1,12 +1,12 @@
 (local mimis (require :mimis))
 
 (fn ->output-lang [lang]
-  (match lang
+  (case lang
     :sql :org
     _ lang))
 
 (fn verbatim [results indent lang]
-  (match lang
+  (case lang
     "sql" (let [t (mimis.split results "\n")
                 output-lang (->output-lang lang)
                 t (icollect [_ v  (ipairs t)]
@@ -28,12 +28,12 @@
             t)))
 
 (fn presenter [p-type]
-  (match p-type
+  (case p-type
     :verbatim verbatim
     _ verbatim))
 
 (fn command [lang]
-  (match lang
+  (case lang
     "bash" (fn [env code]
              (let [code (string.gsub (mimis.join code " ") "^%s*" "")
                    fname (.. (vim.fn.tempname) ".sh")]
@@ -76,7 +76,7 @@
     (let [parts (mimis.split header ":")
           kvs (icollect [_ v (ipairs parts)]
                 (let [options (mimis.split v " ")]
-                  (match (mimis.first options)
+                  (case (mimis.first options)
                     "engine" ""
                     "dbuser" (.. "PGUSER=" (mimis.last options))
                     "dbpassword" (.. "PGPASSWORD=" (mimis.last options))
@@ -87,7 +87,7 @@
         (mimis.join kvs "\n")))))
 
 (fn header-parser [lang _header]
-  (match lang
+  (case lang
     "sql" parse-sql-header
     _ (fn [_ _] "")))
 
@@ -128,7 +128,7 @@
     (let [parts (mimis.split header ":")
           kvs (accumulate [h {:tangle nil :shebang nil :mkdirp nil} _ v (ipairs parts)]
                 (let [options (mimis.split v " ")]
-                  (match (mimis.first options)
+                  (case (mimis.first options)
                     "shebang" (set h.shebang (mimis.last options))
                     "tangle" (set h.tangle (mimis.last options))
                     "mkdirp" (set h.mkdirp (mimis.last options))
