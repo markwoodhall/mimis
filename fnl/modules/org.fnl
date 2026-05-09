@@ -19,7 +19,7 @@
               r))
         og (require :orgmode)]
     (og.setup {:mappings {:disable_all true}})
-
+    (set nvim.g.table_mode_map_prefix "T")
     (vim.api.nvim_create_autocmd 
       "FileType" 
       {:pattern :org
