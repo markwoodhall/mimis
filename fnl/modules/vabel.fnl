@@ -158,6 +158,7 @@
                   (> (mimis.count-matches header "BEGIN_SRC") 0))
           (let [file (. parsed-header :tangle)
                 append? (. seen file)
+                _ (set (. seen file ) true)
                 mkdirp (. parsed-header :mkdirp)
                 shebang (. parsed-header :shebang)
                 dir (vim.fn.expand (vim.fn.fnamemodify (vim.fn.expand file) ":h"))]
