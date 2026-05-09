@@ -146,20 +146,9 @@
                 "((block
                     (expr)
                     (expr)
-                    (contents)) @block)")]
-    (each [_ value (query:iter_captures (tree:root) 0)]
-      (local (start-row _ _ _) (value:range))
-      (let [header (vim.fn.getline (+ 1 start-row))
-            parsed-header (parse-header header)]
-        (when (or (> (mimis.count-matches header "begin_src") 0)
-                  (> (mimis.count-matches header "BEGIN_SRC") 0))
-          (let [file (. parsed-header :tangle)]
-            (when file
-              (when (mimis.exists? (vim.fn.expand file))
-                (print (.. "Clearing tangled file " file))
-                (vim.fn.writefile [] (vim.fn.expand (vim.fn.fnameescape file)))))))))
+                    (contents)) @block)")
+        seen {}]
 
-    (var count 0)
     (each [_ value (query:iter_captures (tree:root) 0)]
       (local (start-row _ end-row _) (value:range))
       (let [header (vim.fn.getline (+ 1 start-row))
@@ -168,6 +157,7 @@
         (when (or (> (mimis.count-matches header "begin_src") 0)
                   (> (mimis.count-matches header "BEGIN_SRC") 0))
           (let [file (. parsed-header :tangle)
+                append? (. seen file)
                 mkdirp (. parsed-header :mkdirp)
                 shebang (. parsed-header :shebang)
                 dir (vim.fn.expand (vim.fn.fnamemodify (vim.fn.expand file) ":h"))]
@@ -177,12 +167,11 @@
               (print (.. "Tangling code block to file " file))
               (when shebang 
                 (if (mimis.exists? (vim.fn.expand file))
-                  (vim.fn.writefile [shebang] (vim.fn.expand file) "a")
+                  (vim.fn.writefile [shebang] (vim.fn.expand file) (if append? "a" ""))
                   (vim.fn.writefile [shebang] (vim.fn.expand file))))
               (if (mimis.exists? (vim.fn.expand file))
-                (vim.fn.writefile source (vim.fn.expand file) "a")
-                (vim.fn.writefile source (vim.fn.expand file)))))))
-      (set count (+ 1 count)))))
+                (vim.fn.writefile source (vim.fn.expand file) (if append? "a" ""))
+                (vim.fn.writefile source (vim.fn.expand file))))))))))
 
 (fn eval-code-block []
   (let [winpos (vim.fn.winsaveview)
