@@ -11,8 +11,9 @@
                 output-lang (->output-lang lang)
                 t (icollect [_ v  (ipairs t)]
                     (when (not (= "Timing is off." v))
-                      (.. (mimis.pad-string " " indent) (if (not= v "") (.. "|" v " |") v))))] 
-            (table.insert t 1 (.. (mimis.pad-string " " indent) (.. "#+BEGIN_EXAMPLE " output-lang)))
+                      (.. (mimis.pad-string " " indent) (if (not= v "") (.. "|" v (if (or (string.find v " $")
+                                                                                           (string.find v "-$")) "|" " |")) v))))] 
+            (table.insert t 1 (.. (mimis.pad-string " " indent) "#+BEGIN_EXAMPLE " output-lang))
             (table.insert t 1 (.. (mimis.pad-string " " indent) "#+RESULTS:"))
             (table.insert t 1 "")
             (table.insert t (.. (mimis.pad-string " " indent) "#+END_EXAMPLE"))
@@ -21,7 +22,7 @@
             output-lang (->output-lang lang)
             t (icollect [_ v  (ipairs t)]
                 (.. (mimis.pad-string " " indent) v))] 
-            (table.insert t 1 (.. (mimis.pad-string " " indent) (.. "#+BEGIN_EXAMPLE " output-lang)))
+            (table.insert t 1 (.. (mimis.pad-string " " indent) "#+BEGIN_EXAMPLE " output-lang))
             (table.insert t 1 (.. (mimis.pad-string " " indent) "#+RESULTS:"))
             (table.insert t 1 "")
             (table.insert t (.. (mimis.pad-string " " indent) "#+END_EXAMPLE"))
