@@ -93,6 +93,8 @@
            (when (not lsp-setup-done)
              (setup-cmp lsp-servers)
              (let [mimis (require :mimis)]
+               (mimis.leader-map "n" "ldD" ":lua vim.diagnostic.setqflist()<CR>" {:desc "project-diagnostics"})
+               (mimis.leader-map "n" "ldd" ":lua vim.diagnostic.setloclist()<CR>" {:desc "buffer-diagnostics"})
                (mimis.leader-map "n" "lrr" ":lua vim.lsp.buf.rename()<CR>" {:desc "rename"})
                (mimis.leader-map "n" "lda" ":lua vim.lsp.buf.code_action()<CR>" {:desc "code-actions"})
                (mimis.leader-map "n" "lf" ":lua vim.lsp.buf.format()<CR>" {:desc "format-buffer"}))

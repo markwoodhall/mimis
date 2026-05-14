@@ -21,6 +21,7 @@
      :complete (fn [])})
 
   ;; buffers
+  (mimis.leader-map "n" "bl" ":Buffers<CR>" {:desc "list-buffers"})
   (mimis.leader-map "n" "ba" ":e #<CR>" {:desc "toggle-buffers"})
   (mimis.leader-map "n" "bh" ":nohl<CR>" {:desc "no-highlight-search"})
   (mimis.leader-map "n" "bn" ":bn<CR>" {:desc "goto-next-buffer"})
@@ -38,6 +39,46 @@
   (mimis.leader-map "n" "wm" "<c-w>|<c-w>_" {:desc "maximize-window"})
   (mimis.leader-map "n" "wp" "<c-w>|<c-w>_|:25wincmd_<cr>" {:desc "window-to-bottom-pane"})
   (mimis.leader-map "n" "w=" "<c-w>=" {:desc "balance-windows"})
+
+  ;; find
+  (mimis.leader-map "n" "fg" ":silent grep " {:desc "find"})
+  (mimis.leader-map "n" "fw" ":silent grep <cword><CR>" {:desc "find-word"})
+  (mimis.leader-map "n" "fr" ":call setloclist(0, g:recent_files) <bar> lopen<CR>" {:desc "find-recent"})
+
+  (vim.api.nvim_create_autocmd
+    "QuickFixCmdPost" 
+    {:pattern [:grep :vimgrep] :command :copen})
+
+  (let [cg (vim.api.nvim_create_augroup "mimis-recentf" {:clear true})]
+    (vim.api.nvim_create_autocmd 
+      "BufRead" 
+      {:pattern "*.*"
+       :group cg
+       :desc "Setup recent files"
+       :callback 
+       (partial 
+         vim.schedule 
+         (fn []
+           (let [mimis (require :mimis)
+                 old (icollect [_ v (ipairs vim.v.oldfiles)]
+                       (when (< (mimis.count-matches v "BqfPreview*") 1)
+                         {:filename v :lnum 1 :text ""}))
+                 recent [(unpack vim.g.recent_files) (unpack old)]]
+             (set vim.g.recent_files [{:filename (vim.fn.expand "%:p") :lnum 1 :text ""} (unpack recent)]))))})
+
+    (vim.api.nvim_create_autocmd 
+      "VimEnter" 
+      {:group cg
+       :desc "Setup recent files"
+       :callback 
+       (partial 
+         vim.schedule 
+         (fn []
+           (let [mimis (require :mimis)]
+             (set vim.g.recent_files (icollect [_ v (ipairs vim.v.oldfiles)]
+                                       (when (< (mimis.count-matches v "BqfPreview*") 1)
+                                         {:filename v :lnum 1 :text ""}))))))}))
+
   (vim.keymap.set "n" "<Esc><Esc>" "<c-\\><c-n>:q<CR>")
 
   ;; terminal mappings

@@ -27,7 +27,6 @@
 
    ;; Editor integrations
    :modules.git []
-   :modules.telescope []
    :modules.statusline []
    :modules.quickfix []
    :modules.indentline [] 
@@ -59,13 +58,12 @@
    :modules.cmdline.chatgpt []
 
    ;; Editor integration
-   :modules.git [:neogit]
+   :modules.git [:fugitive]
    :modules.colors 
    {:theme :catppuccin
     :colorscheme :catppuccin
     :background :dark
     :post-setup (fn [])}
-   :modules.telescope [:lsp :projects :finder :git :buffers]
    :modules.statusline [:lsp :catppuccin]
    :modules.quickfix [] 
    :modules.indentline [] 
