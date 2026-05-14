@@ -6,7 +6,7 @@
           (vim.fn.sort
             (let [mimis (require :mimis)
                   c-parts (mimis.split c " ")]
-              (match (mimis.count-matches c "%s")
+              (case (mimis.count-matches c "%s")
                 0 []
                 1 (accumulate 
                     [results []

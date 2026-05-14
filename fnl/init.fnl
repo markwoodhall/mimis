@@ -23,6 +23,7 @@
    :modules.cmdline.aws []
    :modules.cmdline.docker []
    :modules.cmdline.common []
+   :modules.cmdline.chatgpt []
 
    ;; Editor integrations
    :modules.git []
@@ -55,6 +56,7 @@
    :modules.cmdline.aws [] 
    :modules.cmdline.docker [] 
    :modules.cmdline.common []
+   :modules.cmdline.chatgpt []
 
    ;; Editor integration
    :modules.git [:neogit]
