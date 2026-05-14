@@ -24,6 +24,8 @@
     (let [wk (require :which-key)] 
     (wk.add 
       [{1 (.. nvim.g.mapleader "p") :group "project"}]))
+
+    (mimis.leader-map "n" "pf" ":find " {:desc "find file"})
     
     (mimis.leader-map 
     "n" 

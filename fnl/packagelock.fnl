@@ -1,6 +1,5 @@
 (local stable 
   {:kovisoft/paredit :989d1c046bbe36f7d71878636dbe6af8ea3f4f86
-   :neogitorg/neogit :d55bf6114c6cfba013e4c0e817e29e7752554ab7
    :lewis6991/gitsigns.nvim :1ef74b546732f185d0f806860fa5404df7614f28
    :nvim-tree/nvim-web-devicons :31bd21ac46b2b6039aa0b856ca02b018cf549ef7
    :nvim-lualine/lualine.nvim :b431d228b7bbcdaea818bdc3e25b8cdbe861f056
@@ -12,7 +11,6 @@
    :tpope/vim-eunuch :8fb3904be27b6b60d086f87c2570085902414069
    :jaawerth/fennel.vim :c6a9c035ca108cbb24273d96cd6277fb8fbc60b4
    :nvim-lua/plenary.nvim :2d9b06177a975543726ce5c73fca176cedbffe9d
-   :nvim-telescope/telescope.nvim :b5fd7f7ae0ea4537511077ed8ef4a6021cedba2f
    :stevearc/dressing.nvim :1b7921eecc65af1baf8ac1dc06f0794934cbcfb2
    :nvim-orgmode/orgmode :1692af5a0dd363851b7846c3636040c53f9cdc79
    :akinsho/org-bullets.nvim :46ae687e22192fb806b5977d664ec98af9cf74f6

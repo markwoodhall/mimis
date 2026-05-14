@@ -22,7 +22,7 @@
 (set nvim.o.encoding "utf-8")
 (set nvim.o.signcolumn "number")
 (set nvim.o.cmdheight 0) 
-(set nvim.o.winborder :rounded) 
+(set nvim.o.winborder :single) 
 
 (nvim.ex.set :ruler)
 (nvim.ex.set :undofile)
@@ -52,10 +52,24 @@
 (set nvim.g.matchparen_insert_timeout 10)
 
 (vim.cmd "set path+=**")
+(vim.cmd "set wildignore+=**/node_modules/**")
+(vim.cmd "set wildignore+=**/.git/**")
+(vim.cmd "set wildignore+=**/.clj-kondo/**")
+(vim.cmd "set wildignore+=**/cljs-test-runner-out/**")
+(vim.cmd "set wildignore+=.shadow-cljs/**")
+(vim.cmd "set wildignore+=**/deployment-temp/**")
+(vim.cmd "set wildignore+=**/resources/public/js/compiled/**")
+(vim.cmd "set wildignore+=**/.cpcache/**")
+(vim.cmd "set wildignore+=**/.lsp/**")
+(vim.cmd "set wildignore+=**/oil:/**")
+(vim.cmd "set wildignore+=**/fugitive:/**")
+(vim.cmd "set wildignore+=**/target/**")
+
 (vim.cmd "set grepprg=rg\\ --vimgrep")
 (vim.cmd "set grepformat^=%f:%l:%c:%m")
 
-;; Auto create directories
+(vim.cmd "autocmd FileType qf wincmd J")
+(vim.cmd "autocmd FileType qf nmap <buffer> <cr> <cr>:lcl<cr>:ccl<cr>")
 (vim.cmd "au BufWritePre,FileWritePre * if @% !~# '\\(://\\)' | call mkdir(expand('<afile>:p:h'), 'p') | endif")
 
 (vim.api.nvim_create_autocmd 

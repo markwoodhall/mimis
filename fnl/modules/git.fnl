@@ -9,8 +9,7 @@
   (plugins.register 
     {:nvim-lua/plenary.nvim :always
      :tpope/vim-fugitive {:on [:G :Git :Gvdiffsplit]}
-     :lewis6991/gitsigns.nvim :always
-     :neogitorg/neogit :always}))
+     :lewis6991/gitsigns.nvim :always }))
 
 (fn setup [options]
   (let [o (accumulate 
@@ -21,11 +20,6 @@
     (when (. o :fugitive)
       (mimis.leader-map "n" "gd" ":Gvdiffsplit<CR>" {:desc "git-diff"})
       (mimis.leader-map "n" "gs" ":G<CR>" {:desc "git-status"}))
-
-    (when (. o :neogit) 
-      (let [ng (require :neogit)]
-        (ng.setup {:kind :vsplit})
-        (mimis.leader-map "n" "gs" (fn [] (ng.open {:kind :vsplit})) {:desc "git-status"})))
 
     (let [wk (require :which-key)
           gs (require :gitsigns)] 
