@@ -6,6 +6,7 @@
   [:modules.treesitter])
 
 (fn enable []
+  (set vim.o.runtimepath (.. vim.o.runtimepath ",$HOME/.local/share/nvim/plugged/ts/lib/luarocks/rocks-5.1/tree-sitter-gitcommit/0.0.36-1"))
   (plugins.register 
     {:tpope/vim-fugitive {:on [:G :Git :Gvdiffsplit]}
      :lewis6991/gitsigns.nvim :always }))
