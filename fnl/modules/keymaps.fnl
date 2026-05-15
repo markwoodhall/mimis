@@ -42,7 +42,7 @@
 
   ;; find
   (mimis.leader-map "n" "fg" ":silent grep " {:desc "find"})
-  (mimis.leader-map "n" "fw" ":silent grep <cword><CR>" {:desc "find-word"})
+  (mimis.leader-map "n" "fw" ":silent grep <cword> **/*<CR>" {:desc "find-word"})
   (mimis.leader-map "n" "fr" ":call setloclist(0, g:recent_files) <bar> lopen<CR>" {:desc "find-recent"})
 
   (vim.api.nvim_create_autocmd
@@ -63,7 +63,7 @@
                  old (icollect [_ v (ipairs vim.v.oldfiles)]
                        (when (< (mimis.count-matches v "BqfPreview*") 1)
                          {:filename v :lnum 1 :text ""}))
-                 recent [(unpack vim.g.recent_files) (unpack old)]]
+                 recent [(when vim.g.recent_files (unpack vim.g.recent_files)) (when old (unpack old))]]
              (set vim.g.recent_files [{:filename (vim.fn.expand "%:p") :lnum 1 :text ""} (unpack recent)]))))})
 
     (vim.api.nvim_create_autocmd 
@@ -96,21 +96,21 @@
         (set persistent-terminal (mimis.bottom-pane-shell nvim.o.shell))))
     {:desc "toggle-terminal"})
 
-  (mimis.leader-map 
-    "n" 
-    "tn" 
-    (partial mimis.bottom-pane-shell nvim.o.shell)
-    {:desc "new-terminal"})
+(mimis.leader-map 
+  "n" 
+  "tn" 
+  (partial mimis.bottom-pane-shell nvim.o.shell)
+  {:desc "new-terminal"})
 
-  ;; defaults
-  (vim.keymap.set "n" "<j>" "<j><g>")
-  (vim.keymap.set "n" "<k>" "<k><g>")
-  (let [wk (require :which-key)] 
-    (wk.add 
-      [{1 (.. nvim.g.mapleader "t") :group "terminal"}
-       {1 (.. nvim.g.mapleader "b") :group "buffers"}
-       {1 (.. nvim.g.mapleader "f") :group "find"}
-       {1 (.. nvim.g.mapleader "w") :group "window"}])))
+;; defaults
+(vim.keymap.set "n" "<j>" "<j><g>")
+(vim.keymap.set "n" "<k>" "<k><g>")
+(let [wk (require :which-key)] 
+  (wk.add 
+    [{1 (.. nvim.g.mapleader "t") :group "terminal"}
+     {1 (.. nvim.g.mapleader "b") :group "buffers"}
+     {1 (.. nvim.g.mapleader "f") :group "find"}
+     {1 (.. nvim.g.mapleader "w") :group "window"}])))
 
 {: enable
  : setup }

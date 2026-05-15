@@ -26,6 +26,17 @@
       [{1 (.. nvim.g.mapleader "p") :group "project"}]))
 
     (mimis.leader-map "n" "pf" ":find " {:desc "find file"})
+
+    (mimis.leader-map 
+    "n" 
+    "pF" 
+    (fn [] 
+      (let [patterns vim.g.rooter_patterns]
+        (set vim.g.rooter_patterns [".git"])
+        (let [project (vim.fn.call "FindRootDirectory" [])]
+          (set vim.g.rooter_patterns patterns)
+          (vim.cmd (.. "e " project)))))
+    {:desc "project-files"})
     
     (mimis.leader-map 
     "n" 

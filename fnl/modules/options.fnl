@@ -22,7 +22,7 @@
 (set nvim.o.encoding "utf-8")
 (set nvim.o.signcolumn "number")
 (set nvim.o.cmdheight 0) 
-(set nvim.o.winborder :single) 
+(set nvim.o.winborder :none) 
 
 (nvim.ex.set :ruler)
 (nvim.ex.set :undofile)
@@ -47,9 +47,11 @@
 
 (set nvim.g.mapleader " ")
 (set nvim.g.maplocalleader ",")
+(set nvim.g.netrw_liststyle 1)
 
 (set nvim.g.matchparen_timeout 10)
 (set nvim.g.matchparen_insert_timeout 10)
+(set nvim.g.netrw_banner 0)
 
 (vim.cmd "set path+=**")
 (vim.cmd "set wildignore+=**/node_modules/**")
@@ -64,13 +66,22 @@
 (vim.cmd "set wildignore+=**/oil:/**")
 (vim.cmd "set wildignore+=**/fugitive:/**")
 (vim.cmd "set wildignore+=**/target/**")
+(vim.cmd "set wildignore+=**/logs/**")
 
 (vim.cmd "set grepprg=rg\\ --vimgrep")
 (vim.cmd "set grepformat^=%f:%l:%c:%m")
+(vim.cmd "set fillchars+=vert:\\ ")
+(vim.cmd "set fillchars+=horiz:\\ ")
+
+(set vim.o.foldenable true)
+(set vim.o.foldlevel 4)
+(set vim.o.foldmethod "expr")
+(set vim.o.foldexpr "v:lua.vim.treesitter.foldexpr()")
 
 (vim.cmd "autocmd FileType qf wincmd J")
 (vim.cmd "autocmd FileType qf nmap <buffer> <cr> <cr>:lcl<cr>:ccl<cr>")
 (vim.cmd "au BufWritePre,FileWritePre * if @% !~# '\\(://\\)' | call mkdir(expand('<afile>:p:h'), 'p') | endif")
+
 
 (vim.api.nvim_create_autocmd 
     ["TermOpen"] 
