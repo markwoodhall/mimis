@@ -45,7 +45,7 @@
         (let [mimis (require :mimis)
               args (mimis.split (gather-args opts) " ")]
           (mimis.bottom-pane-shell 
-            (.. "sqlcmd -S " (mimis.first args) 
+            (.. "sqlcmd -w 400 -y 10 -Y 10 -k -S " (mimis.first args) 
                 " -d " (mimis.second args) 
                 " -U " (mimis.nth args 3) 
                 " -P " (vim.fn.shellescape (mimis.nth args 4)) 

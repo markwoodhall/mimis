@@ -3,10 +3,7 @@
 
 (fn enable []
   (plugins.register
-    {:catppuccin/nvim {:as :catppuccin}
-     :EdenEast/nightfox.nvim {:as :nightfox}
-     :JoosepAlviste/palenightfall.nvim {:as :palenightfall}
-     :folke/tokyonight.nvim {:as :tokyonight}}))
+    {:catppuccin/nvim {:as :catppuccin}}))
 
 (fn setup [options]
   (let [theme (require (or options.theme :catppuccin))]

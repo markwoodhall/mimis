@@ -35,7 +35,9 @@
 
 (set vim.g.mimis-notes-path "/home/markwoodhall/notes")
 (set vim.g.mimis-notes-pandoc-opts "--template default.html -c https://cdn.simplecss.org/simple.min.css")
-(set vim.g.db_ui_save_location "~/src/mark/dotfiles")
+
+(let [ui2 (require "vim._core.ui2")]
+  (ui2.enable))
 
 (package.setup
   {;; Keymaps
@@ -64,7 +66,7 @@
     :colorscheme :catppuccin
     :background :dark
     :post-setup (fn [])}
-   :modules.statusline [:lsp :catppuccin]
+   :modules.statusline []
    :modules.quickfix [] 
    :modules.indentline [] 
 

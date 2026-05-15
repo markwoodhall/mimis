@@ -7,8 +7,7 @@
 
 (fn enable []
   (plugins.register 
-    {:nvim-lua/plenary.nvim :always
-     :tpope/vim-fugitive {:on [:G :Git :Gvdiffsplit]}
+    {:tpope/vim-fugitive {:on [:G :Git :Gvdiffsplit]}
      :lewis6991/gitsigns.nvim :always }))
 
 (fn setup [options]
