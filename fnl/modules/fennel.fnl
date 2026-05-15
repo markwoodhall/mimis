@@ -7,6 +7,7 @@
   [:modules.projects])
 
 (fn enable []
+  (set vim.o.runtimepath (.. vim.o.runtimepath ",$HOME/.local/share/nvim/plugged/ts/lib/luarocks/rocks-5.1/tree-sitter-fennel/0.0.37-1"))
   (plugins.register 
     {:jaawerth/fennel.vim {:for [:fennel]}}))
 
