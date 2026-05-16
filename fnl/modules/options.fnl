@@ -25,7 +25,6 @@
 (set nvim.o.winborder :none) 
 
 (nvim.ex.set :ruler)
-(nvim.ex.set :undofile)
 (nvim.ex.set :incsearch)
 (nvim.ex.set :noshowmatch)
 (nvim.ex.set :noshowmode)
@@ -72,6 +71,9 @@
 (vim.cmd "set grepformat^=%f:%l:%c:%m")
 (vim.cmd "set fillchars+=vert:\\ ")
 (vim.cmd "set fillchars+=horiz:\\ ")
+
+(set vim.o.undofile true)
+(set vim.o.undolevels 10000)
 
 (set vim.o.foldenable true)
 (set vim.o.foldlevel 4)

@@ -41,8 +41,8 @@
   (mimis.leader-map "n" "w=" "<c-w>=" {:desc "balance-windows"})
 
   ;; find
-  (mimis.leader-map "n" "fg" ":silent grep " {:desc "find"})
-  (mimis.leader-map "n" "fw" ":silent grep <cword> **/*<CR>" {:desc "find-word"})
+  (mimis.leader-map "n" "fg" ":silent vimgrep **/*<left><left><left><left><left><space>" {:desc "find"})
+  (mimis.leader-map "n" "fw" ":silent vimgrep <cword> **/*<CR>" {:desc "find-word"})
   (mimis.leader-map "n" "fr" ":call setloclist(0, g:recent_files) <bar> lopen<CR>" {:desc "find-recent"})
 
   (vim.api.nvim_create_autocmd
