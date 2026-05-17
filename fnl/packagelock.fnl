@@ -13,8 +13,7 @@
    :neovim/nvim-lspconfig :b064131428f6bbbbc905f4451ba6779fda334a3a  
    :clojure-vim/clojure.vim :06196d8fcfe8ac610f2471b3452bc54c314482a4
    :catppuccin/nvim :63685e1562ef53873c9764b483d7ac5c7a608922 
-   :kevinhwang91/nvim-bqf :1b24dc6050c34e8cd377b6b4cd6abe40509e0187
-   :nvim-treesitter/nvim-treesitter :b9933f0e1386c7b63fe131d9979d9c2613da551a})
+   :kevinhwang91/nvim-bqf :1b24dc6050c34e8cd377b6b4cd6abe40509e0187 })
 
 (local latest {:nvim-treesitter/nvim-treesitter :main})
 
