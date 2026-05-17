@@ -30,8 +30,7 @@
                 " -d " (mimis.second args) 
                 " -U " (mimis.nth args 3) 
                 " -p " (mimis.nth args 4) 
-                " -P footer=off -P pager=off -P format=wrapped -q "))
-          (set nvim.bo.syntax :sql)))
+                " -P footer=off -P pager=off -P format=wrapped -q "))))
       {:bang false :desc "psql wrapper" :nargs "*"
        :complete (fn []
                    (let [mimis (require :mimis)]
@@ -49,8 +48,7 @@
                 " -d " (mimis.second args) 
                 " -U " (mimis.nth args 3) 
                 " -P " (vim.fn.shellescape (mimis.nth args 4)) 
-                ""))
-          (set nvim.bo.syntax :sql)))
+                ""))))
       {:bang false :desc "Sqlcmd wrapper" :nargs "*"
        :complete (fn []
                    (let [mimis (require :mimis)]
