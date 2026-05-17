@@ -21,6 +21,7 @@
 
 (local fennel {:servers [:fennel_ls]})
 (local clojure {:servers [:clojure_lsp]})
+(local terraform {:servers [:terraform_lsp]})
 (local sql {:servers [:sqlls]})
 
 (local setup-hooks
@@ -29,6 +30,8 @@
    :modules.packages.sql sql
    :modules.clojure clojure
    :modules.fennel fennel
+   :modules.fennel fennel
+   :modules.terraform terraform
    :modules.sql sql})
 
 (fn setup [options module-hook]

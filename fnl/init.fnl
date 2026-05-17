@@ -15,6 +15,7 @@
    :modules.packages.clojure []
    :modules.packages.sql []
    :modules.packages.janet []
+   :modules.terraform []
 
    :modules.org []
 
@@ -48,6 +49,7 @@
    :modules.packages.clojure []
    :modules.packages.sql []
    :modules.packages.janet []
+   :modules.terraform []
 
    :modules.org [:org-babel-like :notes]
 

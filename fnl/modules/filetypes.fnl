@@ -5,6 +5,7 @@
    :modules.packages.janet [:janet]
    :modules.fennel [:fennel]
    :modules.clojure [:clojure]
+   :modules.terraform [:terraform]
    :modules.janet [:janet]
    :modules.sql [:sql]
    :modules.git [:gitcommit]
