@@ -1,5 +1,11 @@
 (fn enable [])
 
+;; No longer using nvim-treesitter, using luarocks to install tree sitter grammars
+;; and add to runtime path
+;;luarocks \
+;;    --lua-version=5.5 \
+;;    --tree=$HOME/.local/share/nvim/plugged/ts \
+;;    install tree-sitter-sql
 (fn setup []
 
   (set vim.o.runtimepath (.. vim.o.runtimepath ",$HOME/.local/share/nvim/plugged/ts/lib/luarocks/rocks-5.5/tree-sitter-terraform.0.36-1"))
