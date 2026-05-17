@@ -59,7 +59,7 @@
    :modules.cmdline.chatgpt []
 
    ;; Editor integration
-   :modules.git [:fugitive]
+   :modules.git []
    :modules.colors 
    {:theme :catppuccin
     :colorscheme :catppuccin
