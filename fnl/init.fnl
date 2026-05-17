@@ -29,7 +29,6 @@
    :modules.git []
    :modules.statusline []
    :modules.quickfix []
-   :modules.indentline [] 
    :modules.colors []}
   :latest)
 
@@ -68,7 +67,6 @@
     :post-setup (fn [])}
    :modules.statusline []
    :modules.quickfix [] 
-   :modules.indentline [] 
 
    ;; Structure and syntax
    :modules.surround []})

@@ -9,8 +9,7 @@
   (plugins.register
     {:nvim-orgmode/orgmode :always
      :lukas-reineke/headlines.nvim {:for :org}
-     :akinsho/org-bullets.nvim {:for :org}
-     :dhruvasagar/vim-table-mode {:for :org}}))
+     :akinsho/org-bullets.nvim {:for :org} }))
 
 (fn setup [options]
   (let [o (accumulate 
@@ -19,7 +18,6 @@
               r))
         og (require :orgmode)]
     (og.setup {:mappings {:disable_all true}})
-    (set nvim.g.table_mode_map_prefix "T")
     (vim.api.nvim_create_autocmd 
       "FileType" 
       {:pattern :org

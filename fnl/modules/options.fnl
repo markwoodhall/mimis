@@ -10,7 +10,6 @@
 (set nvim.o.tabstop 4)
 (set nvim.o.softtabstop 4)
 (set nvim.o.tabline "0")
-(set nvim.o.colorcolumn "80")
 (set nvim.o.synmaxcol 9999)
 (set nvim.o.completeopt "menu,menuone,noselect")
 (set nvim.o.shell "zsh")
