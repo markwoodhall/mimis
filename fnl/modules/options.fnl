@@ -22,6 +22,7 @@
 (set nvim.o.signcolumn "number")
 (set nvim.o.cmdheight 0) 
 (set nvim.o.winborder :none) 
+(set nvim.o.scrolloff 35) 
 
 (nvim.ex.set :ruler)
 (nvim.ex.set :incsearch)
