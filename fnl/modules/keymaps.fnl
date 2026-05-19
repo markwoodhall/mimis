@@ -78,7 +78,7 @@
            (let [mimis (require :mimis)]
              (set vim.g.recent_files (icollect [_ v (ipairs vim.v.oldfiles)]
                                        (when (mimis.exists? (vim.fn.expand v))
-                                         {:filename v :lnum 1 :text ""}))))))}))
+                                         {:filename v :lnum 1 :text "Last Opened: Previous session"}))))))}))
 
   (vim.keymap.set "n" "<Esc><Esc>" "<c-\\><c-n>:q<CR>")
 
