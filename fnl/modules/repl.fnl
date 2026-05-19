@@ -26,14 +26,16 @@
              (not= (. repl :repls path) nil))
       (. repl :repls path)
       (let [buf (vim.api.nvim_create_buf true true)
-              r {:last-ns nil
-                 :buf buf
-                 :win (vim.api.nvim_open_win 
-                        buf
-                        true 
-                        repl.window-options)}]
-          (set (. repl :repls path) r)
-          (. repl :repls path))))) 
+            r {:last-ns nil
+               :buf buf
+               :win (vim.api.nvim_open_win 
+                      buf
+                      true 
+                      repl.window-options)}]
+
+        (vim.keymap.set "n" "<esc><esc>" "<space>msh" {:buffer buf :remap true})
+        (set (. repl :repls path) r)
+        (. repl :repls path))))) 
 
 (fn set-project-repl [v]
   (let [path (vim.fn.call "FindRootDirectory" [])]
