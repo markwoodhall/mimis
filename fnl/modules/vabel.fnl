@@ -15,7 +15,7 @@
                                                                                            (string.find v "-$")) "|" " |")) v))))] 
             (table.insert t 1 (.. (mimis.pad-string " " indent) "#+BEGIN_EXAMPLE " output-lang))
             (table.insert t 1 (.. (mimis.pad-string " " indent) "#+RESULTS:"))
-            (table.insert t 1 "")
+            ;;(table.insert t 1 "")
             (table.insert t (.. (mimis.pad-string " " indent) "#+END_EXAMPLE"))
             t)
     _ (let [t (mimis.split results "\n")
