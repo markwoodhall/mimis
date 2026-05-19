@@ -30,7 +30,6 @@
    :modules.packages.sql sql
    :modules.clojure clojure
    :modules.fennel fennel
-   :modules.fennel fennel
    :modules.terraform terraform
    :modules.sql sql})
 
