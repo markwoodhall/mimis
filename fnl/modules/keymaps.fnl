@@ -61,10 +61,11 @@
          (fn []
            (let [mimis (require :mimis)
                  old (icollect [_ v (ipairs vim.v.oldfiles)]
-                       (when (< (mimis.count-matches v "BqfPreview*") 1)
-                         {:filename v :lnum 1 :text ""}))
+                       (when (mimis.exists? (vim.fn.expand v))
+                         {:filename v :lnum 1 :text "Last opened: Previous session"}))
                  recent [(when vim.g.recent_files (unpack vim.g.recent_files)) (when old (unpack old))]]
-             (set vim.g.recent_files [{:filename (vim.fn.expand "%:p") :lnum 1 :text ""} (unpack recent)]))))})
+             (when (mimis.exists? (vim.fn.expand "%:p"))
+               (set vim.g.recent_files (vim.fn.uniq [{:filename (vim.fn.expand "%:p") :lnum 1 :text (.. "Last opened: " (os.date))} (unpack recent)]))))))})
 
     (vim.api.nvim_create_autocmd 
       "VimEnter" 
@@ -76,7 +77,7 @@
          (fn []
            (let [mimis (require :mimis)]
              (set vim.g.recent_files (icollect [_ v (ipairs vim.v.oldfiles)]
-                                       (when (< (mimis.count-matches v "BqfPreview*") 1)
+                                       (when (mimis.exists? (vim.fn.expand v))
                                          {:filename v :lnum 1 :text ""}))))))}))
 
   (vim.keymap.set "n" "<Esc><Esc>" "<c-\\><c-n>:q<CR>")
