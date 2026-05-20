@@ -1,5 +1,4 @@
 (local plugins (require :plugins))
-(local nvim (require :nvim))
 (local mimis (require :mimis))
 
 (fn depends []

@@ -13,7 +13,7 @@
    :catppuccin/nvim :63685e1562ef53873c9764b483d7ac5c7a608922 
    :kevinhwang91/nvim-bqf :1b24dc6050c34e8cd377b6b4cd6abe40509e0187 })
 
-(local latest {:nvim-treesitter/nvim-treesitter :main})
+(local latest {})
 
 {: stable
  : latest }
