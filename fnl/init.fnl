@@ -2,6 +2,8 @@
 (local _ (require :modules.options))
 (local package (require :packages.package))
 
+(vim.cmd "packadd cfilter")
+
 (package.enable 
   {;; Keymaps
    :modules.whichkey []
@@ -36,8 +38,8 @@
 (set vim.g.mimis-notes-path "/home/markwoodhall/notes")
 (set vim.g.mimis-notes-pandoc-opts "--template default.html -c https://cdn.simplecss.org/simple.min.css")
 
-(let [ui2 (require "vim._core.ui2")]
-  (ui2.enable))
+;;(let [ui2 (require "vim._core.ui2")]
+;;  (ui2.enable))
 
 (package.setup
   {;; Keymaps
