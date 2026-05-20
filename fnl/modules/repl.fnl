@@ -20,6 +20,11 @@
                                   (. 1)
                                   (. :height)) 3) 0.5))}})
 
+(fn project-has-repl []
+  (let [path (vim.fn.call "FindRootDirectory" [])]
+    (and (. repl :repls path)
+         (not= (. repl :repls path) nil))))
+
 (fn get-project-repl []
   (let [path (vim.fn.call "FindRootDirectory" [])]
     (if (and (. repl :repls path)
@@ -67,20 +72,22 @@
       (set-project-repl r))))
 
 (fn show-repl [enter]
-  (let [r (get-project-repl)]
-    (when (not r.win)
-      (if (and (not r.win) (> (vim.fn.buffer_exists r.buf) 0))
-        (do 
-          (set r.win 
-               (vim.api.nvim_open_win 
-                 r.buf 
-                 enter
-                 repl.window-options))
-          (when enter
-            (vim.cmd.normal "G"))
-          (set-project-repl r))
-        (do (kill-project-repl)
-          (print "Managed repl was closed, please start it again."))))))
+  (if (project-has-repl)
+    (let [r (get-project-repl)]
+      (when (not r.win)
+        (if (and (not r.win) (> (vim.fn.buffer_exists r.buf) 0))
+          (do 
+            (set r.win 
+                 (vim.api.nvim_open_win 
+                   r.buf 
+                   enter
+                   repl.window-options))
+            (when enter
+              (vim.cmd.normal "G"))
+            (set-project-repl r))
+          (do (kill-project-repl)
+            (print "Managed repl was closed, please start it again.")))))
+    (print "No repl started, please start.")))
 
 (fn kill-repl []
   (let [r (get-project-repl)]
