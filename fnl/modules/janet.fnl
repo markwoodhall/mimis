@@ -43,14 +43,7 @@
            (m-binding "sx" r.kill-repl "kill-repl")
            (m-binding "si" (partial r.jack-in :janet) "jack-in")
 
-           (eval-binding "e" (partial r.send root-expression :none) "expression-to-repl")
-
-           (let [wk (require :which-key)
-                 buffer (vim.api.nvim_get_current_buf)] 
-             (wk.add 
-               [{1 (.. nvim.g.mapleader "m") :group "janet" :buffer buffer}
-                {1 (.. nvim.g.mapleader "ms") :group "sesman" :buffer buffer}
-                {1 (.. nvim.g.mapleader "me") :group "evaluation" :buffer buffer}])))))}))
+           (eval-binding "e" (partial r.send root-expression :none) "expression-to-repl"))))}))
 
 {: enable
  : setup 
