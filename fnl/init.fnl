@@ -64,7 +64,7 @@
    :modules.git []
    :modules.colors 
    {:theme :catppuccin
-    :colorscheme :catppuccin
+    :colorscheme :catppuccin-mocha
     :background :dark
     :post-setup (fn [])}
    :modules.statusline []
