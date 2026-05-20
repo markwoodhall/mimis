@@ -1,6 +1,4 @@
-(local plugins (require :plugins))
 (local ft (require :modules.filetypes))
-(local nvim (require :nvim))
 
 (var lsp-languages [])
 (var lsp-servers [])
@@ -11,12 +9,25 @@
         languages (or languages 
                       (. ft.module-filetypes module-hook) 
                       [])]
-    (set lsp-languages (mimis.concat lsp-languages languages))
-    (plugins.register
-      {:neovim/nvim-lspconfig {:for lsp-languages}})))
+    (set lsp-languages (mimis.concat lsp-languages languages))))
 
-(fn setup-cmp [servers]
+(fn setup-lsp [servers]
   (each [_ server (pairs servers)]
+    (let [config (case server
+                   "fennel_ls" {:cmd [:fennel-ls]
+                                :filetypes [:fennel]
+                                :root_markers ["flsproject.fnl"]}
+                   "clojure_lsp" {:cmd [:clojure-lsp]
+                                  :filetypes [:clojure]
+                                  :root_markers ["project.clj" "deps.edn" "build.boot" "shadow-cljs.edn" "bb.edn"]}
+                   :terraform_lsp {:cmd [:terraform-lsp]
+                                   :filetypes [:terraform :hcl]
+                                   :root_markers [".terraform" ".git"]}
+                   :sqlls {:cmd [:sql-language-server :up "--method" :stdio]
+                           :filetypes [:sql :mysql]
+                           :root_markers [".sqllsrc.json"]})] 
+
+      (vim.lsp.config server config))
     (vim.lsp.enable server)))
 
 (local fennel {:servers [:fennel_ls]})
@@ -49,7 +60,7 @@
          vim.schedule 
          (fn []
            (when (not lsp-setup-done)
-             (setup-cmp lsp-servers)
+             (setup-lsp lsp-servers)
              (let [mimis (require :mimis)]
                (mimis.leader-map "n" "ldD" ":lua vim.diagnostic.setqflist()<CR>" {:desc "project-diagnostics"})
                (mimis.leader-map "n" "ldd" ":lua vim.diagnostic.setloclist()<CR>" {:desc "buffer-diagnostics"})
@@ -78,20 +89,7 @@
        :callback 
        (partial 
          vim.schedule (fn [] 
-                        (vim.lsp.completion.get)))})
-
-    ;;(vim.api.nvim_create_autocmd 
-    ;;  ["BufWritePre"] 
-    ;;  {:pattern "*.*"
-    ;;   :group (vim.api.nvim_create_augroup "mimis-lsp-formatting" {:clear true})
-    ;;   :desc "LSP format on save"
-    ;;   :callback 
-    ;;   (partial 
-    ;;     vim.schedule 
-    ;;     (fn [] 
-    ;;       (when (vim.lsp.buf_is_attached)
-    ;;         (vim.lsp.buf.format))))})
-    ))
+                        (vim.lsp.completion.get)))})))
 
 {: enable 
  : setup }

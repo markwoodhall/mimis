@@ -69,7 +69,6 @@
                shadow-jack (partial r.send "(shadow/repl :app)" :none)
                shadow-watch (partial r.send "(shadow/watch :app)" :none)]
 
-
            (m-binding "ss" (partial r.show-repl true) "jump-to-repl")
            (m-binding "sh" r.hide-repl "hide-repl")
            (m-binding "sj" shadow-jack "hook-into-shadow-repl")
