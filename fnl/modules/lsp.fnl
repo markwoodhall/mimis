@@ -86,17 +86,18 @@
          vim.schedule (fn [] 
                         (vim.lsp.completion.get)))})
 
-    (vim.api.nvim_create_autocmd 
-      ["BufWritePre"] 
-      {:pattern "*.*"
-       :group (vim.api.nvim_create_augroup "mimis-lsp-formatting" {:clear true})
-       :desc "LSP format on save"
-       :callback 
-       (partial 
-         vim.schedule 
-         (fn [] 
-           (when (vim.lsp.buf_is_attached)
-             (vim.lsp.buf.format))))})))
+    ;;(vim.api.nvim_create_autocmd 
+    ;;  ["BufWritePre"] 
+    ;;  {:pattern "*.*"
+    ;;   :group (vim.api.nvim_create_augroup "mimis-lsp-formatting" {:clear true})
+    ;;   :desc "LSP format on save"
+    ;;   :callback 
+    ;;   (partial 
+    ;;     vim.schedule 
+    ;;     (fn [] 
+    ;;       (when (vim.lsp.buf_is_attached)
+    ;;         (vim.lsp.buf.format))))})
+    ))
 
 {: enable 
  : setup }
