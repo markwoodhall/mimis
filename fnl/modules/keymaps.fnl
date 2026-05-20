@@ -105,13 +105,7 @@
 
 ;; defaults
 (vim.keymap.set "n" "<j>" "<j><g>")
-(vim.keymap.set "n" "<k>" "<k><g>")
-(let [wk (require :which-key)] 
-  (wk.add 
-    [{1 (.. nvim.g.mapleader "t") :group "terminal"}
-     {1 (.. nvim.g.mapleader "b") :group "buffers"}
-     {1 (.. nvim.g.mapleader "f") :group "find"}
-     {1 (.. nvim.g.mapleader "w") :group "window"}])))
+(vim.keymap.set "n" "<k>" "<k><g>"))
 
 {: enable
  : setup }

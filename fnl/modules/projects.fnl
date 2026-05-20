@@ -21,10 +21,6 @@
       (set vim.g.rooter_patterns (mimis.concat vim.g.rooter_patterns options.patterns)))
     (set vim.g.rooter_silent_chdir 1)
 
-    (let [wk (require :which-key)] 
-    (wk.add 
-      [{1 (.. nvim.g.mapleader "p") :group "project"}]))
-
     (mimis.leader-map "n" "pf" ":find " {:desc "find file"})
 
     (mimis.leader-map 

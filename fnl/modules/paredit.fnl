@@ -42,14 +42,7 @@
           (mimis.leader-map "n" "ssb" ":call PareditMoveLeft()<CR>" {:desc "slurp-backwords" :buffer buffer})
           (mimis.leader-map "n" "ssf" ":call PareditMoveRight()<CR>" {:desc "slurp-forwards" :buffer buffer})
           (mimis.leader-map "n" "suu" ":call PareditSplice()<CR>" {:desc "unwrap-form" :buffer buffer})
-          (mimis.leader-map "n" "sur" ":call PareditRaise()<CR>" {:desc "raise-form" :buffer buffer})
-
-          (let [wk (require :which-key)] 
-            (wk.add 
-              [{1 (.. nvim.g.mapleader "s") :group "smartparens" :buffer buffer}
-               {1 (.. nvim.g.mapleader "sw") :group "wrap" :buffer buffer}
-               {1 (.. nvim.g.mapleader "ss") :group "slurp" :buffer buffer}
-               {1 (.. nvim.g.mapleader "su") :group "unwrap" :buffer buffer}])))))}))
+          (mimis.leader-map "n" "sur" ":call PareditRaise()<CR>" {:desc "raise-form" :buffer buffer}))))}))
 
 {: enable
  : setup }

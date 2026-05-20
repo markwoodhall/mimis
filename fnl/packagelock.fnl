@@ -9,7 +9,6 @@
    :jaawerth/fennel.vim :c6a9c035ca108cbb24273d96cd6277fb8fbc60b4
    :nvim-orgmode/orgmode :1692af5a0dd363851b7846c3636040c53f9cdc79
    :akinsho/org-bullets.nvim :46ae687e22192fb806b5977d664ec98af9cf74f6
-   :folke/which-key.nvim :cc54b75fcbd8703e633f93cb0334fb13e2cfbd7e
    :neovim/nvim-lspconfig :b064131428f6bbbbc905f4451ba6779fda334a3a  
    :clojure-vim/clojure.vim :06196d8fcfe8ac610f2471b3452bc54c314482a4
    :catppuccin/nvim :63685e1562ef53873c9764b483d7ac5c7a608922 

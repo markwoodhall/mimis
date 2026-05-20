@@ -6,7 +6,6 @@
 
 (package.enable 
   {;; Keymaps
-   :modules.whichkey []
    :modules.keymaps []
 
    ;; Structure and syntax
@@ -43,7 +42,6 @@
 
 (package.setup
   {;; Keymaps
-   :modules.whichkey []
    :modules.keymaps []
 
    ;; Language Support

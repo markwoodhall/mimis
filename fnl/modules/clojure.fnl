@@ -93,16 +93,6 @@
            (db-binding "i" init-db "init-db")
            (db-binding "m" migrate-db "migrate-db")
 
-           (let [wk (require :which-key)
-                 buffer (vim.api.nvim_get_current_buf)] 
-             (wk.add 
-               [{1 (.. nvim.g.mapleader "m") :group "clojure" :buffer buffer}
-                {1 (.. nvim.g.mapleader "ms") :group "sesman" :buffer buffer}
-                {1 (.. nvim.g.mapleader "mr") :group "reloaded" :buffer buffer}
-                {1 (.. nvim.g.mapleader "mt") :group "tests" :buffer buffer}
-                {1 (.. nvim.g.mapleader "md") :group "ragtime" :buffer buffer}
-                {1 (.. nvim.g.mapleader "me") :group "evaluation" :buffer buffer}]))
-
            (vim.api.nvim_create_user_command
              "ClojureConnect"
              (fn [opts]

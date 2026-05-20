@@ -27,8 +27,7 @@
        (partial 
          vim.schedule 
          (fn []
-           (let [wk (require :which-key)
-                 ob (require "org-bullets")
+           (let [ob (require "org-bullets")
                  headlines (require :headlines)
                  buffer (vim.api.nvim_get_current_buf)]
              (ob.setup)
@@ -54,19 +53,12 @@
                 )")}})
              (when (. o :notes)
                (require :modules.notes)
-               (wk.add 
-                [{1 (.. nvim.g.mapleader "m") :group "org" :buffer buffer}
-                 {1 (.. nvim.g.mapleader "mn") :group "notes" :buffer buffer}]
-                (mimis.leader-map "n" "mnn" ":NewNote" {:desc "new-note" :buffer buffer})
-                (mimis.leader-map "n" "mnr" ":ReviewNote" {:desc "review-note" :buffer buffer})
-                (mimis.leader-map "n" "mnp" ":ViewNotePdf" {:desc "view-note-pdf" :buffer buffer})
-                (mimis.leader-map "n" "mnh" ":ViewNoteHtml" {:desc "view-note-html" :buffer buffer})))
+               (mimis.leader-map "n" "mnn" ":NewNote" {:desc "new-note" :buffer buffer})
+               (mimis.leader-map "n" "mnr" ":ReviewNote" {:desc "review-note" :buffer buffer})
+               (mimis.leader-map "n" "mnp" ":ViewNotePdf" {:desc "view-note-pdf" :buffer buffer})
+               (mimis.leader-map "n" "mnh" ":ViewNoteHtml" {:desc "view-note-html" :buffer buffer}))
              (when (.  o :org-babel-like)
                (let [vabel (require :modules.vabel)]
-                 (wk.add 
-                   [{1 (.. nvim.g.mapleader "m") :group "org" :buffer buffer}
-                    {1 (.. nvim.g.mapleader "me") :group "evaluation" :buffer buffer}
-                    {1 (.. nvim.g.mapleader "mt") :group "tangle" :buffer buffer}])
                  (mimis.leader-map "n" "mee" vabel.eval-code-block {:desc "eval-code-block" :buffer buffer})
                  (mimis.leader-map "n" "mtf" vabel.tangle-blocks {:desc "tangle-file" :buffer buffer}))))))})))
 
