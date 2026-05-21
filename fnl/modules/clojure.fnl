@@ -1,4 +1,5 @@
 (local mimis (require :mimis))
+(local plugins (require :plugins))
 
 (fn depends []
   [:modules.treesitter]
@@ -27,6 +28,7 @@
 
 (fn enable []
   (set vim.o.runtimepath (.. vim.o.runtimepath ",$HOME/.local/share/nvim/plugged/ts/lib/luarocks/rocks-5.5/tree-sitter-clojure/0.0.32-1"))
+  (plugins.register {:clojure-vim/clojure.vim {:for :clojure}})
   (vim.lsp.config 
     :clojure_lsp 
     {:cmd [:clojure-lsp]
@@ -45,31 +47,31 @@
      :callback 
      (fn []
        (let [r (require :modules.repl)
-            dev (partial r.send "(dev)" :user)
-            go (partial r.send "(go)" :dev)
-            reset (partial r.send "(reset)" :dev)
-            stop (partial r.send  "(stop)" :dev)
-            system (partial r.send "@system")
-            reload (partial 
-                     r.send 
-                     (fn [] (.. "(clojure.core/require '" (r.current-ns) " :reload)"))
-                     :current)
-            reload-all (partial 
-                         r.send 
-                         (fn [] (.. "(clojure.core/require '" (r.current-ns) " :reload-all)"))
-                         (r.current-ns))
-            test (partial 
-                   r.send
-                   (fn [] (.. "(clojure.test/run-tests '" (r.current-ns) ")"))
-                   :current)
-            test-all (partial 
-                       r.send
-                       "(clojure.test/run-all-tests)"
-                       :current)
-            init-db (partial r.send "(use 'db) (db/init-schema)" :dev)
-            migrate-db (partial r.send  "(use 'db) (db/migrate-schema)" :dev)
-            shadow-jack (partial r.send "(shadow/repl :app)" :none)
-            shadow-watch (partial r.send "(shadow/watch :app)" :none)]
+             dev (partial r.send "(dev)" :user)
+             go (partial r.send "(go)" :dev)
+             reset (partial r.send "(reset)" :dev)
+             stop (partial r.send  "(stop)" :dev)
+             system (partial r.send "@system")
+             reload (partial 
+                      r.send 
+                      (fn [] (.. "(clojure.core/require '" (r.current-ns) " :reload)"))
+                      :current)
+             reload-all (partial 
+                          r.send 
+                          (fn [] (.. "(clojure.core/require '" (r.current-ns) " :reload-all)"))
+                          (r.current-ns))
+             test (partial 
+                    r.send
+                    (fn [] (.. "(clojure.test/run-tests '" (r.current-ns) ")"))
+                    :current)
+             test-all (partial 
+                        r.send
+                        "(clojure.test/run-all-tests)"
+                        :current)
+             init-db (partial r.send "(use 'db) (db/init-schema)" :dev)
+             migrate-db (partial r.send  "(use 'db) (db/migrate-schema)" :dev)
+             shadow-jack (partial r.send "(shadow/repl :app)" :none)
+             shadow-watch (partial r.send "(shadow/watch :app)" :none)]
 
          (m-binding "ss" (partial r.show-repl true) "jump-to-repl")
          (m-binding "sh" r.hide-repl "hide-repl")
@@ -99,7 +101,7 @@
            (fn [opts]
              (let [args (accumulate 
                           [s ""
-                             _ v (ipairs (?. opts :fargs))]
+                           _ v (ipairs (?. opts :fargs))]
                           (.. s " " v))]
                (r.connect-in :clojure args)))
            {:bang false :desc "Connect to repl" :nargs "*"})
