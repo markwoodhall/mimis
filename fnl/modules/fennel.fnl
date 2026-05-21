@@ -1,4 +1,5 @@
 (local mimis (require :mimis))
+(local plugins (require :plugins))
 
 (fn depends []
   [:modules.treesitter]
@@ -6,9 +7,13 @@
 
 (fn enable []
   (set vim.o.runtimepath (.. vim.o.runtimepath ",$HOME/.local/share/nvim/plugged/ts/lib/luarocks/rocks-5.5/tree-sitter-fennel/0.0.37-1"))
-  (vim.lsp.config :fennel_ls {:cmd [:fennel-ls]
-                                     :filetypes [:fennel]
-                                     :root_markers ["flsproject.fnl"]}))
+  (plugins.register 
+    {:jaawerth/fennel.vim {:for [:fennel]}})
+  (vim.lsp.config 
+    :fennel_ls 
+    {:cmd [:fennel-ls]
+     :filetypes [:fennel]
+     :root_markers ["flsproject.fnl"]}))
 
 (fn m-binding [bind action desc]
   (mimis.leader-map
