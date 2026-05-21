@@ -1,6 +1,5 @@
 (fn depends []
   [:modules.fennel
-   :modules.treesitter
    :modules.paredit
    :modules.lsp])
 

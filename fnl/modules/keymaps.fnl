@@ -42,7 +42,9 @@
 
   ;; find
   (mimis.leader-map "n" "fg" ":silent vimgrep **/*<left><left><left><left><left><space>" {:desc "find"})
+  (mimis.leader-map "n" "fG" ":silent grep **/*<left><left><left><left><left><space>" {:desc "find-rw"})
   (mimis.leader-map "n" "fw" ":silent vimgrep <cword> **/*<CR>" {:desc "find-word"})
+  (mimis.leader-map "n" "fW" ":silent grep <cword> **/*<CR>" {:desc "find-word-rg"})
   (mimis.leader-map "n" "fr" ":call setloclist(0, g:recent_files) <bar> lopen<CR>" {:desc "find-recent"})
 
   (vim.api.nvim_create_autocmd
@@ -56,29 +58,25 @@
        :group cg
        :desc "Setup recent files"
        :callback 
-       (partial 
-         vim.schedule 
-         (fn []
-           (let [mimis (require :mimis)
-                 old (icollect [_ v (ipairs vim.v.oldfiles)]
-                       (when (mimis.exists? (vim.fn.expand v))
-                         {:filename v :lnum 1 :text "Last opened: Previous session"}))
-                 recent [(when vim.g.recent_files (unpack vim.g.recent_files)) (when old (unpack old))]]
-             (when (mimis.exists? (vim.fn.expand "%:p"))
-               (set vim.g.recent_files (vim.fn.uniq [{:filename (vim.fn.expand "%:p") :lnum 1 :text (.. "Last opened: " (os.date))} (unpack recent)]))))))})
+       (fn []
+         (let [mimis (require :mimis)
+                     old (icollect [_ v (ipairs vim.v.oldfiles)]
+                           (when (mimis.exists? (vim.fn.expand v))
+                             {:filename v :lnum 1 :text "Last opened: Previous session"}))
+                     recent [(when vim.g.recent_files (unpack vim.g.recent_files)) (when old (unpack old))]]
+           (when (mimis.exists? (vim.fn.expand "%:p"))
+             (set vim.g.recent_files (vim.fn.uniq [{:filename (vim.fn.expand "%:p") :lnum 1 :text (.. "Last opened: " (os.date))} (unpack recent)])))))})
 
     (vim.api.nvim_create_autocmd 
       "VimEnter" 
       {:group cg
        :desc "Setup recent files"
        :callback 
-       (partial 
-         vim.schedule 
-         (fn []
-           (let [mimis (require :mimis)]
-             (set vim.g.recent_files (icollect [_ v (ipairs vim.v.oldfiles)]
-                                       (when (mimis.exists? (vim.fn.expand v))
-                                         {:filename v :lnum 1 :text "Last Opened: Previous session"}))))))}))
+       (fn []
+         (let [mimis (require :mimis)]
+           (set vim.g.recent_files (icollect [_ v (ipairs vim.v.oldfiles)]
+                                     (when (mimis.exists? (vim.fn.expand v))
+                                       {:filename v :lnum 1 :text "Last Opened: Previous session"})))))}))
 
   (vim.keymap.set "n" "<Esc><Esc>" "<c-\\><c-n>:q<CR>")
 

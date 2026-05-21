@@ -75,15 +75,9 @@
 (set vim.o.undofile true)
 (set vim.o.undolevels 10000)
 
-(set vim.o.foldenable true)
-(set vim.o.foldlevel 4)
-(set vim.o.foldmethod "expr")
-(set vim.o.foldexpr "v:lua.vim.treesitter.foldexpr()")
-
 (vim.cmd "autocmd FileType qf wincmd J")
 (vim.cmd "autocmd FileType qf nmap <buffer> <cr> <cr>:lcl<cr>:ccl<cr>")
 (vim.cmd "au BufWritePre,FileWritePre * if @% !~# '\\(://\\)' | call mkdir(expand('<afile>:p:h'), 'p') | endif")
-
 
 (vim.api.nvim_create_autocmd 
     ["TermOpen"] 
@@ -91,11 +85,9 @@
      :group (vim.api.nvim_create_augroup "mimis-terminal-open" {:clear true})
      :desc "Autocmds for terminal open"
      :callback
-     (partial
-       vim.schedule
-       (fn []
-         (when (not= (vim.fn.mode) "t")
-           (vim.cmd.normal "G"))
-         ;; Set scrollback
-         (nvim.ex.setlocal "scrollback=25000")))})
+     (fn []
+       (when (not= (vim.fn.mode) "t")
+         (vim.cmd.normal "G"))
+       ;; Set scrollback
+       (nvim.ex.setlocal "scrollback=25000"))})
 

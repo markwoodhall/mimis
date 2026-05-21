@@ -1,13 +1,7 @@
-(local nvim (require :nvim))
-
 (fn bottom-pane
-  [filetype content listed scratch no-buffer]
+  [_ content listed scratch no-buffer]
   (vim.cmd "split")
   (let [buff (when (not no-buffer) (vim.api.nvim_create_buf listed scratch))]
-    (when filetype (set nvim.bo.filetype filetype))
-    (when (or (= filetype "markdown")
-              (= filetype "org"))
-      (vim.cmd "setlocal wrap"))
     (if scratch
       (when (not= content "") 
         (vim.api.nvim_buf_set_lines

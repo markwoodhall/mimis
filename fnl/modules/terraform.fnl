@@ -1,7 +1,6 @@
 (fn depends []
   [:modules.treesitter]
-  [:modules.projects]
-  [:modules.lsp])
+  [:modules.projects])
 
 (fn enable []
   (set vim.o.runtimepath (.. vim.o.runtimepath ",$HOME/.local/share/nvim/plugged/ts/lib/luarocks/rocks-5.5/tree-sitter-hcl/0.0.35-1"))

@@ -24,43 +24,41 @@
        :group (vim.api.nvim_create_augroup "mimis-orgmode" {:clear true})
        :desc "Setup org mode"
        :callback 
-       (partial 
-         vim.schedule 
-         (fn []
-           (let [ob (require "org-bullets")
-                 headlines (require :headlines)
-                 buffer (vim.api.nvim_get_current_buf)]
-             (ob.setup)
-             (headlines.setup
-              {:org
-               {:query
-                (vim.treesitter.query.parse
-                 "org"
-                 "(headline (stars) @headline)
+       (fn []
+         (let [ob (require "org-bullets")
+                  headlines (require :headlines)
+                  buffer (vim.api.nvim_get_current_buf)]
+           (ob.setup)
+           (headlines.setup
+             {:org
+             {:query
+             (vim.treesitter.query.parse
+               "org"
+               "(headline (stars) @headline)
 
-                (
-                    (expr) @dash
-                    (#match? @dash \"^-----+$\")
+               (
+                (expr) @dash
+                (#match? @dash \"^-----+$\")
                 )
 
-                (block
-                    name: (expr) @_name
-                    (#match? @_name \"(SRC|src|QUOTE|quote)\")
-                ) @codeblock
+               (block
+                 name: (expr) @_name
+                 (#match? @_name \"(SRC|src|QUOTE|quote)\")
+                 ) @codeblock
 
-                (paragraph . (expr) @quote
-                    (#eq? @quote \">\")
-                )")}})
-             (when (. o :notes)
-               (require :modules.notes)
-               (mimis.leader-map "n" "mnn" ":NewNote" {:desc "new-note" :buffer buffer})
-               (mimis.leader-map "n" "mnr" ":ReviewNote" {:desc "review-note" :buffer buffer})
-               (mimis.leader-map "n" "mnp" ":ViewNotePdf" {:desc "view-note-pdf" :buffer buffer})
-               (mimis.leader-map "n" "mnh" ":ViewNoteHtml" {:desc "view-note-html" :buffer buffer}))
-             (when (.  o :org-babel-like)
-               (let [vabel (require :modules.vabel)]
-                 (mimis.leader-map "n" "mee" vabel.eval-code-block {:desc "eval-code-block" :buffer buffer})
-                 (mimis.leader-map "n" "mtf" vabel.tangle-blocks {:desc "tangle-file" :buffer buffer}))))))})))
+               (paragraph . (expr) @quote
+                          (#eq? @quote \">\")
+                          )")}})
+               (when (. o :notes)
+                 (require :modules.notes)
+                 (mimis.leader-map "n" "mnn" ":NewNote" {:desc "new-note" :buffer buffer})
+                 (mimis.leader-map "n" "mnr" ":ReviewNote" {:desc "review-note" :buffer buffer})
+                 (mimis.leader-map "n" "mnp" ":ViewNotePdf" {:desc "view-note-pdf" :buffer buffer})
+                 (mimis.leader-map "n" "mnh" ":ViewNoteHtml" {:desc "view-note-html" :buffer buffer}))
+               (when (.  o :org-babel-like)
+                 (let [vabel (require :modules.vabel)]
+                   (mimis.leader-map "n" "mee" vabel.eval-code-block {:desc "eval-code-block" :buffer buffer})
+                   (mimis.leader-map "n" "mtf" vabel.tangle-blocks {:desc "tangle-file" :buffer buffer})))))})))
 
 {: enable
  : setup 

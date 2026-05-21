@@ -1,4 +1,3 @@
-(local nvim (require :nvim))
 (local plugins (require :plugins))
 (local ft (require :modules.filetypes))
 
