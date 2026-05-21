@@ -173,19 +173,15 @@
       (vim.api.nvim_create_autocmd 
         "BufWritePost" 
         {:pattern (.. (notes-path) "/**/*.org") 
-         :callback (partial 
-                     vim.schedule 
-                     (fn []
-                       (let [file (vim.fn.expand "%:p")]
-                         (export file))))})))
+         :callback (fn []
+                     (let [file (vim.fn.expand "%:p")]
+                       (export file)))})))
   {:bang false :desc "Change notes path" :nargs "*"
    :complete (fn [] (vim.fn.glob "*"))})
 
 (vim.api.nvim_create_autocmd 
   "BufWritePost" 
   {:pattern (.. (notes-path) "/**/*.org") 
-   :callback (partial 
-               vim.schedule 
-               (fn []
-                 (let [file (vim.fn.expand "%:p")]
-                   (export file))))})
+   :callback (fn []
+               (let [file (vim.fn.expand "%:p")]
+                 (export file)))})
