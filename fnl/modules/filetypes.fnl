@@ -11,4 +11,4 @@
    :modules.git [:gitcommit]
    :modules.org [:org]})
 
-{: module-filetypes}
+{: module-filetypes }
