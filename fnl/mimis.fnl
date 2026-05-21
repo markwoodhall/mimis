@@ -1,5 +1,5 @@
 (fn bottom-pane
-  [_ content listed scratch no-buffer]
+  [content listed scratch no-buffer]
   (vim.cmd "split")
   (let [buff (when (not no-buffer) (vim.api.nvim_create_buf listed scratch))]
     (if scratch
@@ -15,7 +15,7 @@
     buff))
 
 (fn bottom-pane-shell [cmd]
-  (let [buff (bottom-pane nil "" true true true)]
+  (let [buff (bottom-pane "" true true true)]
     (vim.cmd (.. "terminal " cmd))
     (vim.cmd "setlocal norelativenumber")
     (vim.cmd "setlocal nonumber")

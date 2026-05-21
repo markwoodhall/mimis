@@ -38,7 +38,7 @@
       (vim.cmd (.. "!pandoc --standalone " (pandoc-opts) " -o " out-html " " file)))))
 
 (fn note-window [note-file]
-  (mimis.bottom-pane "org" note-file true false)
+  (mimis.bottom-pane note-file true false)
   (vim.fn.call "setpos" ["." (vim.fn.call "getpos" ["$"])]))
 
 (fn start-note [workspace note-file include-date]
