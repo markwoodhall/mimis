@@ -20,11 +20,7 @@
    :modules.org []
 
    ;; Command line wrappers
-   :modules.cmdline.npm []
-   :modules.cmdline.aws []
-   :modules.cmdline.docker []
-   :modules.cmdline.common []
-   :modules.cmdline.chatgpt []
+   :modules.packages.cmdline []
 
    ;; Editor integrations
    :modules.git []
@@ -52,11 +48,7 @@
    :modules.org [:org-babel-like :notes]
 
    ;; Command line wrappers
-   :modules.cmdline.npm [] 
-   :modules.cmdline.aws [] 
-   :modules.cmdline.docker [] 
-   :modules.cmdline.common []
-   :modules.cmdline.chatgpt []
+   :modules.packages.cmdline []
 
    ;; Editor integration
    :modules.git []
