@@ -63,17 +63,7 @@
               args (gather-args opts)]
           (mimis.bottom-pane-shell (.. "tail " args))))
       {:bang false :desc "tail wrapper" :nargs "*"
-       :complete (partial completion "Tail")})
-
-    (vim.api.nvim_create_user_command
-      "Logs"
-      (fn [opts]
-        (let [mimis (require :mimis)
-              args (gather-args opts)]
-          (mimis.bottom-pane-shell (.. "tail " args))
-          (vim.cmd "setlocal syntax=json")))
-      {:bang false :desc "Logs wrapper" :nargs "*"
-       :complete (partial completion "Logs")})))
+       :complete (partial completion "Tail")})))
 
 {: enable
  : setup }
