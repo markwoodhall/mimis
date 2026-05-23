@@ -27,7 +27,7 @@
    :modules.statusline []
    :modules.quickfix []
    :modules.colors []
-   
+
    ;; AI
    :modules.claude []}
   :stable)

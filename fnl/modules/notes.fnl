@@ -98,7 +98,7 @@
 (fn insert-note-link [id workspace]
   (let [note-file (note-file (notes-path) id workspace ".org")]
     (when (mimis.exists? note-file)
-      (vim.cmd (.. "normal! i [[../" workspace "/" id ".org.html][" workspace "/" id "]]")))))
+      (vim.cmd (.. "normal! i [[../" workspace "/" id ".html][" workspace "/" id "]]")))))
 
 (vim.api.nvim_create_user_command
   "NewNote"
@@ -165,23 +165,22 @@
   {:bang false :desc "Insert Note Link" :nargs "*"
    :complete completion})
 
+(fn register-notes-export-autocmd []
+  (vim.api.nvim_create_autocmd
+    "BufWritePost"
+    {:pattern (.. (notes-path) "/**/*.org")
+     :group (vim.api.nvim_create_augroup "mimis-notes-export" {:clear true})
+     :callback (fn []
+                 (let [file (vim.fn.expand "%:p")]
+                   (export file)))}))
+
 (vim.api.nvim_create_user_command
   "SwitchNotesPath"
   (fn [opts]
     (let [path (?. (?. opts :fargs) 1)]
       (set vim.g.mimis-notes-path path)
-      (vim.api.nvim_create_autocmd 
-        "BufWritePost" 
-        {:pattern (.. (notes-path) "/**/*.org") 
-         :callback (fn []
-                     (let [file (vim.fn.expand "%:p")]
-                       (export file)))})))
+      (register-notes-export-autocmd)))
   {:bang false :desc "Change notes path" :nargs "*"
    :complete (fn [] (vim.fn.glob "*"))})
 
-(vim.api.nvim_create_autocmd 
-  "BufWritePost" 
-  {:pattern (.. (notes-path) "/**/*.org") 
-   :callback (fn []
-               (let [file (vim.fn.expand "%:p")]
-                 (export file)))})
+(register-notes-export-autocmd)
