@@ -59,12 +59,19 @@
        :desc "Setup recent files"
        :callback 
        (fn []
-         (let [old (icollect [_ v (ipairs vim.v.oldfiles)]
-                     (when (mimis.exists? (vim.fn.expand v))
-                       {:filename v :lnum 1 :text "Last opened: Previous session"}))
-               recent [(when vim.g.recent_files (unpack vim.g.recent_files)) (when old (unpack old))]]
-           (when (mimis.exists? (vim.fn.expand "%:p"))
-             (set vim.g.recent_files (vim.fn.uniq [{:filename (vim.fn.expand "%:p") :lnum 1 :text (.. "Last opened: " (os.date))} (unpack recent)])))))})
+         (let [current-file (vim.fn.expand "%:p")]
+           (when (mimis.exists? current-file)
+             (let [old (icollect [_ v (ipairs vim.v.oldfiles)]
+                         (when (mimis.exists? (vim.fn.expand v))
+                           {:filename v :lnum 1 :text "Last opened: Previous session"}))
+                   fresh {:filename current-file :lnum 1 :text (.. "Last opened: " (os.date))}
+                   all (mimis.concat (mimis.concat [fresh] (or vim.g.recent_files [])) old)
+                   seen {}]
+               (set vim.g.recent_files
+                    (icollect [_ e (ipairs all)]
+                      (when (and e.filename (not (. seen e.filename)))
+                        (tset seen e.filename true)
+                        e)))))))})
 
     (vim.api.nvim_create_autocmd 
       "VimEnter" 
