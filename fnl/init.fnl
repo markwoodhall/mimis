@@ -26,8 +26,11 @@
    :modules.git []
    :modules.statusline []
    :modules.quickfix []
-   :modules.colors []}
-  :latest)
+   :modules.colors []
+   
+   ;; AI
+   :modules.claude []}
+  :stable)
 
 (set vim.g.mimis-notes-path "/home/markwoodhall/notes")
 (set vim.g.mimis-notes-pandoc-opts "--template default.html -c https://cdn.simplecss.org/simple.min.css")
@@ -61,4 +64,7 @@
    :modules.quickfix [] 
 
    ;; Structure and syntax
-   :modules.surround []})
+   :modules.surround []
+
+   ;; AI
+   :modules.claude []})

@@ -2,11 +2,11 @@
 (local plugins (require :plugins))
 
 (fn depends []
-  [:modules.treesitter]
-  [:modules.projects])
+  [:modules.treesitter 
+   :modules.projects])
 
 (fn enable []
-  (set vim.o.runtimepath (.. vim.o.runtimepath ",$HOME/.local/share/nvim/plugged/ts/lib/luarocks/rocks-5.5/tree-sitter-fennel/0.0.37-1"))
+  (mimis.try-add-treesitter-path :fennel "0.0.37-1")
   (plugins.register 
     {:jaawerth/fennel.vim {:for [:fennel]}})
   (vim.lsp.config 
