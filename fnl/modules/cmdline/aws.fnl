@@ -1,5 +1,6 @@
 (local commands (require :commands))
 (local nvim (require "nvim"))
+(local mimis (require :mimis))
 
 (fn enable [])
 
@@ -9,8 +10,7 @@
 
 ;; logs
 (fn log-groups [command]
-  (let [mimis (require :mimis) 
-        profile (get-profile command)]
+  (let [profile (get-profile command)]
     (if profile
       (let [lgs (vim.fn.system (.. aws-command "--profile " profile " logs describe-log-groups | jq '.logGroups[].logGroupName'"))]
         (mimis.split lgs "\n"))
@@ -18,8 +18,7 @@
 
 ;; sqs
 (fn sqs-queues [command]
-  (let [mimis (require :mimis)
-        profile (get-profile command)]
+  (let [profile (get-profile command)]
     (if profile
       (let [lgs (vim.fn.system (.. aws-command "--profile " profile " sqs list-queues | jq '.QueueUrls[]'"))]
         (mimis.split lgs "\n"))
@@ -27,16 +26,14 @@
 
 ;; ecs
 (fn ecs-clusters [command]
-  (let [mimis (require :mimis)
-        profile (get-profile command)]
+  (let [profile (get-profile command)]
     (if profile
       (let [lgs (vim.fn.system (.. aws-command "--profile " profile " ecs list-clusters | jq '.clusterArns[]'"))]
         (mimis.split lgs "\n"))
       [])))
 
 (fn ecs-services [command]
-  (let [mimis (require :mimis)
-        profile (get-profile command)
+  (let [profile (get-profile command)
         cluster (commands.get-command-value "--cluster" command)]
     (if profile
       (let [lgs (vim.fn.system (.. aws-command "--profile " profile " ecs list-services --cluster " cluster " | jq '.serviceArns[]'"))]
@@ -44,8 +41,7 @@
       [])))
 
 (fn ecs-tasks [command]
-  (let [mimis (require :mimis) 
-        profile (get-profile command)
+  (let [profile (get-profile command)
         cluster (commands.get-command-value "--cluster" command)]
     (if (and profile cluster)
       (let [lgs (vim.fn.system (.. aws-command "--profile " profile " ecs list-tasks --cluster " cluster " | jq '.taskArns[]'"))]
@@ -54,21 +50,18 @@
 
 ;; rds
 (fn db-instances [command]
-  (let [mimis (require :mimis)
-        profile (get-profile command) ]
+  (let [profile (get-profile command) ]
     (if profile
       (let [lgs (vim.fn.system (.. aws-command "--profile " profile " rds describe-db-instances | jq '.DBInstances[].DBInstanceIdentifier'"))]
         (mimis.split lgs "\n"))
       [])))
 
 (fn profiles []
-  (let [mimis (require :mimis)
-        lgs (vim.fn.system "cat ~/.aws/config | grep '\\[profile ' | sed -e 's/\\[//g' -e 's/\\]//g' -e 's/profile //g'")]
+  (let [lgs (vim.fn.system "cat ~/.aws/config | grep '\\[profile ' | sed -e 's/\\[//g' -e 's/\\]//g' -e 's/profile //g'")]
     (mimis.split lgs "\n")))
 
 (fn completer [command]
-  (let [mimis (require :mimis)
-        command (vim.fn.substitute command "Aws" "aws" "")
+  (let [command (vim.fn.substitute command "Aws" "aws" "")
         lgs (vim.fn.system (.. "COMMAND_LINE='" command "' aws_completer"))
         col (mimis.split lgs "\n")]
     (accumulate 
@@ -90,8 +83,7 @@
 
 (fn completion [_ c]
   (vim.fn.sort
-    (let [mimis (require :mimis)
-          c-parts (mimis.split c " ")
+    (let [c-parts (mimis.split c " ")
           with-defaults (fn [c] 
                           [(unpack c)])]
       (case (mimis.last c-parts)
@@ -130,8 +122,7 @@
     (vim.api.nvim_create_user_command
       "Aws"
       (fn [opts]
-        (let [mimis (require :mimis)
-              args (accumulate 
+        (let [args (accumulate 
                      [s ""
                       _ v (ipairs (?. opts :fargs))]
                      (.. s " " v))]

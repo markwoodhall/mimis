@@ -1,18 +1,17 @@
 (local commands (require :commands))
+(local mimis (require :mimis))
 
 (fn enable [])
 
 (fn containers []
-  (let [mimis (require :mimis)
-        containers (vim.fn.system "docker ps --format \"{{json .}}\" | jq .Names | sed 's/\\\"//g'")]
+  (let [containers (vim.fn.system "docker ps --format \"{{json .}}\" | jq .Names | sed 's/\\\"//g'")]
     (mimis.split containers "\n")))
 
 (fn setup []
   (let [completion 
         (fn [_ c]
           (vim.fn.sort
-            (let [mimis (require :mimis)
-                  c-parts (mimis.split c " ")
+            (let [c-parts (mimis.split c " ")
                   with-defaults (fn [c] ["--format" (unpack c)])
                   with-containers (fn [] (with-defaults (containers)))]
               (mimis.concat 
@@ -55,8 +54,7 @@
     (vim.api.nvim_create_user_command
       "Docker"
       (fn [opts]
-        (let [mimis (require :mimis)
-              args (accumulate 
+        (let [args (accumulate 
                      [s ""
                       _ v (ipairs (?. opts :fargs))]
                      (.. s " " v))]

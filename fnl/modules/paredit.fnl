@@ -1,11 +1,11 @@
 (local plugins (require :plugins))
 (local ft (require :modules.filetypes))
+(local mimis (require :mimis))
 
 (var paredit-languages [])
 
 (fn enable [languages module-hook]
-  (let [mimis (require :mimis)
-        languages (or languages 
+  (let [languages (or languages 
                       (. ft.module-filetypes module-hook) 
                       [])]
     (set paredit-languages (mimis.concat paredit-languages languages))
@@ -21,10 +21,9 @@
     :desc "Setup paredit for specific filetypes"
     :callback 
     (fn []
-      (let [mimis (require :mimis) 
-                  buffer (vim.api.nvim_get_current_buf)
-                  wrap (fn [start end]
-                         (vim.cmd (.. "call PareditWrap('" start "','" end "')")))]
+      (let [buffer (vim.api.nvim_get_current_buf)
+            wrap (fn [start end]
+                   (vim.cmd (.. "call PareditWrap('" start "','" end "')")))]
 
         (set vim.g.paredit_electric_return 0)
 

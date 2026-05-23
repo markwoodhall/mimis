@@ -1,11 +1,12 @@
+(local mimis (require :mimis))
+
 (fn enable [])
 
 (fn setup []
   (let [completion 
         (fn [_ c]
           (vim.fn.sort
-            (let [mimis (require :mimis)
-                  c-parts (mimis.split c " ")]
+            (let [c-parts (mimis.split c " ")]
               (case (mimis.count-matches c "%s")
                 0 []
                 1 (accumulate 
@@ -34,8 +35,7 @@
     (vim.api.nvim_create_user_command
       "Npm"
       (fn [opts]
-        (let [mimis (require :mimis)
-              args (accumulate 
+        (let [args (accumulate 
                      [s ""
                       _ v (ipairs (?. opts :fargs))]
                      (.. s " " v))]
