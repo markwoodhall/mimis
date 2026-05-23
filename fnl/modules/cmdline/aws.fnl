@@ -94,7 +94,7 @@
           c-parts (mimis.split c " ")
           with-defaults (fn [c] 
                           [(unpack c)])]
-      (match (mimis.last c-parts)
+      (case (mimis.last c-parts)
         "--log-group-name" (for-service c :logs log-groups) 
         "--queue-url" (for-service c :sqs sqs-queues)
         "--cluster" (for-service c :ecs ecs-clusters)
@@ -122,7 +122,7 @@
                                              "`date -d \"24 hours ago\" +\\%s000`"])) 
         "|" (for-command c :logs :filter-log-events (fn [_] [" jq '.events[].message | fromjson | {timestamp, exception}'"
                                                              " jq '.events[].message | fromjson | {timestamp, message}'"]))
-        _ (match (commands.get-last-double-switch c)
+        _ (case (commands.get-last-double-switch c)
             "tasks" (with-defaults (ecs-tasks c))
             _ (with-defaults (completer (.. c ""))))))))
 
