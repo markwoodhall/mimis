@@ -2,8 +2,8 @@
 (local plugins (require :plugins))
 
 (fn depends []
-  [:modules.treesitter]
-  [:modules.projects])
+  [:modules.treesitter 
+   :modules.projects])
 
 (fn m-binding [bind action desc]
   (mimis.leader-map
@@ -27,7 +27,7 @@
       (vim.treesitter.get_node_text value 0))))
 
 (fn enable []
-  (set vim.o.runtimepath (.. vim.o.runtimepath ",$HOME/.local/share/nvim/plugged/ts/lib/luarocks/rocks-5.5/tree-sitter-clojure/0.0.32-1"))
+  (mimis.try-add-treesitter-path :clojure "0.0.32-1")
   (plugins.register {:clojure-vim/clojure.vim {:for :clojure}})
   (vim.lsp.config 
     :clojure_lsp 

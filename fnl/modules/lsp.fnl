@@ -7,8 +7,7 @@
         languages (or languages 
                       (. ft.module-filetypes module-hook) 
                       [])]
-    (set lsp-languages (mimis.concat lsp-languages languages))
-    (vim.lsp.semantic_tokens.enable false)))
+    (set lsp-languages (mimis.concat lsp-languages languages))))
 
 (fn setup []
   (vim.api.nvim_create_autocmd 

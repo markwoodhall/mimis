@@ -54,16 +54,15 @@
   (let [cg (vim.api.nvim_create_augroup "mimis-recentf" {:clear true})]
     (vim.api.nvim_create_autocmd 
       "BufRead" 
-      {:pattern "*.*"
+      {:pattern "*"
        :group cg
        :desc "Setup recent files"
        :callback 
        (fn []
-         (let [mimis (require :mimis)
-                     old (icollect [_ v (ipairs vim.v.oldfiles)]
-                           (when (mimis.exists? (vim.fn.expand v))
-                             {:filename v :lnum 1 :text "Last opened: Previous session"}))
-                     recent [(when vim.g.recent_files (unpack vim.g.recent_files)) (when old (unpack old))]]
+         (let [old (icollect [_ v (ipairs vim.v.oldfiles)]
+                     (when (mimis.exists? (vim.fn.expand v))
+                       {:filename v :lnum 1 :text "Last opened: Previous session"}))
+               recent [(when vim.g.recent_files (unpack vim.g.recent_files)) (when old (unpack old))]]
            (when (mimis.exists? (vim.fn.expand "%:p"))
              (set vim.g.recent_files (vim.fn.uniq [{:filename (vim.fn.expand "%:p") :lnum 1 :text (.. "Last opened: " (os.date))} (unpack recent)])))))})
 
@@ -73,10 +72,9 @@
        :desc "Setup recent files"
        :callback 
        (fn []
-         (let [mimis (require :mimis)]
-           (set vim.g.recent_files (icollect [_ v (ipairs vim.v.oldfiles)]
-                                     (when (mimis.exists? (vim.fn.expand v))
-                                       {:filename v :lnum 1 :text "Last Opened: Previous session"})))))}))
+         (set vim.g.recent_files (icollect [_ v (ipairs vim.v.oldfiles)]
+                                   (when (mimis.exists? (vim.fn.expand v))
+                                     {:filename v :lnum 1 :text "Last Opened: Previous session"}))))}))
 
   (vim.keymap.set "n" "<Esc><Esc>" "<c-\\><c-n>:q<CR>")
 
@@ -99,11 +97,7 @@
   "n" 
   "tn" 
   (partial mimis.bottom-pane-shell nvim.o.shell)
-  {:desc "new-terminal"})
-
-;; defaults
-(vim.keymap.set "n" "<j>" "<j><g>")
-(vim.keymap.set "n" "<k>" "<k><g>"))
+  {:desc "new-terminal"}))
 
 {: enable
  : setup }

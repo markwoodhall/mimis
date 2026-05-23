@@ -75,7 +75,7 @@
   (if (project-has-repl)
     (let [r (get-project-repl)]
       (when (not r.win)
-        (if (and (not r.win) (> (vim.fn.buffer_exists r.buf) 0))
+        (if (and (not r.win) (> (vim.fn.bufexists r.buf) 0))
           (do 
             (set r.win 
                  (vim.api.nvim_open_win 
