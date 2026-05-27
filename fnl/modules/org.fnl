@@ -1,4 +1,3 @@
-(local nvim (require :nvim))
 (local mimis (require :mimis))
 (local plugins (require :plugins))
 
@@ -18,6 +17,12 @@
               r))
         og (require :orgmode)]
     (og.setup {:mappings {:disable_all true}})
+    (when (. o :notes)
+      (require :modules.notes)
+      (mimis.leader-map "n" "nn" ":NewNote" {:desc "new-note"})
+      (mimis.leader-map "n" "nr" ":ReviewNote" {:desc "review-note"})
+      (mimis.leader-map "n" "np" ":ViewNotePdf" {:desc "view-note-pdf"})
+      (mimis.leader-map "n" "nh" ":ViewNoteHtml" {:desc "view-note-html"}))
     (vim.api.nvim_create_autocmd 
       "FileType" 
       {:pattern :org
@@ -49,12 +54,7 @@
                (paragraph . (expr) @quote
                           (#eq? @quote \">\")
                           )")}})
-               (when (. o :notes)
-                 (require :modules.notes)
-                 (mimis.leader-map "n" "mnn" ":NewNote" {:desc "new-note" :buffer buffer})
-                 (mimis.leader-map "n" "mnr" ":ReviewNote" {:desc "review-note" :buffer buffer})
-                 (mimis.leader-map "n" "mnp" ":ViewNotePdf" {:desc "view-note-pdf" :buffer buffer})
-                 (mimis.leader-map "n" "mnh" ":ViewNoteHtml" {:desc "view-note-html" :buffer buffer}))
+               
                (when (.  o :org-babel-like)
                  (let [vabel (require :modules.vabel)]
                    (mimis.leader-map "n" "mee" vabel.eval-code-block {:desc "eval-code-block" :buffer buffer})
