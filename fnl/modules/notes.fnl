@@ -170,9 +170,11 @@
     "BufWritePost"
     {:pattern (.. (notes-path) "/**/*.org")
      :group (vim.api.nvim_create_augroup "mimis-notes-export" {:clear true})
-     :callback (fn []
-                 (let [file (vim.fn.expand "%:p")]
-                   (export file)))}))
+     :callback (partial
+                 vim.schedule
+                 (fn []
+                   (let [file (vim.fn.expand "%:p")]
+                     (export file))))}))
 
 (vim.api.nvim_create_user_command
   "SwitchNotesPath"
