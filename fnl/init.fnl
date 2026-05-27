@@ -33,7 +33,7 @@
   :stable)
 
 (set vim.g.mimis-notes-path "/home/markwoodhall/notes")
-(set vim.g.mimis-notes-pandoc-opts "--data-dir=/home/markwoodhall/.pandoc --template default.html -c https://cdn.simplecss.org/simple.min.css")
+(set vim.g.mimis-notes-pandoc-opts "--data-dir=/home/markwoodhall/.pandoc --template default.html5 -c https://cdn.simplecss.org/simple.min.css")
 
 (let [ui2 (require "vim._core.ui2")]
   (ui2.enable))
