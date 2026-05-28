@@ -43,7 +43,7 @@
 
 (fn start-note [workspace note-file include-date]
   (with-open [fout (io.open note-file :w)]
-    (fout:write (.. "#+TITLE: " (string.upper workspace) " NOTES"))
+    (fout:write (.. "#+TITLE: " (string.upper workspace)))
     (fout:write "\n")
     (fout:write (.. "#+AUTHOR: " (vim.fn.expand "$USER")))
     (fout:write "\n")
@@ -184,5 +184,13 @@
       (register-notes-export-autocmd)))
   {:bang false :desc "Change notes path" :nargs "*"
    :complete (fn [] (vim.fn.glob "*"))})
+
+(vim.api.nvim_create_user_command
+  "RebuildNotes"
+  (fn [_]
+    (let [notes (mimis.glob (.. (notes-path) "/**/*.org"))]
+        (each [_ v (ipairs notes)]
+          (export v))))
+  {:bang false :desc "Rebuild all notes" :nargs "*" })
 
 (register-notes-export-autocmd)
