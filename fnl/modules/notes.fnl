@@ -38,7 +38,9 @@
       (vim.cmd (.. "!pandoc --standalone " (pandoc-opts) " -o " out-html " " file)))))
 
 (fn note-window [note-file]
-  (mimis.bottom-pane note-file true false)
+  (mimis.side-pane note-file true false false)
+  (vim.cmd "setlocal wrap")
+  (vim.cmd "setlocal spell")
   (vim.fn.call "setpos" ["." (vim.fn.call "getpos" ["$"])]))
 
 (fn start-note [workspace note-file include-date]
@@ -174,7 +176,8 @@
                  vim.schedule
                  (fn []
                    (let [file (vim.fn.expand "%:p")]
-                     (export file))))}))
+                     (when (vim.endswith file ".org")
+                       (export file)))))}))
 
 (vim.api.nvim_create_user_command
   "SwitchNotesPath"
