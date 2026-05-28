@@ -1,6 +1,6 @@
-(fn bottom-pane
-  [content listed scratch no-buffer]
-  (vim.cmd "split")
+(fn pane
+  [content listed scratch no-buffer split]
+  (vim.cmd split)
   (let [buff (when (not no-buffer) (vim.api.nvim_create_buf listed scratch))]
     (if scratch
       (when (not= content "") 
@@ -10,9 +10,18 @@
           false
           (vim.fn.split content "\\n" "g")))
       (when (not= content "") (vim.cmd (.. "e " content))))
-    (vim.cmd "wincmd J")
-    (vim.cmd "25wincmd_")
+    (when (= "split" split)
+      (vim.cmd "wincmd J")
+      (vim.cmd "25wincmd_"))
     buff))
+
+(fn bottom-pane
+  [content listed scratch no-buffer]
+  (pane content listed scratch no-buffer "split"))
+
+(fn side-pane
+  [content listed scratch no-buffer]
+  (pane content listed scratch no-buffer "vsplit"))
 
 (fn bottom-pane-shell [cmd]
   (let [buff (bottom-pane "" true true true)]
@@ -140,6 +149,7 @@
 {: bottom-pane
  : bottom-pane-buff
  : bottom-pane-shell
+ : side-pane
  : first
  : second
  : last

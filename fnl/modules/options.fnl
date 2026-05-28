@@ -23,6 +23,7 @@
 (set nvim.o.cmdheight 0) 
 (set nvim.o.winborder :none) 
 (set nvim.o.scrolloff 35) 
+(set nvim.o.spelllang :en_gb) 
 
 (nvim.ex.set :ruler)
 (nvim.ex.set :incsearch)
