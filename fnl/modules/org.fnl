@@ -16,7 +16,7 @@
             (do (set (. r v ) v)
               r))
         og (require :orgmode)]
-    (og.setup {:mappings {:disable_all true}})
+    (og.setup {:mappings {:disable_all true} :org_startup_indented true})
     (when (. o :notes)
       (require :modules.notes)
       (mimis.leader-map "n" "nn" ":NewNote" {:desc "new-note"})

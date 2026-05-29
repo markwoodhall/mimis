@@ -1,6 +1,13 @@
 (local mimis (require :mimis))
 (local notes-path (fn [] (or vim.g.mimis-notes-path (vim.fn.expand "~/mimis-notes"))))
 (local pandoc-opts (fn [] (or vim.g.mimis-notes-pandoc-opts "")))
+(local notes-outputs (fn [] (or vim.g.mimis-notes-outputs [:html])))
+
+(fn contains [tbl v]
+ (accumulate [c false _ tv (ipairs tbl)]
+   (if c
+     c
+     (= tv v))))
 
 (fn the-date []
   (os.date "%d-%m-%Y"))
@@ -26,16 +33,29 @@
           (let [parts (mimis.split v "/")]
             (string.gsub (. parts (length parts)) ".org" "")))))))
 
+(fn pandoc [command]
+  (vim.system 
+    [:pandoc (unpack (mimis.split command " "))] 
+    {:text true}
+    (fn [result]
+      (vim.schedule 
+        (fn []
+          (if (= result.code 0)
+            (vim.notify "exported" vim.log.levels.INFO)
+            (vim.notify result.stderr vim.log.levels.ERROR)))))))
+
 (fn export [file]
   (let [out-pdf (.. (string.gsub file ".org$" ".pdf"))
         out-md (.. (string.gsub file ".org$" ".md"))
         out-html ( .. (string.gsub file ".org$" ".html"))
-        toc (> (mimis.count-matches (mimis.join (vim.fn.readfile file) "") "toc:t") 0)]
-    (vim.cmd (.. "!pandoc --pdf-engine=xelatex -o " out-pdf " " file))
-    (vim.cmd (.. "!pandoc -o " out-md " " file))
-    (if toc
-      (vim.cmd (.. "!pandoc --standalone --toc " (pandoc-opts) " -o " out-html " " file))
-      (vim.cmd (.. "!pandoc --standalone " (pandoc-opts) " -o " out-html " " file)))))
+        toc (> (mimis.count-matches (mimis.join (vim.fn.readfile file) "") "toc:t") 0)
+        outputs (notes-outputs)]
+    (when (contains outputs :pdf) (pandoc (.. " --pdf-engine=xelatex -o " out-pdf " " file)) )
+    (when (contains outputs :md) (pandoc (.. " -o " out-md " " file)))
+    (when (contains outputs :html) 
+      (if toc
+        (pandoc (.. " --standalone --toc " (pandoc-opts) " -o " out-html " " file))
+        (pandoc (.. " --standalone " (pandoc-opts) " -o " out-html " " file))))))
 
 (fn note-window [note-file]
   (mimis.side-pane note-file true false false)
@@ -189,11 +209,18 @@
    :complete (fn [] (vim.fn.glob "*"))})
 
 (vim.api.nvim_create_user_command
-  "RebuildNotes"
-  (fn [_]
-    (let [notes (mimis.glob (.. (notes-path) "/**/*.org"))]
+    "RebuildNotes"
+    (fn [opts]
+      (let [workspace (?. (?. opts :fargs) 1)
+            workspace (when (not= "" workspace)
+                        workspace)
+            glob (if workspace 
+                   (.. (notes-path) (.. "/" workspace "/**/*.org"))
+                   (.. (notes-path) "/**/*.org"))
+            notes (mimis.glob glob)]
         (each [_ v (ipairs notes)]
           (export v))))
-  {:bang false :desc "Rebuild all notes" :nargs "*" })
+    {:bang false :desc "Rebuild notes" :nargs "*"
+     :complete completion})
 
 (register-notes-export-autocmd)
