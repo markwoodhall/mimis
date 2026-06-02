@@ -21,22 +21,18 @@
       (set vim.g.rooter_patterns (mimis.concat vim.g.rooter_patterns options.patterns)))
     (set vim.g.rooter_silent_chdir 1)
 
-    (mimis.leader-map "n" "pf" ":find " {:desc "find file"})
-
-    (mimis.leader-map 
-    "n" 
-    "pF" 
+    (vim.api.nvim_create_user_command
+    "PFiles"
     (fn [] 
       (let [patterns vim.g.rooter_patterns]
         (set vim.g.rooter_patterns [".git"])
         (let [project (vim.fn.call "FindRootDirectory" [])]
           (set vim.g.rooter_patterns patterns)
           (vim.cmd (.. "e " project)))))
-    {:desc "project-files"})
+    {:bang false :desc "Project files" })
     
-    (mimis.leader-map 
-    "n" 
-    "pt" 
+    (vim.api.nvim_create_user_command
+    "PTerminal" 
     (fn [] 
       (let [project (vim.fn.call "FindRootDirectory" [])
             buff (. project-terminals project)]
@@ -44,7 +40,7 @@
                  (> (vim.fn.bufexists buff) 0))
           (mimis.bottom-pane-buff buff)
           (set (. project-terminals project) (mimis.bottom-pane-shell nvim.o.shell)))))
-    {:desc "toggle-project-terminal"})))
+    {:bang false :desc "Project terminal" })))
 
 {: enable
  : setup }

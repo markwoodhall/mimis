@@ -18,11 +18,7 @@
         og (require :orgmode)]
     (og.setup {:mappings {:disable_all true} :org_startup_indented true})
     (when (. o :notes)
-      (require :modules.notes)
-      (mimis.leader-map "n" "nn" ":NewNote" {:desc "new-note"})
-      (mimis.leader-map "n" "nr" ":ReviewNote" {:desc "review-note"})
-      (mimis.leader-map "n" "np" ":ViewNotePdf" {:desc "view-note-pdf"})
-      (mimis.leader-map "n" "nh" ":ViewNoteHtml" {:desc "view-note-html"}))
+      (require :modules.notes))
     (vim.api.nvim_create_autocmd 
       "FileType" 
       {:pattern :org
