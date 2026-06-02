@@ -38,7 +38,7 @@
                       true 
                       repl.window-options)}]
 
-        (vim.keymap.set "n" "<esc><esc>" "<space>msh" {:buffer buf :remap true})
+        (vim.keymap.set "n" "<esc><esc>" ":ReplHide<CR>" {:buffer buf :remap true})
         (set (. repl :repls path) r)
         (. repl :repls path))))) 
 
@@ -52,8 +52,8 @@
 
 (fn current-ns []
   "("
-  (mimis.first 
-    (mimis.split (mimis.second (vim.fn.split (vim.fn.getline 1) " ")) ")")))
+    (mimis.first 
+      (mimis.split (mimis.second (vim.fn.split (vim.fn.getline 1) " ")) ")")))
 
 (fn in-ns [start-ns]
   (let [r (get-project-repl)]
@@ -102,10 +102,10 @@
     (if (and r r.repl r.buf)
       (do
         (when (not= :none ns)
-           (if (or (not ns)
-                   (= :current ns))
-             (in-ns)
-             (in-ns ns)))
+          (if (or (not ns)
+                  (= :current ns))
+            (in-ns)
+            (in-ns ns)))
         ((. r.repl :send) e))
       (print "Repl not connected"))))
 
@@ -190,6 +190,21 @@
       (do 
         (set r.repl (connect-repl filetype connection-str))
         (set-project-repl r)))))
+
+(vim.api.nvim_create_user_command
+  "ReplShow"
+  (partial show-repl true)
+  {:bang false :desc "Show repl"})
+
+(vim.api.nvim_create_user_command
+  "ReplHide"
+  hide-repl
+  {:bang false :desc "Hide repl"})
+
+(vim.api.nvim_create_user_command
+  "ReplKill"
+  kill-repl
+  {:bang false :desc "Kill repl"})
 
 {: current-ns
  : in-ns

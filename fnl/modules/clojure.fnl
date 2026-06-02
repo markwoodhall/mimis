@@ -6,22 +6,6 @@
   [:modules.treesitter 
    :modules.projects])
 
-(fn m-binding [bind action desc]
-  (mimis.leader-map
-    "n"
-    (.. "m" bind)
-    action
-    {:desc desc :buffer (vim.api.nvim_get_current_buf)}))
-
-(fn db-binding [bind action desc]
-  (m-binding (.. "d" bind) action desc))
-
-(fn reloaded-binding [bind action desc]
-  (m-binding (.. "r" bind) action desc))
-
-(fn eval-binding [bind action desc]
-  (m-binding (.. "e" bind) action desc))
-
 (fn root-expression []
   (let [value (vim.treesitter.get_node {:ignore_injections true})]
     (when value
@@ -77,28 +61,80 @@
          (set nvim.bo.suffixesadd ".clj,.cljs,.cljc,.edn")
          (set nvim.bo.includeexpr "substitute(substitute(v:fname,'\\.', '/', 'g'), '-', '_', 'g')")
 
-         (m-binding "ss" (partial r.show-repl true) "jump-to-repl")
-         (m-binding "sh" r.hide-repl "hide-repl")
-         (m-binding "sj" shadow-jack "hook-into-shadow-repl")
-         (m-binding "sw" shadow-watch "start-shadow-build")
-         (m-binding "sx" r.kill-repl "kill-repl")
-         (m-binding "si" (partial r.jack-in :clojure) "jack-in")
-         (m-binding "sc" ":ClojureConnect" "connect-to-running-repl")
-         (m-binding "tb" test "Run buffer tests")
-         (m-binding "tp" test-all "Run project tests")
+         (vim.api.nvim_create_user_command
+           "ShadowJack"
+           shadow-jack
+           {:bang false :desc "Jack into shadow repl"})
 
-         (eval-binding "e" (partial r.send root-expression) "expression-to-repl")
+         (vim.api.nvim_create_user_command
+           "ShadowWatch"
+           shadow-watch
+           {:bang false :desc "Start shadow watch"})
 
-         (reloaded-binding "d" dev "dev")
-         (reloaded-binding "g" go "reloaded-go")
-         (reloaded-binding "x" reset "reloaded-reset")
-         (reloaded-binding "S" stop "reloaded-stop")
-         (reloaded-binding "s" system "reloaded-system")
-         (reloaded-binding "r" reload "require-ns-with-reload")
-         (reloaded-binding "R" reload-all "require-ns-with-reload-all")
+         (vim.api.nvim_create_user_command
+           "Repl"
+           (partial r.jack-in :clojure)
+           {:bang false :desc "Start repl"})
 
-         (db-binding "i" init-db "init-db")
-         (db-binding "m" migrate-db "migrate-db")
+         (vim.api.nvim_create_user_command
+           "Test"
+           test-all
+           {:bang true :desc "Run project tests"})
+
+         (vim.api.nvim_create_user_command
+           "Test"
+           test
+           {:bang false :desc "Run buffer tests"})
+
+         (vim.api.nvim_create_user_command
+           "Eval"
+           (partial r.send root-expression)
+           {:bang false :desc "Eval current expression"})
+
+         (vim.api.nvim_create_user_command
+           "Dev"
+           dev
+           {:bang false :desc "Clojure dev namespace"})
+
+         (vim.api.nvim_create_user_command
+           "System"
+           system
+           {:bang false :desc "Reloaded system"})
+
+         (vim.api.nvim_create_user_command
+           "Reset"
+           reset
+           {:bang false :desc "Reloaded reset"})
+
+         (vim.api.nvim_create_user_command
+           "Go"
+           go
+           {:bang false :desc "Reloaded go"})
+
+         (vim.api.nvim_create_user_command
+           "Stop"
+           stop
+           {:bang false :desc "Reloaded stop"})
+
+         (vim.api.nvim_create_user_command
+           "Require"
+           reload
+           {:bang false :desc "Require namespace"})
+
+         (vim.api.nvim_create_user_command
+           "Require"
+           reload-all
+           {:bang true :desc "Require namespace with reload-all"})
+
+         (vim.api.nvim_create_user_command
+           "InitDb"
+           init-db
+           {:bang false :desc "Ragtime init-db"})
+
+         (vim.api.nvim_create_user_command
+           "MigrateDb"
+           migrate-db
+           {:bang false :desc "Ragtime migrate-db"})
 
          (vim.api.nvim_create_user_command
            "ClojureConnect"

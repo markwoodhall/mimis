@@ -50,11 +50,17 @@
                (paragraph . (expr) @quote
                           (#eq? @quote \">\")
                           )")}})
-               
                (when (.  o :org-babel-like)
                  (let [vabel (require :modules.vabel)]
-                   (mimis.leader-map "n" "mee" vabel.eval-code-block {:desc "eval-code-block" :buffer buffer})
-                   (mimis.leader-map "n" "mtf" vabel.tangle-blocks {:desc "tangle-file" :buffer buffer})))))})))
+                   (vim.api.nvim_create_user_command
+                     "Tangle"
+                     vabel.tangle-blocks
+                     {:bang false :desc "Tangle file"})
+
+                   (vim.api.nvim_create_user_command
+                     "Eval"
+                     vabel.eval-code-block
+                     {:bang false :desc "Eval current block"})))))})))
 
 {: enable
  : setup 
