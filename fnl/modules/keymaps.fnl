@@ -20,32 +20,12 @@
     {:bang false :desc "buffer wrapper" :nargs "*"
      :complete (fn [])})
 
-  ;; buffers
-  (mimis.leader-map "n" "bl" ":Buffers<CR>" {:desc "list-buffers"})
-  (mimis.leader-map "n" "ba" ":e #<CR>" {:desc "toggle-buffers"})
-  (mimis.leader-map "n" "bh" ":nohl<CR>" {:desc "no-highlight-search"})
-  (mimis.leader-map "n" "bn" ":bn<CR>" {:desc "goto-next-buffer"})
-  (mimis.leader-map "n" "bp" ":bp<CR>" {:desc "goto-previous-buffer"})
-  (mimis.leader-map "n" "bx" ":close<CR>" {:desc "close-buffer"})
-  (mimis.leader-map "n" "bX" ":bd!<CR>" {:desc "delete-buffer"})
-
-  ;; window mappings
-  (mimis.leader-map "n" "ws" "<c-w>v<c-w>w" {:desc "split-window-vertically"})
-  (mimis.leader-map "n" "wS" "<c-w>s" {:desc "split-window-horizontally"})
-  (mimis.leader-map "n" "wh" "<c-w>h" {:desc "move-to-right-window"})
-  (mimis.leader-map "n" "wj" "<c-w>j" {:desc "Move-to-below-window"})
-  (mimis.leader-map "n" "wk" "<c-w>k" {:desc "Move-to-above-window"})
-  (mimis.leader-map "n" "wl" "<c-w>l" {:desc "Move-to-left-window"})
-  (mimis.leader-map "n" "wm" "<c-w>|<c-w>_" {:desc "maximize-window"})
-  (mimis.leader-map "n" "wp" "<c-w>|<c-w>_|:25wincmd_<cr>" {:desc "window-to-bottom-pane"})
-  (mimis.leader-map "n" "w=" "<c-w>=" {:desc "balance-windows"})
-
-  ;; find
-  (mimis.leader-map "n" "fg" ":silent vimgrep **/*<left><left><left><left><left><space>" {:desc "find"})
-  (mimis.leader-map "n" "fG" ":silent grep **/*<left><left><left><left><left><space>" {:desc "find-rw"})
-  (mimis.leader-map "n" "fw" ":silent vimgrep <cword> **/*<CR>" {:desc "find-word"})
-  (mimis.leader-map "n" "fW" ":silent grep <cword> **/*<CR>" {:desc "find-word-rg"})
-  (mimis.leader-map "n" "fr" ":call setloclist(0, g:recent_files) <bar> lopen<CR>" {:desc "find-recent"})
+  (vim.api.nvim_create_user_command
+    "Recent"
+    (fn [_]
+      (vim.fn.setloclist 0 vim.g.recent_files)
+      (vim.cmd "lopen"))
+    {:bang false :desc "Recent files" })
 
   (vim.api.nvim_create_autocmd
     "QuickFixCmdPost" 
@@ -90,21 +70,14 @@
   (vim.keymap.set "t" "<Esc><Esc>" "<c-\\><c-n>:q<CR>")
 
   (var persistent-terminal nil)
-  (mimis.leader-map 
-    "n" 
-    "tt" 
+  (vim.api.nvim_create_user_command
+    "Terminal" 
     (fn [] 
       (if (and persistent-terminal
                (> (vim.fn.bufexists persistent-terminal) 0))
         (mimis.bottom-pane-buff persistent-terminal)
         (set persistent-terminal (mimis.bottom-pane-shell nvim.o.shell))))
-    {:desc "toggle-terminal"})
-
-(mimis.leader-map 
-  "n" 
-  "tn" 
-  (partial mimis.bottom-pane-shell nvim.o.shell)
-  {:desc "new-terminal"}))
+    {:bang false :desc "Toggle terminal" }))
 
 {: enable
  : setup }

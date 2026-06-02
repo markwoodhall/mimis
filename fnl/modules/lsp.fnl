@@ -17,13 +17,17 @@
      :desc "Setup lsp for specific filetypes"
      :callback 
      (fn []
-       (mimis.leader-map "n" "ldD" ":lua vim.diagnostic.setqflist()<CR>" {:desc "project-diagnostics"})
-       (mimis.leader-map "n" "ldd" ":lua vim.diagnostic.setloclist()<CR>" {:desc "buffer-diagnostics"})
-       (mimis.leader-map "n" "ldr" ":lua vim.lsp.buf.references()<CR>" {:desc "references"})
-       (mimis.leader-map "n" "lgd" ":lua vim.lsp.buf.definition()<CR>" {:desc "go-to-definition"})
-       (mimis.leader-map "n" "lrr" ":lua vim.lsp.buf.rename()<CR>" {:desc "rename"})
-       (mimis.leader-map "n" "lda" ":lua vim.lsp.buf.code_action()<CR>" {:desc "code-actions"})
-       (mimis.leader-map "n" "lf" ":lua vim.lsp.buf.format()<CR>" {:desc "format-buffer"})
+       (vim.api.nvim_create_user_command
+         "Diagnostics"
+         (fn [] 
+           (vim.diagnostic.setloclist))
+         {:bang false :desc "Diagnostics" })
+
+       (vim.api.nvim_create_user_command
+         "PDiagnostics"
+         (fn [] 
+           (vim.diagnostic.setqflist))
+         {:bang false :desc "Project Diagnostics" })
 
        (vim.api.nvim_create_autocmd 
          :LspAttach

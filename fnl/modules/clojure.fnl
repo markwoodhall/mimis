@@ -1,3 +1,4 @@
+(local nvim (require "nvim"))
 (local mimis (require :mimis))
 (local plugins (require :plugins))
 
@@ -72,6 +73,9 @@
              migrate-db (partial r.send  "(use 'db) (db/migrate-schema)" :dev)
              shadow-jack (partial r.send "(shadow/repl :app)" :none)
              shadow-watch (partial r.send "(shadow/watch :app)" :none)]
+
+         (set nvim.bo.suffixesadd ".clj,.cljs,.cljc,.edn")
+         (set nvim.bo.includeexpr "substitute(substitute(v:fname,'\\.', '/', 'g'), '-', '_', 'g')")
 
          (m-binding "ss" (partial r.show-repl true) "jump-to-repl")
          (m-binding "sh" r.hide-repl "hide-repl")
