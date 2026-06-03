@@ -32,31 +32,31 @@
      :callback 
      (fn []
        (let [r (require :modules.repl)
-             dev (partial r.send "(dev)" :user)
-             go (partial r.send "(go)" :dev)
-             reset (partial r.send "(reset)" :dev)
-             stop (partial r.send  "(stop)" :dev)
-             system (partial r.send "@system")
-             reload (partial 
-                      r.send 
-                      (fn [] (.. "(clojure.core/require '" (r.current-ns) " :reload)"))
-                      :current)
-             reload-all (partial 
-                          r.send 
-                          (fn [] (.. "(clojure.core/require '" (r.current-ns) " :reload-all)"))
-                          (r.current-ns))
-             test (partial 
-                    r.send
-                    (fn [] (.. "(clojure.test/run-tests '" (r.current-ns) ")"))
-                    :current)
-             test-all (partial 
-                        r.send
-                        "(clojure.test/run-all-tests)"
-                        :current)
-             init-db (partial r.send "(use 'db) (db/init-schema)" :dev)
-             migrate-db (partial r.send  "(use 'db) (db/migrate-schema)" :dev)
-             shadow-jack (partial r.send "(shadow/repl :app)" :none)
-             shadow-watch (partial r.send "(shadow/watch :app)" :none)]
+             dev (fn [] (r.send "(dev)" :user))
+             go (fn [] (r.send "(go)" :dev))
+             reset (fn [] (r.send "(reset)" :dev))
+             stop (fn [] (r.send "(stop)" :dev))
+             system (fn [] (r.send "@system"))
+             reload (fn [] 
+                      (r.send 
+                        (fn [] (.. "(clojure.core/require '" (r.current-ns) " :reload)"))
+                        :current))
+             reload-all (fn [] 
+                          (r.send 
+                            (fn [] (.. "(clojure.core/require '" (r.current-ns) " :reload-all)"))
+                            (r.current-ns)))
+             test (fn [] 
+                    (r.send
+                      (fn [] (.. "(clojure.test/run-tests '" (r.current-ns) ")"))
+                      :current))
+             test-all (fn [] 
+                        (r.send
+                          "(clojure.test/run-all-tests)"
+                          :current))
+             init-db (fn [] (r.send "(use 'db) (db/init-schema)" :dev))
+             migrate-db (fn [] (r.send  "(use 'db) (db/migrate-schema)" :dev))
+             shadow-jack (fn [] (r.send "(shadow/repl :app)" :none))
+             shadow-watch (fn [] (r.send "(shadow/watch :app)" :none))]
 
          (set nvim.bo.suffixesadd ".clj,.cljs,.cljc,.edn")
          (set nvim.bo.includeexpr "substitute(substitute(v:fname,'\\.', '/', 'g'), '-', '_', 'g')")
@@ -73,7 +73,7 @@
 
          (vim.api.nvim_create_user_command
            "Repl"
-           (partial r.jack-in :clojure)
+           (fn [] (r.jack-in :clojure))
            {:bang false :desc "Start repl"})
 
          (vim.api.nvim_create_user_command
@@ -88,7 +88,7 @@
 
          (vim.api.nvim_create_user_command
            "Eval"
-           (partial r.send root-expression)
+           (fn [_] (r.send root-expression))
            {:bang false :desc "Eval current expression"})
 
          (vim.api.nvim_create_user_command
@@ -112,19 +112,30 @@
            {:bang false :desc "Reloaded go"})
 
          (vim.api.nvim_create_user_command
+           "Start"
+           (fn []
+             (let [root (vim.fn.call "FindRootDirectory" [])
+                   shadow-cljs (mimis.exists? (.. root "/shadow-cljs.edn"))]
+               (r.jack-in :clojure)
+               (if shadow-cljs
+                 (do 
+                   (shadow-watch)
+                   (shadow-jack))
+                 (do 
+                   (dev)
+                   (go)))))
+           {:bang false :desc "Start clojure or clojurescript dev"})
+
+         (vim.api.nvim_create_user_command
            "Stop"
            stop
            {:bang false :desc "Reloaded stop"})
 
          (vim.api.nvim_create_user_command
            "Require"
-           reload
-           {:bang false :desc "Require namespace"})
-
-         (vim.api.nvim_create_user_command
-           "Require"
-           reload-all
-           {:bang true :desc "Require namespace with reload-all"})
+           (fn [opts] 
+             (if opts.bang (reload-all) (reload)))
+           {:bang true :desc "Require namespace (! to reload all)"})
 
          (vim.api.nvim_create_user_command
            "InitDb"

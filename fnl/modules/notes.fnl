@@ -57,8 +57,8 @@
         (pandoc (.. " --standalone --toc " (pandoc-opts) " -o " out-html " " file))
         (pandoc (.. " --standalone " (pandoc-opts) " -o " out-html " " file))))))
 
-(fn note-window [note-file]
-  (mimis.side-pane note-file true false false)
+(fn note-window [opts note-file]
+  (mimis.file opts note-file)
   (vim.cmd "setlocal wrap")
   (vim.cmd "setlocal spell")
   (vim.fn.call "setpos" ["." (vim.fn.call "getpos" ["$"])]))
@@ -97,7 +97,7 @@
           (fout:write "\n"))
         (export note-file)))))
 
-(fn new-note [id workspace]
+(fn new-note [opts id workspace]
   (let [note-file (note-file (notes-path) id workspace ".org")]
     (if (not (mimis.exists? note-file))
       (do 
@@ -108,14 +108,14 @@
         (fout:write "\n")
         (fout:write (.. "* " (os.date "%X")))
         (fout:write "\n\n\n")))
-    (note-window note-file)))
+    (note-window opts note-file)))
 
-(fn review-note [id workspace]
+(fn review-note [opts id workspace]
   (let [note-file (note-file (notes-path) id workspace ".org")]
     (when (not (mimis.exists? note-file))
       (os.execute (.. "mkdir " (note-dir (notes-path) workspace)))
       (start-note workspace note-file true))
-    (note-window note-file)))
+    (note-window opts note-file)))
 
 (fn insert-note-link [id workspace]
   (let [note-file (note-file (notes-path) id workspace ".org")]
@@ -131,7 +131,7 @@
                       "default"
                       workspace)
           n-id (if id id (note-id))]
-      (new-note n-id workspace)))
+      (new-note opts n-id workspace)))
   {:bang false :desc "Create a new note" :nargs "*"
    :complete completion})
 
@@ -144,7 +144,7 @@
                       "default"
                       workspace)
           n-id (if id id (note-id))]
-      (review-note n-id workspace)))
+      (review-note opts n-id workspace)))
   {:bang false :desc "Review Note" :nargs "*"
    :complete completion})
 

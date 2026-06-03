@@ -33,17 +33,17 @@
 
          (vim.api.nvim_create_user_command
            "Repl"
-           (partial r.jack-in :fennel)
+           (fn [] (r.jack-in :fennel))
            {:bang false :desc "Start repl"})
 
          (vim.api.nvim_create_user_command
            "Eval"
-           (partial r.send root-expression)
+           (fn [] (r.send root-expression))
            {:bang false :desc "Eval current expression"})
 
          (vim.api.nvim_create_user_command
            "Reload"
-           (partial r.send (.. ",reload " (vim.fn.expand "%:r")) :none)
+           (fn [] (r.send (.. ",reload " (vim.fn.expand "%:r")) :none))
            {:bang false :desc "Reload module"}))
        (when (not lsp-setup) 
          (vim.lsp.enable :fennel_ls)

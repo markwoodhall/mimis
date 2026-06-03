@@ -58,7 +58,7 @@
                      [s ""
                       _ v (ipairs (?. opts :fargs))]
                      (.. s " " v))]
-          (mimis.bottom-pane-shell (.. "COMPOSE_MENU=false docker" args))))
+          (mimis.shell opts (.. "COMPOSE_MENU=false docker" args))))
       {:bang false :desc "Docker command line wrapper" :nargs "*"
        :complete completion})))
 

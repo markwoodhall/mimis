@@ -23,7 +23,8 @@
       "Psql"
       (fn [opts]
         (let [args (mimis.split (gather-args opts) " ")]
-          (mimis.bottom-pane-shell 
+          (mimis.shell 
+            opts
             (.. "psql -h " (mimis.first args) 
                 " -d " (mimis.second args) 
                 " -U " (mimis.nth args 3) 
@@ -39,7 +40,8 @@
       "Sqlcmd"
       (fn [opts]
         (let [args (mimis.split (gather-args opts) " ")]
-          (mimis.bottom-pane-shell 
+          (mimis.shell 
+            opts
             (.. "sqlcmd -w 400 -y 10 -Y 10 -k -S " (mimis.first args) 
                 " -d " (mimis.second args) 
                 " -U " (mimis.nth args 3) 
@@ -55,7 +57,7 @@
       "Tail"
       (fn [opts]
         (let [args (gather-args opts)]
-          (mimis.bottom-pane-shell (.. "tail " args))))
+          (mimis.shell opts (.. "tail " args))))
       {:bang false :desc "tail wrapper" :nargs "*"
        :complete (partial completion "Tail")})))
 

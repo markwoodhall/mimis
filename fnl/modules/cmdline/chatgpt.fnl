@@ -17,11 +17,11 @@
               tmp (vim.fn.tempname)
               org (.. "/home/markwoodhall/.cache/mimis/chatgpt/" (vim.fn.fnameescape args) ".org")]
           (if (mimis.exists? org)
-            (mimis.bottom-pane org false false false)
+            (mimis.file opts org)
             (do
               (vim.fn.system (.. "echo \"" (vim.fn.shellescape args) "\" | chatgpt-cli chat > " tmp))
               (vim.fn.system (.. "pandoc -f markdown -t org -o " org " " tmp))
-              (mimis.bottom-pane org false false false)))))
+              (mimis.file opts org)))))
       {:bang false :desc "ChatpGPT command line wrapper" :nargs "*"
        :complete completion})))
 

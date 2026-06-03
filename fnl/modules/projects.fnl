@@ -23,23 +23,23 @@
 
     (vim.api.nvim_create_user_command
     "PFiles"
-    (fn [] 
+    (fn [opts] 
       (let [patterns vim.g.rooter_patterns]
         (set vim.g.rooter_patterns [".git"])
         (let [project (vim.fn.call "FindRootDirectory" [])]
           (set vim.g.rooter_patterns patterns)
-          (vim.cmd (.. "e " project)))))
+          (vim.cmd (.. opts.mods " e " project)))))
     {:bang false :desc "Project files" })
     
     (vim.api.nvim_create_user_command
     "PTerminal" 
-    (fn [] 
+    (fn [opts] 
       (let [project (vim.fn.call "FindRootDirectory" [])
             buff (. project-terminals project)]
         (if (and buff
                  (> (vim.fn.bufexists buff) 0))
-          (mimis.bottom-pane-buff buff)
-          (set (. project-terminals project) (mimis.bottom-pane-shell nvim.o.shell)))))
+          (mimis.buff opts buff)
+          (set (. project-terminals project) (mimis.shell opts nvim.o.shell)))))
     {:bang false :desc "Project terminal" })))
 
 {: enable

@@ -1,43 +1,18 @@
-(fn pane
-  [content listed scratch no-buffer split]
-  (vim.cmd split)
-  (let [buff (when (not no-buffer) (vim.api.nvim_create_buf listed scratch))]
-    (if scratch
-      (when (not= content "") 
-        (vim.api.nvim_buf_set_lines
-          0
-          0 -1
-          false
-          (vim.fn.split content "\\n" "g")))
-      (when (not= content "") (vim.cmd (.. "e " content))))
-    (when (= "split" split)
-      (vim.cmd "wincmd J")
-      (vim.cmd "25wincmd_"))
-    buff))
+(fn shell [opts cmd]
+  (vim.cmd (.. opts.mods " new" ))
+  (vim.cmd (.. "terminal " cmd))
+  (vim.cmd "setlocal norelativenumber")
+  (vim.cmd "setlocal nonumber")
+  (vim.cmd "setlocal nolist")
+  (vim.cmd "setlocal filetype=off")
+  (vim.cmd "setlocal syntax=off")
+  (vim.api.nvim_get_current_buf))
 
-(fn bottom-pane
-  [content listed scratch no-buffer]
-  (pane content listed scratch no-buffer "split"))
+(fn buff [opts bufnum]
+  (vim.cmd (.. opts.mods " sbuffer " bufnum)))
 
-(fn side-pane
-  [content listed scratch no-buffer]
-  (pane content listed scratch no-buffer "vsplit"))
-
-(fn bottom-pane-shell [cmd]
-  (let [buff (bottom-pane "" true true true)]
-    (vim.cmd (.. "terminal " cmd))
-    (vim.cmd "setlocal norelativenumber")
-    (vim.cmd "setlocal nonumber")
-    (vim.cmd "setlocal nolist")
-    (vim.cmd "setlocal filetype=off")
-    (vim.cmd "setlocal syntax=off")
-    (or buff (vim.api.nvim_get_current_buf))))
-
-(fn bottom-pane-buff [bufnum]
-  (vim.cmd "split")
-  (vim.cmd "wincmd J")
-  (vim.cmd "25wincmd_")
-  (vim.cmd (.. "buffer " bufnum)))
+(fn file [opts path]
+  (vim.cmd (.. opts.mods " e " path)))
 
 (fn split [s pattern]
   (if s
@@ -146,10 +121,9 @@
         no-exp-vars (join (split no-exp-vars "export ") "")]
     no-exp-vars))
 
-{: bottom-pane
- : bottom-pane-buff
- : bottom-pane-shell
- : side-pane
+{: buff
+ : shell
+ : file
  : first
  : second
  : last
