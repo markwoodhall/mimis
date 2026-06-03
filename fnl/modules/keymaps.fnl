@@ -5,22 +5,6 @@
 
 (fn setup []
   (vim.api.nvim_create_user_command
-    "Buffers"
-    (fn [_]
-      (let [bufnrs (vim.fn.range 1 (vim.fn.bufnr "$"))
-            bufnames (icollect [_ v (ipairs bufnrs)]
-                       (when (not= (vim.fn.buflisted v) 0) 
-                         (let [name (vim.fn.bufname v)]
-                           (when (not= name "")
-                             {:filename name
-                              :lnum 1
-                              :text v}))))]
-        (vim.fn.setloclist 0 bufnames)
-        (vim.cmd "lopen")))
-    {:bang false :desc "buffer wrapper" :nargs "*"
-     :complete (fn [])})
-
-  (vim.api.nvim_create_user_command
     "Recent"
     (fn [_]
       (vim.fn.setloclist 0 vim.g.recent_files)
@@ -72,11 +56,11 @@
   (var persistent-terminal nil)
   (vim.api.nvim_create_user_command
     "Terminal" 
-    (fn [] 
+    (fn [opts] 
       (if (and persistent-terminal
                (> (vim.fn.bufexists persistent-terminal) 0))
-        (mimis.bottom-pane-buff persistent-terminal)
-        (set persistent-terminal (mimis.bottom-pane-shell nvim.o.shell))))
+        (mimis.buff opts persistent-terminal)
+        (set persistent-terminal (mimis.shell opts nvim.o.shell))))
     {:bang false :desc "Toggle terminal" }))
 
 {: enable

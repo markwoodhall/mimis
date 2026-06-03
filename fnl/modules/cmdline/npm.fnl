@@ -39,7 +39,7 @@
                      [s ""
                       _ v (ipairs (?. opts :fargs))]
                      (.. s " " v))]
-          (mimis.bottom-pane-shell (.. "npm " args))))
+          (mimis.shell opts (.. "npm " args))))
       {:bang false :desc "NPM command line wrapper" :nargs "*"
        :complete completion})))
 

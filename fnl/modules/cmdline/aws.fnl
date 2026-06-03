@@ -126,7 +126,7 @@
                      [s ""
                       _ v (ipairs (?. opts :fargs))]
                      (.. s " " v))]
-          (mimis.bottom-pane-shell (.. aws-command args))
+          (mimis.shell opts (.. aws-command args))
           (set nvim.bo.syntax :json)))
       {:bang false :desc "AWS command line wrapper" :nargs "*"
        :complete completion}))
