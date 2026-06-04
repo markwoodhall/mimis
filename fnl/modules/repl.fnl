@@ -4,6 +4,7 @@
 (local 
   repl 
   {:repls {}
+   :hide-after 30000
    :window-options 
    {:relative :editor
     :style :minimal
@@ -159,7 +160,7 @@
     (let [root (vim.fn.call "FindRootDirectory" [])
           project-clj (mimis.exists? (.. root "/project.clj"))
           command (when project-clj (.. "lein repl :connect " connection))
-          job (when command (vim.fn.termopen command))]
+          job (when command (vim.fn.jobstart command {:term true}))]
       (if job 
         (do
           (set vim.bo.filetype filetype)
@@ -170,7 +171,7 @@
 (fn start-repl [filetype]
   (let [r (get-project-repl)]
     (let [command (get-command filetype)
-          job (vim.fn.termopen command)]
+          job (vim.fn.jobstart command {:term true})]
       (set vim.bo.filetype filetype)
       {:job job
        :send (partial sender r job)})))
