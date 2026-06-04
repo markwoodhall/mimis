@@ -38,7 +38,7 @@
 
          (vim.api.nvim_create_user_command
            "Eval"
-           (fn [] (r.send root-expression))
+           (fn [] (r.send root-expression :none))
            {:bang false :desc "Eval current expression"})
 
          (vim.api.nvim_create_user_command
