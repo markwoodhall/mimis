@@ -9,10 +9,20 @@
   (vim.api.nvim_get_current_buf))
 
 (fn buff [opts bufnum]
-  (vim.cmd (.. opts.mods " sbuffer " bufnum)))
+  (let [placement? (or opts.smods.vertical
+                       opts.smods.horizontal
+                       (not= opts.smods.split "")
+                       (>= opts.smods.tab 0))
+        cmd (if placement? "sbuffer" "buffer")]
+    (vim.cmd (.. opts.mods " " cmd " " bufnum))))
 
 (fn file [opts path]
-  (vim.cmd (.. opts.mods " e " path)))
+  (let [placement? (or opts.smods.vertical
+                       opts.smods.horizontal
+                       (not= opts.smods.split "")
+                       (>= opts.smods.tab 0))
+        cmd (if placement? "split" "edit")]
+    (vim.cmd (.. opts.mods " " cmd " " path))))
 
 (fn split [s pattern]
   (if s

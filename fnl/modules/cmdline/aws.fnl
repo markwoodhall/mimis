@@ -61,7 +61,7 @@
     (mimis.split lgs "\n")))
 
 (fn completer [command]
-  (let [command (vim.fn.substitute command "Aws" "aws" "")
+  (let [command (string.match (vim.fn.substitute command "Aws" "aws" "") "aws.*")
         lgs (vim.fn.system (.. "COMMAND_LINE='" command "' aws_completer"))
         col (mimis.split lgs "\n")]
     (accumulate 

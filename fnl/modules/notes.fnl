@@ -21,17 +21,21 @@
 (fn note-file [notes-path id workspace ftype]
   (.. (note-dir notes-path workspace) "/" id ftype))
 
-(fn completion [_ c]
-  (let [c-parts (mimis.split c " ")]
-    (if (< (mimis.count-matches c "%s") 2)
-      (let [dirs (mimis.glob (.. (notes-path) "/" (or (?. c-parts 2) "") "*"))]
-        (icollect [_ v (ipairs dirs)]
-          (let [parts (mimis.split v "/")]
-            (. parts (length parts)))))
-      (let [notes (mimis.glob (.. (notes-path) "/" (. c-parts 2) "/" (or (?. c-parts 3) "") "*.org"))]
-        (icollect [_ v (ipairs notes)]
-          (let [parts (mimis.split v "/")]
-            (string.gsub (. parts (length parts)) ".org" "")))))))
+(fn completion [arglead cmdline _]
+  (let [args (. (vim.api.nvim_parse_cmd cmdline {}) :args)
+        done (if (= arglead "") (length args) (- (length args) 1))]
+    (if (= done 0)
+        ;; first arg: the workspace
+        (let [dirs (mimis.glob (.. (notes-path) "/" arglead "*"))]
+          (icollect [_ v (ipairs dirs)]
+            (let [parts (mimis.split v "/")]
+              (. parts (length parts)))))
+        ;; second arg: the note id, under the workspace already given
+        (let [workspace (. args 1)
+              notes (mimis.glob (.. (notes-path) "/" workspace "/" arglead "*.org"))]
+          (icollect [_ v (ipairs notes)]
+            (let [parts (mimis.split v "/")]
+              (pick-values 1 (string.gsub (. parts (length parts)) "%.org$" ""))))))))
 
 (fn pandoc [command]
   (vim.system 
