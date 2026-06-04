@@ -4,14 +4,14 @@
 
 (fn setup []
   (let [completion 
-        (fn [_ c]
-          (vim.fn.sort
-            (let [c-parts (mimis.split c " ")]
-              (case (mimis.count-matches c "%s")
-                0 []
-                1 (accumulate 
-                    [results []
-                     _ v (ipairs [:access :adduser :audit :bugs :cache :ci :completion
+        (fn [arglead cmdline _]
+  (vim.fn.sort
+    (let [args (. (vim.api.nvim_parse_cmd cmdline {}) :args)
+          done (if (= arglead "") (length args) (- (length args) 1))]
+      (if (= done 0)
+          ;; first arg: the npm subcommand
+          (accumulate [results []
+                       _ v (ipairs [:access :adduser :audit :bugs :cache :ci :completion
                                   :config :dedupe :deprecate :diff :dist-tag :docs :doctor
                                   :edit :exec :explain :explore :find-dupes :fund :get :help
                                   :help-search :hook :init :install :install-ci-test
@@ -21,17 +21,16 @@
                                   :set :shrinkwrap :star :stars :start :stop :team :test
                                   :token :uninstall :unpublish :unstar :update :version :view
                                   :whoami])]
-                    (mimis.add-match v (mimis.second c-parts) results))
-                2 (if (= (mimis.second c-parts) "run")
-                    (let [runs
-                          (vim.fn.system
-                            "jq '.scripts|keys[]' package.json | sed 's/\\\"//g'")
-                          input (mimis.nth c-parts 3)]
-                      (accumulate
-                        [results []
+            (mimis.add-match v arglead results))
+
+          (and (= done 1) (= (. args 1) "run"))
+          ;; second arg after `run`: the package.json scripts
+          (let [runs (vim.fn.system "jq -r '.scripts // {} | keys[]' package.json 2>/dev/null")]
+            (accumulate [results []
                          _ v (ipairs (mimis.split runs "\n"))]
-                        (mimis.add-match v input results)))
-                    [])))))]
+              (mimis.add-match v arglead results)))
+
+          []))))]
     (vim.api.nvim_create_user_command
       "Npm"
       (fn [opts]
