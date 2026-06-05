@@ -10,8 +10,6 @@
     (set paredit-languages (mimis.concat paredit-languages languages))))
 
 (fn setup []
-  (set vim.g.paredit_leader ",")
-  (set vim.g.paredit_matchlines 1000)
   (vim.api.nvim_create_autocmd 
     "FileType" 
     {:pattern paredit-languages
@@ -19,10 +17,12 @@
      :desc "Setup paredit for specific filetypes"
      :callback 
      (fn []
+       (vim.keymap.set "n" ">)" "xi <esc>w%p" {:buf 0})
+       (vim.keymap.set "n" ">)" "x%P" {:buf 0})
+
        (vim.keymap.set "i" "(" "()<left>" {:buf 0})
        (vim.keymap.set "i" "[" "[]<left>" {:buf 0})
        (vim.keymap.set "i" "{" "{}<left>" {:buf 0})
-       (vim.keymap.set "i" "'" "''<left>" {:buf 0})
        (vim.keymap.set "i" "\"" "\"\"<left>" {:buf 0}))}))
 
 {: enable
