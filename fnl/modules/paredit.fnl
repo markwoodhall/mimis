@@ -17,8 +17,11 @@
      :desc "Setup paredit for specific filetypes"
      :callback 
      (fn []
-       (vim.keymap.set "n" ">)" "xi <esc>w%p" {:buf 0})
-       (vim.keymap.set "n" ">)" "x%P" {:buf 0})
+       (vim.keymap.set "n" ">)"
+         (fn [] (string.rep "ylr w%p" vim.v.count1))
+         {:buf 0 :expr true})
+
+       (vim.keymap.set "n" "<r" "y%[(d%\"0P=%" {:buf 0})
 
        (vim.keymap.set "i" "(" "()<left>" {:buf 0})
        (vim.keymap.set "i" "[" "[]<left>" {:buf 0})
