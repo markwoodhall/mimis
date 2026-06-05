@@ -1,12 +1,16 @@
 (fn shell [opts cmd]
-  (vim.cmd (.. opts.mods " new" ))
-  (vim.cmd (.. "terminal " cmd))
-  (vim.cmd "setlocal norelativenumber")
-  (vim.cmd "setlocal nonumber")
-  (vim.cmd "setlocal nolist")
-  (vim.cmd "setlocal filetype=off")
-  (vim.cmd "setlocal syntax=off")
-  (vim.api.nvim_get_current_buf))
+  (let [placement (or opts.smods.vertical
+                      opts.smods.horizontal
+                      (not= opts.smods.split "")
+                      (>= opts.smods.tab 0))]
+    (when placement (vim.cmd (.. opts.mods " new" )))
+    (vim.cmd (.. "terminal " cmd))
+    (vim.cmd "setlocal norelativenumber")
+    (vim.cmd "setlocal nonumber")
+    (vim.cmd "setlocal nolist")
+    (vim.cmd "setlocal filetype=off")
+    (vim.cmd "setlocal syntax=off")
+    (vim.api.nvim_get_current_buf)))
 
 (fn buff [opts bufnum]
   (let [placement? (or opts.smods.vertical
