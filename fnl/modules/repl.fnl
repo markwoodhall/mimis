@@ -4,7 +4,6 @@
 (local 
   repl 
   {:repls {}
-   :hide-after 30000
    :window-options 
    {:relative :editor
     :style :minimal
