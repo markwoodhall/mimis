@@ -1,4 +1,3 @@
-(local mimis (require :mimis))
 (local plugins (require :plugins))
 
 (fn depends []
@@ -27,8 +26,7 @@
        :callback 
        (fn []
          (let [ob (require "org-bullets")
-                  headlines (require :headlines)
-                  buffer (vim.api.nvim_get_current_buf)]
+                  headlines (require :headlines)]
            (ob.setup)
            (headlines.setup
              {:org
