@@ -117,6 +117,7 @@
         (?. (vim.fn.readfile (.. root "/.mimis.repl.fennel")) 1)
         :fennel))
     :janet :janet
+    :lisp :sbcl
     :clojure 
     (let [root (vim.fn.call "FindRootDirectory" [])
           project-clj (mimis.exists? (.. root "/project.clj"))
@@ -193,7 +194,7 @@
 
 (vim.api.nvim_create_user_command
   "ReplShow"
-  (partial show-repl true)
+  (fn [_] (hide-repl) (show-repl true))
   {:bang false :desc "Show repl"})
 
 (vim.api.nvim_create_user_command

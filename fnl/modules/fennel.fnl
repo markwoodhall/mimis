@@ -1,12 +1,9 @@
-(local mimis (require :mimis))
 (local plugins (require :plugins))
 
 (fn depends []
-  [:modules.treesitter 
-   :modules.projects])
+  [:modules.projects])
 
 (fn enable []
-  (mimis.try-add-treesitter-path :fennel "0.0.37-1")
   (plugins.register 
     {:jaawerth/fennel.vim {:for [:fennel]}})
   (vim.lsp.config 
@@ -15,10 +12,13 @@
      :filetypes [:fennel]
      :root_markers ["flsproject.fnl"]}))
 
-(fn root-expression []
-  (let [value (vim.treesitter.get_node {:ignore_injections true})]
-    (when value
-      (vim.treesitter.get_node_text value 0))))
+(fn eval-opfunc [mtype]
+  (let [sel (if (= mtype "line") "V" "v")
+        r (require :modules.repl)]
+    (vim.cmd (.. "normal! `[" sel "`]y"))
+    (r.send (vim.fn.getreg "\"") :none)))
+
+(global EvalOpfunc eval-opfunc)
 
 (var lsp-setup nil)
 (fn setup []
@@ -36,10 +36,13 @@
            (fn [] (r.jack-in :fennel))
            {:bang false :desc "Start repl"})
 
-         (vim.api.nvim_create_user_command
-           "Eval"
-           (fn [] (r.send root-expression :none))
-           {:bang false :desc "Eval current expression"})
+         (vim.keymap.set :n "Q"
+                         #(do (set vim.o.operatorfunc "v:lua.EvalOpfunc") "g@")
+                         {:expr true :buffer true :desc "Eval (operator)"})
+
+         (vim.keymap.set :n "QQ"
+                         #(do (set vim.o.operatorfunc "v:lua.EvalOpfunc") "g@_")
+                         {:expr true :buffer true :desc "Eval line"})
 
          (vim.api.nvim_create_user_command
            "Reload"
