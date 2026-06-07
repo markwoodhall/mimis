@@ -16,6 +16,7 @@
    :modules.packages.clojure []
    :modules.packages.sql []
    :modules.terraform []
+   :modules.lisp []
 
    :modules.org []
 
@@ -47,6 +48,7 @@
    :modules.packages.clojure []
    :modules.packages.sql []
    :modules.terraform []
+   :modules.lisp []
 
    :modules.org [:org-babel-like :notes]
 

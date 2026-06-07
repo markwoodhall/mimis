@@ -3,16 +3,9 @@
 (local plugins (require :plugins))
 
 (fn depends []
-  [:modules.treesitter 
-   :modules.projects])
-
-(fn root-expression []
-  (let [value (vim.treesitter.get_node {:ignore_injections true})]
-    (when value
-      (vim.treesitter.get_node_text value 0))))
+  [:modules.projects])
 
 (fn enable []
-  (mimis.try-add-treesitter-path :clojure "0.0.32-1")
   (plugins.register {:clojure-vim/clojure.vim {:for :clojure}})
   (vim.lsp.config 
     :clojure_lsp 
@@ -21,6 +14,14 @@
      :root_markers ["project.clj" "deps.edn" "build.boot" "shadow-cljs.edn" "bb.edn"]}))
 
 (var lsp-setup nil)
+
+(fn eval-opfunc [mtype]
+  (let [sel (if (= mtype "line") "V" "v")
+        r (require :modules.repl)]
+    (vim.cmd (.. "normal! `[" sel "`]y"))
+    (r.send (vim.fn.getreg "\"") :current)))
+
+(global CljEvalOpfunc eval-opfunc)
 
 (fn setup []
   (set vim.g.clojure_max_lines 1000)
@@ -86,10 +87,13 @@
            test
            {:bang false :desc "Run buffer tests"})
 
-         (vim.api.nvim_create_user_command
-           "Eval"
-           (fn [_] (r.send root-expression))
-           {:bang false :desc "Eval current expression"})
+         (vim.keymap.set :n "Q"
+                         #(do (set vim.o.operatorfunc "v:lua.CljEvalOpfunc") "g@")
+                         {:expr true :buffer true :desc "Eval (operator)"})
+
+         (vim.keymap.set :n "QQ"
+                         #(do (set vim.o.operatorfunc "v:lua.CljEvalOpfunc") "g@_")
+                         {:expr true :buffer true :desc "Eval line"})
 
          (vim.api.nvim_create_user_command
            "Dev"
