@@ -74,7 +74,7 @@
 
          (vim.api.nvim_create_user_command
            "Repl"
-           (fn [] (r.jack-in :clojure))
+           (fn [opts] (r.jack-in opts :clojure))
            {:bang false :desc "Start repl"})
 
          (vim.api.nvim_create_user_command
@@ -117,10 +117,10 @@
 
          (vim.api.nvim_create_user_command
            "Start"
-           (fn []
+           (fn [opts]
              (let [root (vim.fn.call "FindRootDirectory" [])
                    shadow-cljs (mimis.exists? (.. root "/shadow-cljs.edn"))]
-               (r.jack-in :clojure)
+               (r.jack-in opts :clojure)
                (if shadow-cljs
                  (do 
                    (shadow-watch)

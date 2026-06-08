@@ -52,8 +52,6 @@
          (vim.lsp.enable :fennel_ls)
          (set lsp-setup true)))}))
 
-(+ 10 10 10 0 10 1001 101)
-
 {: enable 
  : setup 
  : depends }

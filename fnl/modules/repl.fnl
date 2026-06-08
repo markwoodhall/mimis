@@ -1,5 +1,4 @@
 (local mimis (require :mimis))
-(local nvim (require "nvim"))
 
 (local repl {:repls {} })
 
@@ -16,7 +15,6 @@
       (let [buf (vim.api.nvim_create_buf true true)
             r {:last-ns nil
                :buf buf}]
-        (vim.keymap.set "n" "<esc><esc>" ":ReplHide<CR>" {:buffer buf :remap true})
         (set (. repl :repls path) r)
         (. repl :repls path))))) 
 
@@ -38,14 +36,14 @@
     (when r
       (let [ns (or start-ns (current-ns))]
         (when (and ns (not= r.last-ns ns))
-          (r.repl.send (.. "(in-ns '" ns ")"))
+          (r.repl.quiet-send (.. "(in-ns '" ns ")"))
           (set r.last-ns ns)
           (set-project-repl r))))))
 
-(fn show-repl [opts enter]
+(fn show-repl [enter]
   (if (project-has-repl)
     (let [r (get-project-repl)]
-      (mimis.buff opts r.buf)
+      (mimis.buff r.opts r.buf)
       (when enter
         (vim.cmd.normal "G"))
       (set-project-repl r))
@@ -54,7 +52,7 @@
 (fn kill-repl []
   (let [r (get-project-repl)]
     (when r.repl
-      (show-repl {} true))
+      (show-repl r.opts true))
     (vim.cmd ":bd!")
     (kill-project-repl)))
 
@@ -78,8 +76,7 @@
       (if (mimis.exists? (.. root "/.mimis.repl.fennel"))
         (?. (vim.fn.readfile (.. root "/.mimis.repl.fennel")) 1)
         :fennel))
-    :janet :janet
-    :lisp :sbcl
+    :lisp "rlwrap sbcl"
     :clojure 
     (let [root (vim.fn.call "FindRootDirectory" [])
           project-clj (mimis.exists? (.. root "/project.clj"))
@@ -91,19 +88,22 @@
         [false false true] "clojure -A:dev:dev/nrepl"
         _ "lein repl"))))
 
+(fn visible? [buf]
+  (not= -1 (vim.fn.bufwinid buf)))  
+
 (fn ensure-shown [r]
-  (when r.buf
-    (mimis.buff nil r.buf)
+  (when (and r.buf (not (visible? r.buf)))
+    (mimis.buff r.opts r.buf)
     (set-project-repl r)))
 
-(fn sender [r job data]
+(fn sender [r job show data]
   (vim.schedule
     (fn []
       (if r.buf
         (when data
           (vim.fn.chansend job (.. data "\n"))
           (set-project-repl r)
-          (ensure-shown r))
+          (when show (ensure-shown r)))
         (print "Repl not connected")))))
 
 (fn connect-repl [filetype connection]
@@ -116,7 +116,8 @@
         (do
           (set vim.bo.filetype filetype)
           {:job job
-           :send (partial sender r job)})
+           :quiet-send (partial sender r job false)
+           :send (partial sender r job true)})
         (print "Cannot find a repl type to connect to for this project")))))
 
 (fn start-repl [filetype]
@@ -125,26 +126,22 @@
           job (vim.fn.jobstart command {:term true})]
       (set vim.bo.filetype filetype)
       {:job job
-       :send (partial sender r job)})))
+       :quiet-send (partial sender r job false)
+       :send (partial sender r job true)})))
 
 (fn jack-in [opts filetype]
   (let [r (get-project-repl)]
+    (set r.opts opts)
     (show-repl opts true)
-    (set r.repl (start-repl filetype))
+    (when (not r.repl) (set r.repl (start-repl filetype)))
     (set-project-repl r)))
 
 (fn connect-in [opts filetype connection-str]
   (let [r (get-project-repl)]
-    (if (and r r.repl)
-      (show-repl opts true)
-      (do 
-        (set r.repl (connect-repl filetype connection-str))
-        (set-project-repl r)))))
-
-(vim.api.nvim_create_user_command
-  "ReplShow"
-  (fn [opts] (show-repl opts true))
-  {:bang false :desc "Show repl"})
+    (set r.opts opts)
+    (show-repl opts true)
+    (when (not r.repl) (set r.repl (connect-repl filetype connection-str)))
+    (set-project-repl r)))
 
 (vim.api.nvim_create_user_command
   "ReplKill"
@@ -153,7 +150,6 @@
 
 {: current-ns
  : in-ns
- : show-repl
  : kill-repl
  : jack-in
  : connect-in
