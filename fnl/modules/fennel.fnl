@@ -30,7 +30,6 @@
      :callback 
      (fn [_]
        (let [r (require :modules.repl)]
-
          (vim.api.nvim_create_user_command
            "Repl"
            (fn [opts] (r.jack-in opts :fennel))
