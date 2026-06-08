@@ -32,6 +32,7 @@
      :desc "Setup clojure mode"
      :callback 
      (fn []
+       (set nvim.bo.syntax "lisp")
        (let [r (require :modules.repl)
              dev (fn [] (r.send "(dev)" :user))
              go (fn [] (r.send "(go)" :dev))
