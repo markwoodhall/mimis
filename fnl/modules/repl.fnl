@@ -1,24 +1,7 @@
 (local mimis (require :mimis))
 (local nvim (require "nvim"))
 
-(local 
-  repl 
-  {:repls {}
-   :window-options 
-   {:relative :editor
-    :style :minimal
-    :border nvim.o.winborder
-    :anchor :NE
-    :row 1
-    :col (-> (vim.api.nvim_list_uis)
-             (. 1)
-             (. :width)) 
-    :width (math.floor (+ (/ (-> (vim.api.nvim_list_uis)
-                                 (. 1)
-                                 (. :width)) 3) 0.5))
-    :height (math.floor (+ (/ (-> (vim.api.nvim_list_uis)
-                                  (. 1)
-                                  (. :height)) 3) 0.5))}})
+(local repl {:repls {} })
 
 (fn project-has-repl []
   (let [path (vim.fn.call "FindRootDirectory" [])]
@@ -32,12 +15,7 @@
       (. repl :repls path)
       (let [buf (vim.api.nvim_create_buf true true)
             r {:last-ns nil
-               :buf buf
-               :win (vim.api.nvim_open_win 
-                      buf
-                      true 
-                      repl.window-options)}]
-
+               :buf buf}]
         (vim.keymap.set "n" "<esc><esc>" ":ReplHide<CR>" {:buffer buf :remap true})
         (set (. repl :repls path) r)
         (. repl :repls path))))) 
@@ -64,35 +42,19 @@
           (set r.last-ns ns)
           (set-project-repl r))))))
 
-(fn hide-repl []
-  (let [r (get-project-repl)]
-    (when r.win
-      (pcall (fn [] (vim.api.nvim_win_close (unpack [r.win true]))))
-      (set r.win nil)
-      (set-project-repl r))))
-
-(fn show-repl [enter]
+(fn show-repl [opts enter]
   (if (project-has-repl)
     (let [r (get-project-repl)]
-      (when (not r.win)
-        (if (and (not r.win) (> (vim.fn.bufexists r.buf) 0))
-          (do 
-            (set r.win 
-                 (vim.api.nvim_open_win 
-                   r.buf 
-                   enter
-                   repl.window-options))
-            (when enter
-              (vim.cmd.normal "G"))
-            (set-project-repl r))
-          (do (kill-project-repl)
-            (print "Managed repl was closed, please start it again.")))))
+      (mimis.buff opts r.buf)
+      (when enter
+        (vim.cmd.normal "G"))
+      (set-project-repl r))
     (print "No repl started, please start.")))
 
 (fn kill-repl []
   (let [r (get-project-repl)]
     (when r.repl
-      (do (hide-repl) (show-repl true)))
+      (show-repl {} true))
     (vim.cmd ":bd!")
     (kill-project-repl)))
 
@@ -130,10 +92,9 @@
         _ "lein repl"))))
 
 (fn ensure-shown [r]
-  (when (or (not r.win) (not (vim.api.nvim_win_is_valid r.win)))
-    (set r.win (vim.api.nvim_open_win r.buf false repl.window-options))
-    (set-project-repl r))
-  (pcall (fn [] (vim.api.nvim_win_call r.win (fn [] (vim.cmd.normal "G"))))))
+  (when r.buf
+    (mimis.buff nil r.buf)
+    (set-project-repl r)))
 
 (fn sender [r job data]
   (vim.schedule
@@ -141,16 +102,6 @@
       (if r.buf
         (when data
           (vim.fn.chansend job (.. data "\n"))
-          (when (not (= nil repl.hide-after))
-            (when r.timer
-              (r.timer:stop)
-              (r.timer:close))
-            (let [timer (vim.uv.new_timer)]
-              (timer:start
-                repl.hide-after
-                0
-                (vim.schedule_wrap hide-repl))
-              (set r.timer timer)))
           (set-project-repl r)
           (ensure-shown r))
         (print "Repl not connected")))))
@@ -176,31 +127,24 @@
       {:job job
        :send (partial sender r job)})))
 
-(fn jack-in [filetype]
+(fn jack-in [opts filetype]
   (let [r (get-project-repl)]
-    (if (and r r.repl)
-      (show-repl true)
-      (do 
-        (set r.repl (start-repl filetype))
-        (set-project-repl r)))))
+    (show-repl opts true)
+    (set r.repl (start-repl filetype))
+    (set-project-repl r)))
 
-(fn connect-in [filetype connection-str]
+(fn connect-in [opts filetype connection-str]
   (let [r (get-project-repl)]
     (if (and r r.repl)
-      (show-repl true)
+      (show-repl opts true)
       (do 
         (set r.repl (connect-repl filetype connection-str))
         (set-project-repl r)))))
 
 (vim.api.nvim_create_user_command
   "ReplShow"
-  (fn [_] (hide-repl) (show-repl true))
+  (fn [opts] (show-repl opts true))
   {:bang false :desc "Show repl"})
-
-(vim.api.nvim_create_user_command
-  "ReplHide"
-  hide-repl
-  {:bang false :desc "Hide repl"})
 
 (vim.api.nvim_create_user_command
   "ReplKill"
@@ -209,7 +153,6 @@
 
 {: current-ns
  : in-ns
- : hide-repl
  : show-repl
  : kill-repl
  : jack-in

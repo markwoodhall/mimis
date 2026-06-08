@@ -87,7 +87,7 @@
           with-defaults (fn [c] 
                           [(unpack c)])]
       (case (mimis.last c-parts)
-        "--log-group-name" (for-service c :logs log-groups) 
+        "--log-group-name" (log-groups c) 
         "--queue-url" (for-service c :sqs sqs-queues)
         "--cluster" (for-service c :ecs ecs-clusters)
         "--service-name" (for-service c :ecs ecs-services)
@@ -95,23 +95,21 @@
         "--db-instance-identifier" (with-defaults (db-instances c))
         "--attribute-names" (for-command c :sqs :get-queue-attributes (fn [_] ["All"])) 
         "--profile" (profiles)
-        "--start-time" (for-command c :logs :filter-log-events
-                                    (fn [_] ["`date -d \"5 minutes ago\" +\\%s000`"
-                                             "`date -d \"15 minutes ago\" +\\%s000`"
-                                             "`date -d \"30 minutes ago\" +\\%s000`"
-                                             "`date -d \"45 minutes ago\" +\\%s000`"
-                                             "`date -d \"1 hour ago\" +\\%s000`"
-                                             "`date -d \"2 hour ago\" +\\%s000`"
-                                             "`date -d \"24 hours ago\" +\\%s000`"])) 
+        "--start-time" ["`date -d \"5 minutes ago\" +\\%s000`"
+                        "`date -d \"15 minutes ago\" +\\%s000`"
+                        "`date -d \"30 minutes ago\" +\\%s000`"
+                        "`date -d \"45 minutes ago\" +\\%s000`"
+                        "`date -d \"1 hour ago\" +\\%s000`"
+                        "`date -d \"2 hour ago\" +\\%s000`"
+                        "`date -d \"24 hours ago\" +\\%s000`"] 
 
-        "--end-time" (for-command c :logs :filter-log-events
-                                    (fn [_] ["`date -d \"5 minutes ago\" +\\%s000`"
-                                             "`date -d \"15 minutes ago\" +\\%s000`"
-                                             "`date -d \"30 minutes ago\" +\\%s000`"
-                                             "`date -d \"45 minutes ago\" +\\%s000`"
-                                             "`date -d \"1 hour ago\" +\\%s000`"
-                                             "`date -d \"2 hour ago\" +\\%s000`"
-                                             "`date -d \"24 hours ago\" +\\%s000`"])) 
+        "--end-time" ["`date -d \"5 minutes ago\" +\\%s000`"
+                      "`date -d \"15 minutes ago\" +\\%s000`"
+                      "`date -d \"30 minutes ago\" +\\%s000`"
+                      "`date -d \"45 minutes ago\" +\\%s000`"
+                      "`date -d \"1 hour ago\" +\\%s000`"
+                      "`date -d \"2 hour ago\" +\\%s000`"
+                      "`date -d \"24 hours ago\" +\\%s000`"] 
         "|" (for-command c :logs :filter-log-events (fn [_] [" jq '.events[].message | fromjson | {timestamp, exception}'"
                                                              " jq '.events[].message | fromjson | {timestamp, message}'"]))
         _ (case (commands.get-last-double-switch c)
@@ -132,4 +130,5 @@
        :complete completion}))
 
   {: enable
+   : profiles
    : setup }
