@@ -33,7 +33,7 @@
 
          (vim.api.nvim_create_user_command
            "Repl"
-           (fn [] (r.jack-in :fennel))
+           (fn [opts] (r.jack-in opts :fennel))
            {:bang false :desc "Start repl"})
 
          (vim.keymap.set :n "Q"
@@ -51,6 +51,8 @@
        (when (not lsp-setup) 
          (vim.lsp.enable :fennel_ls)
          (set lsp-setup true)))}))
+
+(+ 10 10 10 0 10 1001 101)
 
 {: enable 
  : setup 

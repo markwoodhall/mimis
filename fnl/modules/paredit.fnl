@@ -24,9 +24,14 @@
        (vim.keymap.set "n" "<r" "y%[(d%\"0P=%" {:buf 0})
 
        (vim.keymap.set "i" "(" "()<left>" {:buf 0})
+       (vim.keymap.set "i" ")" "<right>" {:buf 0})
+
        (vim.keymap.set "i" "[" "[]<left>" {:buf 0})
+       (vim.keymap.set "i" "]" "<right>" {:buf 0})
+
        (vim.keymap.set "i" "{" "{}<left>" {:buf 0})
-       (vim.keymap.set "i" "\"" "\"\"<left>" {:buf 0}))}))
+       (vim.keymap.set "i" "}" "<right>" {:buf 0}))}))
 
 {: enable
  : setup }
+

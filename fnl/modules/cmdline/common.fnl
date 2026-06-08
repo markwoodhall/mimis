@@ -1,5 +1,6 @@
 (local plugins (require :plugins))
 (local mimis (require :mimis))
+(local aws (require :cmdline.aws))
 
 (fn enable []
   (plugins.register 
@@ -52,6 +53,14 @@
                    (if (mimis.exists? (vim.fn.expand "~/.local/share/mimis/sqlcmd.connections"))
                      (vim.fn.readfile (vim.fn.expand "~/.local/share/mimis/sqlcmd.connections"))
                      ["localhost database-name username password"]))})
+
+    (vim.api.nvim_create_user_command
+      "AwsHud"
+      (fn [opts]
+        (let [args (gather-args opts)]
+          (mimis.shell opts (.. "awshud " args))))
+      {:bang false :desc "awshud wrapper" :nargs "*"
+       :complete (fn [_] (aws.profiles))})
 
     (vim.api.nvim_create_user_command
       "Tail"
