@@ -23,7 +23,7 @@
        (let [r (require :modules.repl)]
          (vim.api.nvim_create_user_command
            "Repl"
-           (fn [] (r.jack-in :lisp))
+           (fn [opts] (r.jack-in opts :lisp))
            {:bang false :desc "Start repl"})
 
          (vim.keymap.set :n "Q"
@@ -32,9 +32,7 @@
 
          (vim.keymap.set :n "QQ"
                          #(do (set vim.o.operatorfunc "v:lua.EvalOpfunc") "g@_")
-                         {:expr true :buffer true :desc "Eval line"})
-
-         ))}))
+                         {:expr true :buffer true :desc "Eval line"})))}))
 
 {: depends
  : enable
