@@ -39,9 +39,10 @@
               (let [client (vim.lsp.get_client_by_id args.data.client_id)]
                 (vim.lsp.completion.enable true args.data.client_id args.buf {:autotrigger true})
                 (set client.server_capabilities.semanticTokensProvider nil))))}))})
+
   (vim.api.nvim_create_autocmd 
     :InsertCharPre
-    {:desc "Complettion"
+    {:desc "Completion"
      :group (vim.api.nvim_create_augroup "mimis-lsp-completion" {:clear true})
      :callback 
      (partial 

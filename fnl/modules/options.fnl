@@ -44,6 +44,7 @@
 (nvim.ex.set :ignorecase)
 (nvim.ex.set :smartcase)
 (nvim.ex.set :nofoldenable)
+(nvim.ex.set :autocomplete)
 
 (set nvim.g.mapleader " ")
 (set nvim.g.maplocalleader ",")

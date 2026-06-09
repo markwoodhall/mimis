@@ -52,7 +52,7 @@
 (fn kill-repl []
   (let [r (get-project-repl)]
     (when r.repl
-      (show-repl r.opts true))
+      (show-repl true))
     (vim.cmd ":bd!")
     (kill-project-repl)))
 
@@ -132,14 +132,14 @@
 (fn jack-in [opts filetype]
   (let [r (get-project-repl)]
     (set r.opts opts)
-    (show-repl opts true)
+    (show-repl true)
     (when (not r.repl) (set r.repl (start-repl filetype)))
     (set-project-repl r)))
 
 (fn connect-in [opts filetype connection-str]
   (let [r (get-project-repl)]
     (set r.opts opts)
-    (show-repl opts true)
+    (show-repl true)
     (when (not r.repl) (set r.repl (connect-repl filetype connection-str)))
     (set-project-repl r)))
 
