@@ -1,6 +1,5 @@
 (local stable 
-  {:coder/claudecode.nvim :102d835c964069c9c5e37abaf05ae4f9c3ee6f00
-   :clojure-vim/clojure.vim :06196d8fcfe8ac610f2471b3452bc54c314482a4
+  {:clojure-vim/clojure.vim :06196d8fcfe8ac610f2471b3452bc54c314482a4
    :jaawerth/fennel.vim :c6a9c035ca108cbb24273d96cd6277fb8fbc60b4
    :lewis6991/gitsigns.nvim :1ef74b546732f185d0f806860fa5404df7614f28
    :tpope/vim-surround :3d188ed2113431cf8dac77be61b842acb64433d9
