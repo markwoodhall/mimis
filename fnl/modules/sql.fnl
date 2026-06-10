@@ -1,10 +1,8 @@
 (local mimis (require :mimis))
 
-(fn depends []
-  [:modules.treesitter])
+(fn depends [])
 
-(fn enable []
-  (mimis.try-add-treesitter-path :sql "0.0.55-1"))
+(fn enable [])
 
 (fn setup [])
 
