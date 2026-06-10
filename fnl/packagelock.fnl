@@ -1,5 +1,6 @@
 (local stable 
-  {:clojure-vim/clojure.vim :06196d8fcfe8ac610f2471b3452bc54c314482a4
+  {:kovisoft/paredit :989d1c046bbe36f7d71878636dbe6af8ea3f4f86
+   :clojure-vim/clojure.vim :06196d8fcfe8ac610f2471b3452bc54c314482a4
    :hashivim/vim-terraform.git :520498fab16a3a11f2ae1b8cb65e0a1684bc317a
    :jaawerth/fennel.vim :c6a9c035ca108cbb24273d96cd6277fb8fbc60b4
    :lewis6991/gitsigns.nvim :1ef74b546732f185d0f806860fa5404df7614f28
