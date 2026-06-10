@@ -139,21 +139,29 @@
                   h))]
       kvs)))
 
-(fn tangle-blocks []
-  (let [parser (vim.treesitter.get_parser 0)
-        tree (unpack (parser:parse))
-        query (vim.treesitter.query.parse 
-                "org"
-                "((block
-                    (expr)
-                    (expr)
-                    (contents)) @block)")
-        seen {}]
+(fn org-blocks []
+  (let [lines (vim.api.nvim_buf_get_lines 0 0 -1 false)
+        blocks []]
+    (var current nil)
+    (each [_ line (ipairs lines)]
+      (let [l (line:lower)]
+        (if (l:match "^%s*#%+begin_src")
+            (set current {:header line :source []})
 
-    (each [_ value (query:iter_captures (tree:root) 0)]
-      (local (start-row _ end-row _) (value:range))
-      (let [header (vim.fn.getline (+ 1 start-row))
-            source (vim.fn.getline (+ 2 start-row) (- end-row 1))
+            (and current (l:match "^%s*#%+end_src"))
+            (do (table.insert blocks current)
+                (set current nil))
+
+            current
+            (table.insert current.source line))))
+    blocks))
+
+(fn tangle-blocks []
+  (let [ seen {}]
+
+    (each [_ block (ipairs (org-blocks))]
+      (let [header block.header
+            source block.source
             parsed-header (parse-header header)]
         (when (or (> (mimis.count-matches header "begin_src") 0)
                   (> (mimis.count-matches header "BEGIN_SRC") 0))

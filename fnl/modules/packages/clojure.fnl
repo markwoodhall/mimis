@@ -1,6 +1,5 @@
 (fn depends []
   [:modules.clojure
-   :modules.treesitter
    :modules.paredit
    :modules.lsp])
 

@@ -1,7 +1,4 @@
-(local plugins (require :plugins))
-
-(fn depends []
-  [:modules.treesitter])
+(fn depends [])
 
 (fn enable [])
 
