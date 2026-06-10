@@ -115,18 +115,6 @@
     (set x (.. x s)))
   x)
 
-(fn try-add-runtimepath [path]
-  (let [expanded (vim.fn.expand path)]
-    (if (= (vim.fn.isdirectory expanded) 1)
-      (set vim.o.runtimepath (.. vim.o.runtimepath "," path))
-      (vim.notify (.. "mimis: runtimepath missing: " path)
-                  vim.log.levels.WARN))))
-
-(fn try-add-treesitter-path [grammar version]
-  (try-add-runtimepath
-    (.. "$HOME/.local/share/nvim/plugged/ts/lib/luarocks/rocks-5.5/tree-sitter-"
-        grammar "/" version)))
-
 (fn ->environment-variables [env]
   (let [lines (split env "\n")
         lines (icollect [_ l (ipairs lines)]
@@ -158,6 +146,4 @@
  : pad-string
  : join
  : ->environment-variables
- : try-add-runtimepath
- : try-add-treesitter-path
  : leader-map}
