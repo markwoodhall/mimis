@@ -14,7 +14,6 @@
    ;; Language support
    :modules.packages.fennel []
    :modules.packages.clojure []
-   :modules.packages.sql []
    :modules.terraform []
    :modules.lisp []
 
@@ -43,7 +42,6 @@
    ;; Language Support
    :modules.packages.fennel []
    :modules.packages.clojure []
-   :modules.packages.sql []
    :modules.terraform []
    :modules.lisp []
 
