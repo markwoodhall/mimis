@@ -1,12 +1,12 @@
-(local mimis (require :mimis))
+(local plugins (require :plugins))
 
 (fn depends []
-  [:modules.treesitter
+  [
    :modules.projects])
 
 (fn enable []
-  (mimis.try-add-treesitter-path :hcl "0.0.35-1")
-  (vim.treesitter.language.register :hcl [:terraform]))
+ (plugins.register 
+    {:hashivim/vim-terraform :always}))
 
 (fn setup [])
 

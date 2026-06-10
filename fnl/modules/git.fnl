@@ -1,11 +1,8 @@
 (local plugins (require :plugins))
-(local mimis (require :mimis))
 
-(fn depends []
-  [:modules.treesitter])
+(fn depends [])
 
 (fn enable []
-  (mimis.try-add-treesitter-path :gitcommit "0.0.36-1")
   (plugins.register 
     {:tpope/vim-fugitive :always
      :lewis6991/gitsigns.nvim :always }))

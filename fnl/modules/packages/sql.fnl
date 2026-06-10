@@ -1,6 +1,5 @@
 (fn depends []
   [:modules.sql
-   :modules.treesitter
    :modules.lsp])
 
 (fn enable [])
