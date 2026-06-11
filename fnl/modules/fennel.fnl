@@ -18,7 +18,7 @@
     (vim.cmd (.. "normal! `[" sel "`]y"))
     (r.send (vim.fn.getreg "\"") :none)))
 
-(global EvalOpfunc eval-opfunc)
+(global FennelEvalOpfunc eval-opfunc)
 
 (var lsp-setup nil)
 (fn setup []
@@ -36,11 +36,11 @@
            {:bang false :desc "Start repl"})
 
          (vim.keymap.set :n "Q"
-                         #(do (set vim.o.operatorfunc "v:lua.EvalOpfunc") "g@")
+                         #(do (set vim.o.operatorfunc "v:lua.FennelEvalOpfunc") "g@")
                          {:expr true :buffer true :desc "Eval (operator)"})
 
          (vim.keymap.set :n "QQ"
-                         #(do (set vim.o.operatorfunc "v:lua.EvalOpfunc") "g@_")
+                         #(do (set vim.o.operatorfunc "v:lua.FennelEvalOpfunc") "g@_")
                          {:expr true :buffer true :desc "Eval line"})
 
          (vim.api.nvim_create_user_command

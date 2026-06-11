@@ -10,7 +10,7 @@
     (vim.cmd (.. "normal! `[" sel "`]y"))
     (r.send (vim.fn.getreg "\"") :none)))
 
-(global EvalOpfunc eval-opfunc)
+(global LispEvalOpfunc eval-opfunc)
 
 (fn setup []
   (vim.api.nvim_create_autocmd 
@@ -27,11 +27,11 @@
            {:bang false :desc "Start repl"})
 
          (vim.keymap.set :n "Q"
-                         #(do (set vim.o.operatorfunc "v:lua.EvalOpfunc") "g@")
+                         #(do (set vim.o.operatorfunc "v:lua.LispEvalOpfunc") "g@")
                          {:expr true :buffer true :desc "Eval (operator)"})
 
          (vim.keymap.set :n "QQ"
-                         #(do (set vim.o.operatorfunc "v:lua.EvalOpfunc") "g@_")
+                         #(do (set vim.o.operatorfunc "v:lua.LispEvalOpfunc") "g@_")
                          {:expr true :buffer true :desc "Eval line"})))}))
 
 {: depends
