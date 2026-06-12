@@ -10,7 +10,8 @@
 (fn get-project-repl []
   (let [path (vim.fn.call "FindRootDirectory" [])]
     (if (and (. repl :repls path)
-             (not= (. repl :repls path) nil))
+             (not= (. repl :repls path) nil)
+             (> (vim.fn.bufexists (. (. repl :repls path) :buf)) 0))
       (. repl :repls path)
       (let [buf (vim.api.nvim_create_buf true true)
             r {:last-ns nil
