@@ -14,8 +14,7 @@
              (> (vim.fn.bufexists (. (. repl :repls path) :buf)) 0))
       (. repl :repls path)
       (let [buf (vim.api.nvim_create_buf true true)
-            r {:last-ns nil
-               :buf buf}]
+            r {:buf buf}]
         (set (. repl :repls path) r)
         (. repl :repls path))))) 
 
@@ -23,23 +22,10 @@
   (let [path (vim.fn.call "FindRootDirectory" [])]
     (set (. repl :repls path) v)))
 
-(fn kill-project-repl []
-  (let [path (vim.fn.call "FindRootDirectory" [])]
-    (set (. repl :repls path) nil)))
-
 (fn current-ns []
   "("
     (mimis.first 
       (mimis.split (mimis.second (vim.fn.split (vim.fn.getline 1) " ")) ")")))
-
-(fn in-ns [start-ns]
-  (let [r (get-project-repl)]
-    (when r
-      (let [ns (or start-ns (current-ns))]
-        (when (and ns (not= r.last-ns ns))
-          (r.repl.quiet-send (.. "(in-ns '" ns ")"))
-          (set r.last-ns ns)
-          (set-project-repl r))))))
 
 (fn show-repl [enter]
   (if (project-has-repl)
@@ -50,24 +36,11 @@
       (set-project-repl r))
     (print "No repl started, please start.")))
 
-(fn kill-repl []
-  (let [r (get-project-repl)]
-    (when r.repl
-      (show-repl true))
-    (vim.cmd ":bd!")
-    (kill-project-repl)))
-
-(fn send [expression ns]
+(fn send [expression]
   (let [r (get-project-repl)
         e (if (= (type expression) "string") expression (expression))]
     (if (and r r.repl r.buf)
-      (do
-        (when (not= :none ns)
-          (if (or (not ns)
-                  (= :current ns))
-            (in-ns)
-            (in-ns ns)))
-        ((. r.repl :send) e))
+      ((. r.repl :send) e)
       (print "Repl not connected"))))
 
 (fn get-command [filetype]
@@ -144,14 +117,7 @@
     (when (not r.repl) (set r.repl (connect-repl filetype connection-str)))
     (set-project-repl r)))
 
-(vim.api.nvim_create_user_command
-  "ReplKill"
-  kill-repl
-  {:bang false :desc "Kill repl"})
-
 {: current-ns
- : in-ns
- : kill-repl
  : jack-in
  : connect-in
  : send }

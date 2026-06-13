@@ -19,7 +19,7 @@
   (let [sel (if (= mtype "line") "V" "v")
         r (require :modules.repl)]
     (vim.cmd (.. "normal! `[" sel "`]y"))
-    (r.send (vim.fn.getreg "\"") :current)))
+    (r.send (.. "(binding [*ns* (the-ns '" (r.current-ns) ")] (eval (read-string \"" (vim.fn.getreg "\"") "\")))" ))))
 
 (global CljEvalOpfunc eval-opfunc)
 
@@ -34,15 +34,15 @@
      (fn []
        (set nvim.bo.syntax "lisp")
        (let [r (require :modules.repl)
-             dev (fn [] (r.send "(dev)" :user))
-             go (fn [] (r.send "(go)" :dev))
-             reset (fn [] (r.send "(reset)" :dev))
-             stop (fn [] (r.send "(stop)" :dev))
-             system (fn [] (r.send "@system"))
+             dev (fn [] (r.send "(dev)"))
+             go (fn [] (r.send "(use 'dev)(dev/go)"))
+             reset (fn [] (r.send "(use 'dev)(dev/reset)"))
+             stop (fn [] (r.send "(use 'dev)(dev/stop)"))
+             system (fn [] (r.send "(use 'dev) dev/@system"))
              reload (fn [] 
                       (r.send 
                         (fn [] (.. "(clojure.core/require '" (r.current-ns) " :reload)"))
-                        :current))
+                        :dev))
              reload-all (fn [] 
                           (r.send 
                             (fn [] (.. "(clojure.core/require '" (r.current-ns) " :reload-all)"))
@@ -50,15 +50,14 @@
              test (fn [] 
                     (r.send
                       (fn [] (.. "(clojure.test/run-tests '" (r.current-ns) ")"))
-                      :current))
+                      :dev))
              test-all (fn [] 
                         (r.send
-                          "(clojure.test/run-all-tests)"
-                          :current))
-             init-db (fn [] (r.send "(use 'db) (db/init-schema)" :dev))
-             migrate-db (fn [] (r.send  "(use 'db) (db/migrate-schema)" :dev))
-             shadow-jack (fn [] (r.send "(shadow/repl :app)" :none))
-             shadow-watch (fn [] (r.send "(shadow/watch :app)" :none))]
+                          "(clojure.test/run-all-tests)"))
+             init-db (fn [] (r.send "(use 'db) (db/init-schema)"))
+             migrate-db (fn [] (r.send  "(use 'db) (db/migrate-schema)"))
+             shadow-jack (fn [] (r.send "(shadow/repl :app)"))
+             shadow-watch (fn [] (r.send "(shadow/watch :app)"))]
 
          (set nvim.bo.suffixesadd ".clj,.cljs,.cljc,.edn")
          (set nvim.bo.includeexpr "substitute(substitute(v:fname,'\\.', '/', 'g'), '-', '_', 'g')")
@@ -74,9 +73,26 @@
            {:bang false :desc "Start shadow watch"})
 
          (vim.api.nvim_create_user_command
+           "Load"
+           (fn []
+             (r.send (.. "(load-file \"" (vim.fn.expand "%") "\")")))
+           {:bang true :desc "Start repl"})
+
+         (vim.api.nvim_create_user_command
            "Repl"
-           (fn [opts] (r.jack-in opts :clojure))
-           {:bang false :desc "Start repl"})
+           (fn [opts]
+             (let [root (vim.fn.call "FindRootDirectory" [])
+                   shadow-cljs (mimis.exists? (.. root "/shadow-cljs.edn"))]
+               (r.jack-in opts :clojure)
+               (when opts.bang
+                 (if shadow-cljs
+                   (do 
+                     (shadow-watch)
+                     (shadow-jack))
+                   (do 
+                     (dev)
+                     (go))))))
+           {:bang true :desc "Start repl"})
 
          (vim.api.nvim_create_user_command
            "Test"
@@ -117,21 +133,6 @@
            {:bang false :desc "Reloaded go"})
 
          (vim.api.nvim_create_user_command
-           "Start"
-           (fn [opts]
-             (let [root (vim.fn.call "FindRootDirectory" [])
-                   shadow-cljs (mimis.exists? (.. root "/shadow-cljs.edn"))]
-               (r.jack-in opts :clojure)
-               (if shadow-cljs
-                 (do 
-                   (shadow-watch)
-                   (shadow-jack))
-                 (do 
-                   (dev)
-                   (go)))))
-           {:bang false :desc "Start clojure or clojurescript dev"})
-
-         (vim.api.nvim_create_user_command
            "Stop"
            stop
            {:bang false :desc "Reloaded stop"})
@@ -153,13 +154,28 @@
            {:bang false :desc "Ragtime migrate-db"})
 
          (vim.api.nvim_create_user_command
+           "Doc"
+           (fn [opts] (r.send  (.. "(clojure.repl/doc " (mimis.first opts.fargs) ")")))
+           {:bang false :desc "Clojure (doc ..)" :nargs 1})
+
+         (vim.api.nvim_create_user_command
+           "Source"
+           (fn [opts] (r.send  (.. "(clojure.repl/source " (mimis.first opts.fargs) ")")))
+           {:bang false :desc "Clojure (source ..)" :nargs 1})
+
+         (vim.api.nvim_create_user_command
+           "Apropos"
+           (fn [opts] (r.send  (.. "(clojure.repl/apropos " (mimis.first opts.fargs) ")")))
+           {:bang false :desc "Clojure (apropos ..)" :nargs 1})
+
+         (vim.api.nvim_create_user_command
            "ClojureConnect"
            (fn [opts]
              (let [args (accumulate 
                           [s ""
                            _ v (ipairs (?. opts :fargs))]
                           (.. s " " v))]
-               (r.connect-in :clojure args)))
+               (r.connect-in args)))
            {:bang false :desc "Connect to repl" :nargs "*"})
 
          (when (not lsp-setup) 
