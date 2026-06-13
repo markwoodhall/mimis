@@ -13,7 +13,9 @@
         (let [mimis (require :mimis)
               args (table.concat opts.fargs " ")
               tmp (vim.fn.tempname)
-              org (.. "/home/markwoodhall/src/mark/kb/" args ".org")]
+              org (.. "/home/markwoodhall/src/mark/kb/"
+                      (vim.fn.substitute args " " "-" "g")
+                      ".org")]
           (if (and (not opts.bang) 
                    (mimis.exists? org))
             (mimis.file opts org)
