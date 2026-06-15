@@ -93,4 +93,3 @@
          (vim.cmd.normal "G"))
        ;; Set scrollback
        (nvim.ex.setlocal "scrollback=25000"))})
-

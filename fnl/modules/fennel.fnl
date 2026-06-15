@@ -5,7 +5,8 @@
 
 (fn enable []
   (plugins.register 
-    {:jaawerth/fennel.vim {:for [:fennel]}})
+    {"https://git.sr.ht/~m15a/vim-fennel-syntax" {:for [:fennel]}})
+  (set vim.g.fennel_lua_version "5.4")
   (vim.lsp.config 
     :fennel_ls 
     {:cmd [:fennel-ls]
