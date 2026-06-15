@@ -15,11 +15,16 @@
 
 (var lsp-setup nil)
 
+(fn esc [s]
+  (-> s
+      (string.gsub "\\" "\\\\")
+      (string.gsub "\"" "\\\"")))
+
 (fn eval-opfunc [mtype]
   (let [sel (if (= mtype "line") "V" "v")
         r (require :modules.repl)]
     (vim.cmd (.. "normal! `[" sel "`]y"))
-    (r.send (.. "(binding [*ns* (the-ns '" (r.current-ns) ")] (eval (read-string \"" (vim.fn.getreg "\"") "\")))" ))))
+    (r.send (.. "(binding [*ns* (the-ns '" (r.current-ns) ")] (eval (read-string \"" (esc (vim.fn.getreg "\"")) "\")))" ))))
 
 (global CljEvalOpfunc eval-opfunc)
 
