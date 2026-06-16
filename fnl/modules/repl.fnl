@@ -60,7 +60,7 @@
         [true false false] "lein repl"
         [false true false] "npx shadow-cljs clj-repl"
         [false false true] "clojure -A:dev:dev/nrepl"
-        _ "lein repl"))))
+        _ "bb"))))
 
 (fn visible? [buf]
   (not= -1 (vim.fn.bufwinid buf)))  
@@ -119,5 +119,6 @@
 
 {: current-ns
  : jack-in
+ : get-command
  : connect-in
  : send }

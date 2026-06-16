@@ -24,7 +24,9 @@
   (let [sel (if (= mtype "line") "V" "v")
         r (require :modules.repl)]
     (vim.cmd (.. "normal! `[" sel "`]y"))
-    (r.send (.. "(binding [*ns* (the-ns '" (r.current-ns) ")] (eval (read-string \"" (esc (vim.fn.getreg "\"")) "\")))" ))))
+    (case (r.get-command :clojure)
+      "bb" (r.send (vim.fn.getreg "\""))
+       _ (r.send (.. "(binding [*ns* (the-ns '" (r.current-ns) ")] (eval (read-string \"" (esc (vim.fn.getreg "\"")) "\")))" )))))
 
 (global CljEvalOpfunc eval-opfunc)
 
