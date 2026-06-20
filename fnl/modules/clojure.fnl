@@ -26,7 +26,7 @@
     (vim.cmd (.. "normal! `[" sel "`]y"))
     (case (r.get-command :clojure)
       "bb" (r.send (vim.fn.getreg "\""))
-       _ (r.send (.. "(binding [*ns* (the-ns '" (r.current-ns) ")] (eval (read-string \"" (esc (vim.fn.getreg "\"")) "\")))" )))))
+       _ (r.send (.. "(binding [*ns* (the-ns '" (r.current-ns) ")] (eval (read-string \"" (esc (vim.fn.getreg "\"")) "\")))" ) :clojure))))
 
 (global CljEvalOpfunc eval-opfunc)
 
@@ -40,30 +40,30 @@
      :callback 
      (fn []
        (let [r (require :modules.repl)
-             dev (fn [] (r.send "(dev)"))
-             go (fn [] (r.send "(use 'dev)(dev/go)"))
-             reset (fn [] (r.send "(use 'dev)(dev/reset)"))
-             stop (fn [] (r.send "(use 'dev)(dev/stop)"))
-             system (fn [] (r.send "(use 'dev) dev/@system"))
+             dev (fn [] (r.send "(dev)" :clojure))
+             go (fn [] (r.send "(use 'dev)(dev/go)" :clojure))
+             reset (fn [] (r.send "(use 'dev)(dev/reset)" :clojure))
+             stop (fn [] (r.send "(use 'dev)(dev/stop)" :clojure))
+             system (fn [] (r.send "(use 'dev) dev/@system" :clojure))
              reload (fn [] 
                       (r.send 
                         (fn [] (.. "(clojure.core/require '" (r.current-ns) " :reload)"))
-                        :dev))
+                        :clojure))
              reload-all (fn [] 
                           (r.send 
                             (fn [] (.. "(clojure.core/require '" (r.current-ns) " :reload-all)"))
-                            (r.current-ns)))
+                            :clojure))
              test (fn [] 
                     (r.send
                       (fn [] (.. "(clojure.test/run-tests '" (r.current-ns) ")"))
-                      :dev))
+                      :clojure))
              test-all (fn [] 
                         (r.send
-                          "(clojure.test/run-all-tests)"))
-             init-db (fn [] (r.send "(use 'db) (db/init-schema)"))
-             migrate-db (fn [] (r.send  "(use 'db) (db/migrate-schema)"))
-             shadow-jack (fn [] (r.send "(shadow/repl :app)"))
-             shadow-watch (fn [] (r.send "(shadow/watch :app)"))]
+                          "(clojure.test/run-all-tests)" :clojure))
+             init-db (fn [] (r.send "(use 'db) (db/init-schema)" :clojure))
+             migrate-db (fn [] (r.send  "(use 'db) (db/migrate-schema)" :clojure))
+             shadow-jack (fn [] (r.send "(shadow/repl :app)" :clojure))
+             shadow-watch (fn [] (r.send "(shadow/watch :app)" :clojure))]
 
          (set nvim.bo.suffixesadd ".clj,.cljs,.cljc,.edn")
          (set nvim.bo.includeexpr "substitute(substitute(v:fname,'\\.', '/', 'g'), '-', '_', 'g')")
@@ -81,7 +81,7 @@
          (vim.api.nvim_create_user_command
            "Load"
            (fn []
-             (r.send (.. "(load-file \"" (vim.fn.expand "%") "\")")))
+             (r.send (.. "(load-file \"" (vim.fn.expand "%") "\")") :clojure))
            {:bang true :desc "Start repl"})
 
          (vim.api.nvim_create_user_command
@@ -161,17 +161,17 @@
 
          (vim.api.nvim_create_user_command
            "Doc"
-           (fn [opts] (r.send  (.. "(clojure.repl/doc " (mimis.first opts.fargs) ")")))
+           (fn [opts] (r.send  (.. "(clojure.repl/doc " (mimis.first opts.fargs) ")") :clojure))
            {:bang false :desc "Clojure (doc ..)" :nargs 1})
 
          (vim.api.nvim_create_user_command
            "Source"
-           (fn [opts] (r.send  (.. "(clojure.repl/source " (mimis.first opts.fargs) ")")))
+           (fn [opts] (r.send  (.. "(clojure.repl/source " (mimis.first opts.fargs) ")" :clojure)))
            {:bang false :desc "Clojure (source ..)" :nargs 1})
 
          (vim.api.nvim_create_user_command
            "Apropos"
-           (fn [opts] (r.send  (.. "(clojure.repl/apropos " (mimis.first opts.fargs) ")")))
+           (fn [opts] (r.send  (.. "(clojure.repl/apropos " (mimis.first opts.fargs) ")" :clojure)))
            {:bang false :desc "Clojure (apropos ..)" :nargs 1})
 
          (vim.api.nvim_create_user_command

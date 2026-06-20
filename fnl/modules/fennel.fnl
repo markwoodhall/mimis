@@ -17,7 +17,7 @@
   (let [sel (if (= mtype "line") "V" "v")
         r (require :modules.repl)]
     (vim.cmd (.. "normal! `[" sel "`]y"))
-    (r.send (vim.fn.getreg "\"") :none)))
+    (r.send (vim.fn.getreg "\"") :fennel)))
 
 (global FennelEvalOpfunc eval-opfunc)
 
@@ -46,7 +46,7 @@
 
          (vim.api.nvim_create_user_command
            "Reload"
-           (fn [] (r.send (.. ",reload " (vim.fn.expand "%:r")) :none))
+           (fn [] (r.send (.. ",reload " (vim.fn.expand "%:r")) :fennel))
            {:bang false :desc "Reload module"}))
        (when (not lsp-setup) 
          (vim.lsp.enable :fennel_ls)
