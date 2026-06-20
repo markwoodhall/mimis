@@ -18,6 +18,7 @@
        (fn []
          (when (.  o :org-babel-like)
            (let [vabel (require :modules.vabel)]
+             (vim.cmd "syntax sync minlines=400")
              (vim.api.nvim_create_user_command
                "Tangle"
                vabel.tangle-blocks
