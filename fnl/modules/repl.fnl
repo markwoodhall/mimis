@@ -27,12 +27,11 @@
     (mimis.first 
       (mimis.split (mimis.second (vim.fn.split (vim.fn.getline 1) " ")) ")")))
 
-(fn show-repl [enter filetype]
+(fn show-repl [filetype]
   (if (project-has-repl filetype)
     (let [r (get-project-repl filetype)]
       (mimis.buff r.opts r.buf)
-      (when enter
-        (vim.cmd.normal "G"))
+      (vim.cmd.normal "G")
       (set-project-repl filetype r))
     (print "No repl started, please start.")))
 
@@ -76,6 +75,7 @@
 (fn ensure-shown [filetype r]
   (when (and r.buf (not (visible? r.buf)))
     (mimis.buff r.opts r.buf)
+    (vim.cmd.normal "G")
     (set-project-repl filetype r)))
 
 (fn sender [filetype r job show data]
@@ -114,14 +114,14 @@
 (fn jack-in [opts filetype]
   (let [r (get-project-repl filetype)]
     (set r.opts opts)
-    (show-repl true filetype)
+    (show-repl filetype)
     (when (not r.repl) (set r.repl (start-repl filetype)))
     (set-project-repl filetype r)))
 
 (fn connect-in [opts filetype connection-str]
   (let [r (get-project-repl filetype)]
     (set r.opts opts)
-    (show-repl true filetype)
+    (show-repl filetype)
     (when (not r.repl) (set r.repl (connect-repl filetype connection-str)))
     (set-project-repl filetype r)))
 
