@@ -93,3 +93,16 @@
          (vim.cmd.normal "G"))
        ;; Set scrollback
        (nvim.ex.setlocal "scrollback=25000"))})
+
+(vim.api.nvim_create_autocmd 
+    "FileType" 
+    {:pattern :mail
+     :group (vim.api.nvim_create_augroup "mimis-mail" {:clear true})
+     :desc "Setup mail mode"
+     :callback 
+     (fn [_]
+       (if (not= (os.getenv "AERC_ACCOUNT") "Personal")
+           (do (set vim.opt_local.textwidth 0)
+               (set vim.opt_local.wrap true)
+               (set vim.opt_local.linebreak true))
+           (set vim.opt_local.textwidth 72)))})
