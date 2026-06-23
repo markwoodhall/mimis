@@ -102,6 +102,7 @@
      :callback 
      (fn [_]
        (vim.cmd "set syntax=org")
+       (vim.cmd "setlocal spell")
        (if (not= (os.getenv "AERC_ACCOUNT") "Personal")
            (do (set vim.opt_local.textwidth 0)
                (set vim.opt_local.wrap true)
