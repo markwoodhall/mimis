@@ -97,6 +97,7 @@
       (if job 
         (do
           (set vim.bo.filetype filetype)
+          (set vim.bo.syntax :off)
           {:job job
            :quiet-send (partial sender filetype r job false)
            :send (partial sender filetype r job true)})
@@ -107,6 +108,7 @@
     (let [command (get-command filetype)
           job (vim.fn.jobstart command {:term true})]
       (set vim.bo.filetype filetype)
+      (set vim.bo.syntax :off)
       {:job job
        :quiet-send (partial sender filetype r job false)
        :send (partial sender filetype r job true)})))
