@@ -5,8 +5,13 @@
     "sql" (let [t (mimis.split results "\n")
                 t (icollect [_ v  (ipairs t)]
                     (when (not (= "Timing is off." v))
-                      (.. (mimis.pad-string " " indent) (if (not= v "") (.. "|" v (if (or (string.find v " $")
-                                                                                           (string.find v "-$")) "|" " |")) v))))] 
+                      (.. (mimis.pad-string " " indent) 
+                          (if (not= v "") 
+                              (.. "|" v 
+                                  (if (or (string.find v " $")
+                                          (string.find v "-$"))
+                                      "|"
+                                      " |")) v))))] 
             (table.insert t 1 (.. (mimis.pad-string " " indent) "#+RESULTS:"))
             t)
     _ (let [t (mimis.split results "\n")
