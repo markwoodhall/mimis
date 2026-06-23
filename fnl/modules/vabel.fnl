@@ -1,31 +1,18 @@
 (local mimis (require :mimis))
 
-(fn ->output-lang [lang]
-  (case lang
-    :sql :org
-    _ lang))
-
 (fn verbatim [results indent lang]
   (case lang
     "sql" (let [t (mimis.split results "\n")
-                output-lang (->output-lang lang)
                 t (icollect [_ v  (ipairs t)]
                     (when (not (= "Timing is off." v))
                       (.. (mimis.pad-string " " indent) (if (not= v "") (.. "|" v (if (or (string.find v " $")
                                                                                            (string.find v "-$")) "|" " |")) v))))] 
-            (table.insert t 1 (.. (mimis.pad-string " " indent) "#+BEGIN_EXAMPLE " output-lang))
             (table.insert t 1 (.. (mimis.pad-string " " indent) "#+RESULTS:"))
-            ;;(table.insert t 1 "")
-            (table.insert t (.. (mimis.pad-string " " indent) "#+END_EXAMPLE"))
             t)
     _ (let [t (mimis.split results "\n")
-            output-lang (->output-lang lang)
             t (icollect [_ v  (ipairs t)]
                 (.. (mimis.pad-string " " indent) v))] 
-            (table.insert t 1 (.. (mimis.pad-string " " indent) "#+BEGIN_EXAMPLE " output-lang))
             (table.insert t 1 (.. (mimis.pad-string " " indent) "#+RESULTS:"))
-            (table.insert t 1 "")
-            (table.insert t (.. (mimis.pad-string " " indent) "#+END_EXAMPLE"))
             t)))
 
 (fn presenter [p-type]
@@ -94,11 +81,11 @@
 
 (fn clear-code-block [from-line]
   (let [pos (vim.fn.winsaveview)
-        [line1 _] (vim.fn.searchpos "\\c#+BEGIN_EXAMPLE" "c")
-        [line2 _] (vim.fn.searchpos "\\c#+END_EXAMPLE" "c") ]
+        [line1 _] (vim.fn.searchpos "\\c#+RESULTS" "c")
+        [line2 _] (vim.fn.searchpos "\\c^$" "c") ]
     (when (and (> line1 0)
                (> line1 from-line))
-      (vim.cmd (.. (- line1 1) "," line2 "d")))
+      (vim.cmd (.. line1 "," line2 "d")))
     (vim.fn.winrestview pos)))
 
 (fn get-code-block []
