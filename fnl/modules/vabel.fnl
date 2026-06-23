@@ -108,12 +108,17 @@
         code (vim.fn.getline (+ line1 1) (- line2 1))
         line (vim.fn.getline line1)
         lang (mimis.first (mimis.split (mimis.last (mimis.split line "\\c#+begin_src ")) " "))
+        [prop-line1 _] (vim.fn.searchpos (.. "\\c#+property: header-args:" lang " ") "bc")
+        prop-line (vim.fn.getline prop-line1)
         cmd (command lang)]
     (when (and cmd
                (>= curr-lin line1)
                (>= line2 curr-lin))
       (let [headers (mimis.split line (.. "\\c#+begin_src " lang " "))
+            prop-headers (mimis.split prop-line (.. "\\c#+property: header-args:" lang " "))
             header (mimis.last headers)
+            prop-header (mimis.last prop-headers)
+            header (if (> (length headers) 1) header prop-header)
             header-parser-fn (header-parser lang header)
             env (header-parser-fn lang header)]
         {:pos pos
