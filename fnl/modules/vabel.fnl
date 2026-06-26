@@ -87,9 +87,14 @@
 (fn clear-code-block [from-line]
   (let [pos (vim.fn.winsaveview)
         [line1 _] (vim.fn.searchpos "\\c#+RESULTS" "c")
-        [line2 _] (vim.fn.searchpos "\\c^$" "c") ]
+        [line2 _] (vim.fn.searchpos "\\c^$" "c")
+        [next-src-line _] (vim.fn.searchpos "\\c#+begin_src" "c")
+        line2 (if (< line2 line1)
+                  (vim.fn.line "$")
+                  line2)]
     (when (and (> line1 0)
-               (> line1 from-line))
+               (> line1 from-line)
+               (> next-src-line line1))
       (vim.cmd (.. line1 "," line2 "d")))
     (vim.fn.winrestview pos)))
 
