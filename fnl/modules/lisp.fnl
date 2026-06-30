@@ -21,7 +21,7 @@
      :callback 
      (fn []
        (let [r (require :modules.repl)]
-         (vim.api.nvim_create_user_command
+         (vim.api.nvim_buf_create_user_command
            "Repl"
            (fn [opts] (r.jack-in opts :lisp))
            {:bang false :desc "Start repl"})

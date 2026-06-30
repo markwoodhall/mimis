@@ -31,7 +31,8 @@
                          #(do (set vim.o.operatorfunc "v:lua.SqlEvalOpfunc") "g@_")
                          {:expr true :buffer true :desc "Eval line"})
 
-         (vim.api.nvim_create_user_command
+         (vim.api.nvim_buf_create_user_command
+           0
            "Repl"
            (fn [opts]
              (r.jack-in opts :sql))

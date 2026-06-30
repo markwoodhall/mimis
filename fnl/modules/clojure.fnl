@@ -84,7 +84,8 @@
              (r.send (.. "(load-file \"" (vim.fn.expand "%") "\")") :clojure))
            {:bang true :desc "Start repl"})
 
-         (vim.api.nvim_create_user_command
+         (vim.api.nvim_buf_create_user_command
+           0
            "Repl"
            (fn [opts]
              (let [root (vim.fn.call "FindRootDirectory" [])

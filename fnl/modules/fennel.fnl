@@ -31,7 +31,8 @@
      :callback 
      (fn [_]
        (let [r (require :modules.repl)]
-         (vim.api.nvim_create_user_command
+         (vim.api.nvim_buf_create_user_command
+           0
            "Repl"
            (fn [opts] (r.jack-in opts :fennel))
            {:bang false :desc "Start repl"})
@@ -44,7 +45,8 @@
                          #(do (set vim.o.operatorfunc "v:lua.FennelEvalOpfunc") "g@_")
                          {:expr true :buffer true :desc "Eval line"})
 
-         (vim.api.nvim_create_user_command
+         (vim.api.nvim_buf_create_user_command
+           0
            "Reload"
            (fn [] (r.send (.. ",reload " (vim.fn.expand "%:r")) :fennel))
            {:bang false :desc "Reload module"}))
