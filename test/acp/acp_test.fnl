@@ -123,7 +123,110 @@
   (check "reply streams in across split JSON lines" (has-line chat "You said: hello there"))
   (check "tool lines are rewritten in place" (has-line chat "> tool: Read /tmp/x/file.clj — done"))
   (check "permission choice is recorded" (has-line chat "> permission: Edit file.clj — Allow once"))
-  (check "stop reason is shown" (has-line chat "> stop: end_turn")))
+  (check "stop reason is shown" (has-line chat "> stop: end_turn"))
+  (check "thinking streams in as >> lines"
+         (and (has-line chat ">> hmm") (has-line chat ">> let me think")) chat)
+  (check "a blank line separates thinking from the reply"
+         (let [i (accumulate [at nil i l (ipairs chat) &until at] (when (= l ">> let me think") i))]
+           (and i (= "" (. chat (+ i 1))) (= "You said: hello there" (. chat (+ i 2)))))))
+
+(let [win (vim.fn.bufwinid s.buf)
+      row (accumulate [at nil i l (ipairs (lines-of s.buf)) &until at] (when (= l ">> hmm") i))]
+  (check "thinking is folded closed in the chat"
+         (and row (not= -1 (vim.api.nvim_win_call win #(vim.fn.foldclosed row)))))
+  (check "the reply is not folded"
+         (= -1 (vim.api.nvim_win_call win #(vim.fn.foldclosed (+ row 3))))))
+
+;; Tool details -------------------------------------------------------------------
+
+(fn row-of [line]
+  (accumulate [at nil i l (ipairs (lines-of s.buf)) &until at] (when (= l line) i)))
+
+(fn press-enter-on [row]
+  (vim.api.nvim_set_current_win (vim.fn.bufwinid s.buf))
+  (vim.api.nvim_win_set_cursor 0 [row 0])
+  (vim.api.nvim_feedkeys (vim.keycode "<CR>") :x false))
+
+(fn lines-after [row n]
+  (vim.api.nvim_buf_get_lines s.buf row (+ row n) false))
+
+(local before-expanding (lines-of s.buf))
+(local edit-row (row-of "> tool: Edit file.clj — done"))
+(local read-row (row-of "> tool: Read /tmp/x/file.clj — done"))
+
+;; Read is directly above Edit, so expanding it also checks Edit's line moves with it.
+(press-enter-on read-row)
+(let [read (lines-after read-row 14)]
+  (check "<CR> on a tool line expands it inline" (= "" (. read 1)) read)
+  (check "expanded details show the input as JSON"
+         (and (has-line read "#### Input") (has-line read "  \"file_path\": \"/tmp/x/file.clj\"")) read)
+  (check "expanded details strip terminal colours" (has-line read "(ns x)") read))
+
+(local edit-row-now (row-of "> tool: Edit file.clj — done"))
+(check "lines below an expansion move down with it" (> edit-row-now edit-row))
+(vim.api.nvim_win_set_cursor 0 [edit-row-now 0])
+(vim.cmd "AcpTool")
+(check ":AcpTool on a tool line works like <CR>"
+       (= "#### Files" (. (lines-after edit-row-now 2) 2))
+       (lines-after edit-row-now 2))
+(let [edit (lines-after edit-row-now 22)]
+  (check "diff headers for files outside the project have no a/ prefix"
+         (has-line edit "--- /tmp/x/file.clj") edit)
+  (check "expanded edits list files with line numbers" (has-line edit "/tmp/x/file.clj:2") edit)
+  (check "expanded edits show a unified diff"
+         (and (has-line edit "```diff") (has-line edit "-(def a 1)") (has-line edit "+(def a 2)")) edit)
+  (check "expanded edits leave out input that repeats the diff" (not (has-line edit "#### Input")) edit)
+  (check "expanded edits show the output" (has-line edit "The file /tmp/x/file.clj has been updated.") edit))
+
+;; <CR> inside an expansion collapses it
+(press-enter-on (+ edit-row-now 3))
+(press-enter-on read-row)
+(check "<CR> again collapses, leaving the chat as it was"
+       (vim.deep_equal before-expanding (lines-of s.buf)))
+
+(vim.api.nvim_win_set_cursor 0 [1 0])
+(vim.api.nvim_feedkeys (vim.keycode "<CR>") :x false)
+(check "<CR> elsewhere in the chat moves down as usual"
+       (= 2 (. (vim.api.nvim_win_get_cursor 0) 1)))
+
+(press-enter-on edit-row)
+(session.send-prompt s "plain")
+(wait #(= s.turn.state :idle))
+(let [log (vim.fn.readfile s.log.path)]
+  (check "a turn finishing while expanded is logged" (has-line log "Plain reply.") log)
+  (check "expanded details never reach the log" (not (has-line log "#### Files")) log))
+(press-enter-on edit-row)
+(check "a tool still collapses after more turns" (not (has-line (lines-of s.buf) "#### Files")))
+
+;; Expanded while running: the line and details update in place when it finishes
+(var pending-choice nil)
+(set vim.ui.select (fn [items _ cb] (set pending-choice #(cb (. items 1)))))
+(session.send-prompt s "expand while running")
+(wait #(not= nil s.permission))
+(local running-row
+  (accumulate [at nil i l (ipairs (lines-of s.buf))]
+    (if (= l "> tool: Edit file.clj — pending") i at)))
+(press-enter-on running-row)
+(check "a running tool expands" (= "#### Files" (. (lines-after running-row 2) 2)) (lines-after running-row 3))
+(pending-choice)
+(wait #(= s.turn.state :idle))
+(let [after (lines-after (- running-row 1) 24)]
+  (check "a finished tool's line updates in place while expanded"
+         (= "> tool: Edit file.clj — done" (. after 1)) after)
+  (check "an expanded tool's details refresh when it finishes"
+         (has-line after "The file /tmp/x/file.clj has been updated.") after))
+(press-enter-on running-row)
+(check "a refreshed expansion collapses cleanly" (not (has-line (lines-of s.buf) "#### Files")))
+(select-first)
+
+(vim.api.nvim_set_current_win start-win)
+(vim.cmd "AcpTool")
+(check "AcpTool elsewhere shows the latest tool call" (= "# Edit file.clj — done" (vim.api.nvim_get_current_line)))
+(vim.cmd "close")
+(vim.api.nvim_set_current_win (. (vim.fn.win_findbuf s.prompt-buf) 1))
+
+(let [log (vim.fn.readfile s.log.path)]
+  (check "thinking is kept in the log" (has-line log ">> let me think") log))
 
 (check "context use shows in the statusline"
        (not= nil (string.find (statusline-of (vim.fn.bufwinid s.prompt-buf)) "Sonnet 5.5 · Manual · 25%" 1 true))
@@ -231,6 +334,24 @@
        (vim.fn.getcompletion "Acp mode plan " "cmdline"))
 (check ":AcpConfig completes only one pair"
        (vim.deep_equal [] (vim.fn.getcompletion "AcpConfig mode plan " "cmdline")))
+
+;; Killing Neovim mid-turn keeps every completed turn ---------------------------------
+
+(let [marker (vim.fn.tempname)
+      child-log-dir (vim.fn.tempname)
+      child (vim.system ["nvim" "--headless" "-c"
+                         (.. "lua require('fennel').dofile('" here "/kill_child.fnl')")]
+                        {:env {:ACP_TEST_MARKER marker :ACP_TEST_LOG_DIR child-log-dir}})]
+  (wait #(= 1 (vim.fn.filereadable marker)) 15000)
+  (child:kill :sigkill)
+  (child:wait 5000)
+  (let [log-path (?. (vim.fn.readfile marker) 1)
+        log (if log-path (vim.fn.readfile log-path) [])]
+    (check "a killed session keeps its completed turns"
+           (and (has-line log "completed turn") (has-line log "You said: completed turn")) log)
+    (check "a killed session drops the unfinished turn" (not (has-line log "slow")) log))
+  (vim.fn.delete marker)
+  (vim.fn.delete child-log-dir "rf"))
 
 (vim.fn.delete vim.g.acp-log-dir "rf")
 (if known-backup

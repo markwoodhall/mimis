@@ -29,6 +29,28 @@
         (tset requested (. fargs i) (. fargs (+ i 1))))
       requested)))
 
+(fn chat-row [s]
+  (when (and s (= (vim.api.nvim_get_current_buf) s.buf))
+    (. (vim.api.nvim_win_get_cursor 0) 1)))
+
+(fn tool [opts]
+  ;; In the chat, toggles the details of the tool call under the cursor.
+  ;; Anywhere else, opens the latest tool call in a split.
+  (let [s (session.current)
+        row (chat-row s)]
+    (if (not s)
+      (vim.notify "acp: no session, run :Acp first" vim.log.levels.WARN)
+      row
+      (when (not (session.toggle-tool s row))
+        (vim.notify "acp: no tool call on this line" vim.log.levels.WARN))
+      (session.show-latest-tool s opts.mods))))
+
+(fn chat-keymaps [s]
+  (vim.keymap.set :n "<CR>"
+                  (fn []
+                    (if (session.tool-at s (chat-row s)) "<Cmd>AcpTool<CR>" "<CR>"))
+                  {:buffer s.buf :expr true :desc "ACP toggle tool details"}))
+
 (fn open [opts]
   ;; :Acp [setting value]...  open or focus the session, changing any settings given
   ;; :Acp! [setting value]... end the current session and start a new one
@@ -46,6 +68,7 @@
       (let [_ (when s (session.stop s))
             s (session.start (vim.tbl_extend :force (or vim.g.acp-config {}) requested))]
         (vim.keymap.set :n "<CR>" send {:buffer s.prompt-buf :desc "ACP send prompt"})
+        (chat-keymaps s)
         (render.show s mods)))))
 
 (fn pick-value [s option]
@@ -103,6 +126,11 @@
     (set vim.g.markdown_fenced_languages
          [:clojure :fennel :sh :bash=sh :diff :json :lua :sql :python]))
 
+  (vim.api.nvim_create_autocmd :VimLeavePre
+    {:group (vim.api.nvim_create_augroup "acp" {:clear true})
+     :desc "Stop the ACP agent"
+     :callback #(session.shutdown)})
+
   (vim.api.nvim_create_user_command "Acp" open
     {:nargs "*" :bang true :complete (complete-settings 10)
      :desc "Open or focus the ACP session; ! starts a new one; args are setting/value pairs"})
@@ -113,6 +141,8 @@
     {:nargs "*" :desc "Send the prompt buffer, or the given text, to the ACP agent"})
   (vim.api.nvim_create_user_command "AcpCancel" cancel {:desc "Cancel the running ACP turn"})
   (vim.api.nvim_create_user_command "AcpStop" quit {:desc "End the ACP session"})
+  (vim.api.nvim_create_user_command "AcpTool" tool
+    {:desc "Toggle the details of the tool call under the cursor, or show the latest one"})
   (vim.api.nvim_create_user_command "AcpOpenBlock" render.open-code-block
     {:desc "Open the fenced code block under the cursor in its own buffer"})
   (vim.api.nvim_create_user_command

@@ -56,7 +56,7 @@
     (vim.list_extend lines (vim.split turn.prompt "\n" {:plain true}))
     (vim.list_extend lines ["" "## Agent" ""])
     (each [_ b (ipairs turn.blocks)]
-      (if (= b.type :text)
+      (if (or (= b.type :text) (= b.type :thought))
         (let [parts (vim.split b.text "\n" {:plain true})
               n (length lines)]
           (tset lines n (.. (. lines n) (table.remove parts 1)))
@@ -65,7 +65,7 @@
               previous (. lines (- n 1))]
           (if (not= (. lines n) "")
             (vim.list_extend lines ["" b.line ""])
-            (or (= previous "") (previous:match "^[>#]"))
+            (or (= previous "") (previous:match "^>[^>]") (previous:match "^#"))
             (do
               (tset lines n b.line)
               (table.insert lines ""))

@@ -9,6 +9,14 @@
                 (.. stamp " " direction " " l))]
     (vim.fn.writefile lines (debug-path) "a")))
 
+(local debug-limit (* 2 1024 1024))
+
+(fn rotate-debug []
+  ;; Once the log passes the limit, keep it as .old and start fresh.
+  (let [path (debug-path)]
+    (when (> (vim.fn.getfsize path) debug-limit)
+      (vim.fn.rename path (.. path ".old")))))
+
 (fn clean-env []
   ;; Never pass an API key through, or Claude Code bills the API instead of the subscription.
   (let [env (vim.fn.environ)]
@@ -17,6 +25,7 @@
 
 (fn start [cmd cwd handlers]
   (var leftover "")
+  (rotate-debug)
   (debug "--" (.. "start " (table.concat cmd " ") " in " cwd))
   (let [on-stdout
         (fn [_ data]

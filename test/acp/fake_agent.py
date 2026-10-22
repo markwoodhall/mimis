@@ -54,13 +54,18 @@ for line in sys.stdin:
     elif m == "session/prompt":
         pending_prompt = msg["id"]
         prompt = msg["params"]["prompt"][0]["text"]
-        update({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "hmm"}})
+        update({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "hmm\nlet me "}})
+        update({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "think"}})
         update({"sessionUpdate": "usage_update", "used": 25000, "size": 100000})
         if prompt == "slow":
             text("Working on it")
             send({"id": 102, "method": "session/request_permission",
                   "params": {"sessionId": SID, "toolCall": {"toolCallId": "t9", "title": "Run `rm -rf build`"},
                              "options": [{"optionId": "allow", "name": "Allow once", "kind": "allow_once"}]}})
+            continue
+        if prompt == "plain":
+            text("Plain reply.")
+            send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
             continue
         if prompt == "leave plan":
             config["mode"] = "default"
@@ -77,7 +82,14 @@ for line in sys.stdin:
         text(prompt + "\n\nLet me look.")
         update({"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Read /tmp/x/file.clj", "kind": "read", "status": "pending"})
         update({"sessionUpdate": "tool_call", "toolCallId": "t2", "title": "Edit file.clj", "kind": "edit", "status": "pending"})
-        update({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed"})
+        update({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "rawInput": {"file_path": "/tmp/x/file.clj"}})
+        update({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed",
+                "rawOutput": "\u001b[01;34m(ns x)\u001b[0m\n(def a 1)"})
+        update({"sessionUpdate": "tool_call_update", "toolCallId": "t2",
+                "locations": [{"path": "/tmp/x/file.clj", "line": 2}],
+                "rawInput": {"file_path": "/tmp/x/file.clj", "old_string": "(def a 1)", "new_string": "(def a 2)"},
+                "content": [{"type": "diff", "path": "/tmp/x/file.clj",
+                             "oldText": "(ns x)\n(def a 1)", "newText": "(ns x)\n(def a 2)"}]})
         send({"id": 100, "method": "fs/unknown_thing", "params": {}})
         send({"id": 101, "method": "session/request_permission",
               "params": {"sessionId": SID, "toolCall": {"toolCallId": "t2", "title": "Edit file.clj"},
@@ -87,7 +99,8 @@ for line in sys.stdin:
         send({"id": pending_prompt, "result": {"stopReason": "cancelled"}})
     elif msg.get("id") == 101:
         allowed = msg["result"]["outcome"].get("optionId") == "allow"
-        update({"sessionUpdate": "tool_call_update", "toolCallId": "t2", "status": "completed" if allowed else "failed"})
+        update({"sessionUpdate": "tool_call_update", "toolCallId": "t2", "status": "completed" if allowed else "failed",
+                "rawOutput": "The file /tmp/x/file.clj has been updated."})
         text("Done:\n\n```clojure\n(+ 1 2)\n```\n")
         send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
     elif msg.get("id") == 100:

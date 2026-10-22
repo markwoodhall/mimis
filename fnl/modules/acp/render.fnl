@@ -26,7 +26,12 @@
   (tset (. vim.wo win) :linebreak true)
   (tset (. vim.wo win) :number false)
   (tset (. vim.wo win) :relativenumber false)
-  (tset (. vim.wo win) :conceallevel 0))
+  (tset (. vim.wo win) :conceallevel 0)
+  ;; Thinking (">> " lines) folds closed; zo / zR open it.
+  (tset (. vim.wo win) :foldmethod :expr)
+  (tset (. vim.wo win) :foldexpr "getline(v:lnum)=~#'^>>'")
+  (tset (. vim.wo win) :foldlevel 0)
+  (tset (. vim.wo win) :foldenable true))
 
 (fn open-prompt-below []
   (vim.cmd "belowright 8split")
@@ -92,7 +97,7 @@
             (if (> secs 0) (.. " · " secs "s") ""))))))
 
 (fn draw-activity [s]
-  (when (and s.buf (vim.api.nvim_buf_is_valid s.buf))
+  (when (and s.buf (vim.api.nvim_buf_is_loaded s.buf))
     (let [text (activity-text s)]
       (if text
         (set s.activity-mark
@@ -133,7 +138,7 @@
   (vim.cmd "redrawstatus!"))
 
 (fn modify [s f]
-  (when (vim.api.nvim_buf_is_valid s.buf)
+  (when (vim.api.nvim_buf_is_loaded s.buf)
     (let [buf s.buf
           wins (following-windows buf)]
       (tset (. vim.bo buf) :modifiable true)
@@ -152,8 +157,8 @@
   (vim.api.nvim_buf_set_lines buf -1 -1 false lines))
 
 (fn joins-previous? [line]
-  ;; Quoted lines stack directly under headings and other quoted lines.
-  (or (= line nil) (= line "") (line:match "^[>#]")))
+  ;; Quoted lines stack directly under headings and other quoted lines (not thinking).
+  (or (= line nil) (= line "") (line:match "^>[^>]") (line:match "^#")))
 
 (fn put-line [buf line]
   ;; Puts a standalone line at the end, keeping an empty line after it for what comes next.
@@ -207,6 +212,142 @@
           (when row
             (let [current (. (vim.api.nvim_buf_get_lines s.buf row (+ row 1) false) 1)]
               (vim.api.nvim_buf_set_text s.buf row 0 row (length current) [block.line]))))))))
+
+(fn line-row [s block]
+  ;; 1-based row of a block's line in the chat, or nil.
+  (when (and block block.mark (vim.api.nvim_buf_is_loaded s.buf))
+    (let [[row] (vim.api.nvim_buf_get_extmark_by_id s.buf ns block.mark {})]
+      (when row (+ row 1)))))
+
+;; Tool details ----------------------------------------------------------------------
+
+(fn strip-ansi [text]
+  (pick-values 1 (string.gsub text "\27%[[%d;?]*%a" "")))
+
+(fn fence-for [text]
+  ;; A fence longer than any backtick run inside, so nested fences survive.
+  (var longest 2)
+  (each [run (string.gmatch text "`+")]
+    (set longest (math.max longest (length run))))
+  (string.rep "`" (+ longest 1)))
+
+(fn fenced [lang text]
+  (let [text (pick-values 1 (string.gsub text "\n$" ""))
+        fence (fence-for text)]
+    (vim.list_extend (vim.list_extend [(.. fence lang)] (vim.split text "\n" {:plain true}))
+                     [fence ""])))
+
+(fn as-text [value]
+  (if (= (type value) :string)
+    (strip-ansi value)
+    (vim.json.encode value {:indent "  " :sort_keys true})))
+
+(fn with-newline [text]
+  (if (vim.endswith text "\n") text (.. text "\n")))
+
+(fn unified-diff [d relative]
+  (let [body (vim.text.diff (with-newline d.old) (with-newline d.new)
+                            {:result_type :unified :ctxlen 3})]
+    (if (vim.startswith relative "/")
+      (.. "--- " relative "\n+++ " relative "\n" body)
+      (.. "--- a/" relative "\n+++ b/" relative "\n" body))))
+
+(fn tool-sections [s tool heading]
+  ;; The detail sections of a tool call, each ending with an empty line.
+  ;; heading is the markdown heading marker to use, e.g. "##".
+  (let [cwd-prefix (.. s.session.cwd "/")
+        relative (fn [path] (pick-values 1 (string.gsub (or path "") (vim.pesc cwd-prefix) "")))
+        section (fn [lines title] (table.insert lines (.. heading " " title)))
+        details tool.details
+        content (or details.content [])
+        diffs (icollect [_ c (ipairs content)] (when (= c.type :diff) c))
+        texts (icollect [_ c (ipairs content)] (when (= c.type :text) c))
+        lines []]
+    (when (and details.locations (> (length details.locations) 0))
+      (section lines "Files")
+      (each [_ l (ipairs details.locations)]
+        (table.insert lines (.. l.path (if l.line (.. ":" l.line) ""))))
+      (table.insert lines ""))
+    (each [_ d (ipairs diffs)]
+      (section lines (.. "Diff " (relative d.path)))
+      (vim.list_extend lines (fenced :diff (unified-diff d (relative d.path)))))
+    (when (> (length texts) 0)
+      (section lines "Content")
+      (each [_ t (ipairs texts)]
+        (vim.list_extend lines (vim.split (strip-ansi t.text) "\n" {:plain true}))
+        (table.insert lines "")))
+    ;; An edit's input repeats its diff, and text content usually repeats the output.
+    (when (and (not= details.input nil) (= (length diffs) 0)
+               (not (and (= (type details.input) :table) (= nil (next details.input)))))
+      (section lines "Input")
+      (vim.list_extend lines (fenced (if (= (type details.input) :string) "text" "json")
+                                     (as-text details.input))))
+    (when (and (not= details.output nil) (= (length texts) 0))
+      (section lines "Output")
+      (vim.list_extend lines (fenced (if (= (type details.output) :string) "text" "json")
+                                     (as-text details.output))))
+    lines))
+
+(fn tool-detail-lines [s tool status-name]
+  (vim.list_extend [(.. "# " (or tool.title "tool") " — " status-name)
+                    (.. "kind: " (or tool.kind "other"))
+                    ""]
+                   (tool-sections s tool "##")))
+
+;; Inline expansion: the details as real text under the tool line, so they can be
+;; yanked, searched and gF'd. The session log is built from blocks, so it never sees them.
+
+(fn expansion-lines [s tool]
+  (let [sections (tool-sections s tool "####")]
+    (vim.list_extend [""] (if (> (length sections) 0) sections ["_no details yet_" ""]))))
+
+(fn expanded? [tool]
+  (not= nil tool.block.expanded))
+
+(fn expansion-contains? [s tool row]
+  ;; row is 1-based; true on the tool line itself or inside its expansion.
+  (let [start (line-row s tool.block)]
+    (and start (>= row start) (<= row (+ start (or tool.block.expanded 0))))))
+
+;; Expansions are inserted at the end of the tool line, not at the start of the next
+;; line, so the next line's extmark (left gravity at column 0) moves down with it.
+
+(fn line-length [buf row0]
+  (length (. (vim.api.nvim_buf_get_lines buf row0 (+ row0 1) false) 1)))
+
+(fn expand-tool [s tool]
+  (let [row (line-row s tool.block)]
+    (when (and row (not (expanded? tool)))
+      (let [lines (expansion-lines s tool)
+            row0 (- row 1)
+            col (line-length s.buf row0)]
+        (modify s #(vim.api.nvim_buf_set_text s.buf row0 col row0 col (vim.list_extend [""] lines)))
+        (set tool.block.expanded (length lines))))))
+
+(fn collapse-tool [s tool]
+  (let [row (line-row s tool.block)]
+    (when (and row (expanded? tool))
+      (let [row0 (- row 1)
+            last0 (+ row0 tool.block.expanded)]
+        (modify s #(vim.api.nvim_buf_set_text s.buf row0 (line-length s.buf row0)
+                                              last0 (line-length s.buf last0) [""]))
+        (set tool.block.expanded nil)))))
+
+(fn refresh-tool [s tool]
+  (when (expanded? tool)
+    (collapse-tool s tool)
+    (expand-tool s tool)))
+
+(fn open-tool-details [s tool status-name mods]
+  (vim.cmd (if (and mods (not= mods "")) (.. mods " new") "new"))
+  (let [buf (vim.api.nvim_get_current_buf)]
+    (tset (. vim.bo buf) :buftype :nofile)
+    (tset (. vim.bo buf) :bufhidden :wipe)
+    (tset (. vim.bo buf) :swapfile false)
+    (pcall vim.api.nvim_buf_set_name buf (.. "acp://tool/" tool.id))
+    (vim.api.nvim_buf_set_lines buf 0 -1 false (tool-detail-lines s tool status-name))
+    (tset (. vim.bo buf) :modifiable false)
+    (tset (. vim.bo buf) :filetype :markdown)))
 
 (fn prompt-text [s]
   (let [lines (vim.api.nvim_buf_get_lines s.prompt-buf 0 -1 false)]
@@ -270,6 +411,13 @@
  : append-text
  : add-line
  : update-line
+ : line-row
+ : open-tool-details
+ : expanded?
+ : expansion-contains?
+ : expand-tool
+ : collapse-tool
+ : refresh-tool
  : prompt-text
  : clear-prompt
  : wipe

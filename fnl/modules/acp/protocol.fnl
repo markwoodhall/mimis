@@ -72,6 +72,26 @@
   (when (and content (= content.type :text))
     content.text))
 
+(fn tool-details [u]
+  ;; The parts of a tool call worth expanding. Each field is only present when the
+  ;; update carries it; a field that's sent replaces the previous value.
+  (let [details {}]
+    (when u.content
+      (set details.content
+           (icollect [_ c (ipairs u.content)]
+             (case c.type
+               :diff {:type :diff :path c.path :old (or c.oldText "") :new (or c.newText "")}
+               :content (let [text (content-text c.content)]
+                          (when text {:type :text : text}))
+               _ nil))))
+    (when u.locations
+      (set details.locations
+           (icollect [_ l (ipairs u.locations)]
+             {:path l.path :line l.line})))
+    (when (not= u.rawInput nil) (set details.input u.rawInput))
+    (when (not= u.rawOutput nil) (set details.output u.rawOutput))
+    details))
+
 (fn parse-update [params]
   ;; Normalises a session/update into {:type ...}, or nil for kinds v1 ignores.
   (let [u (or params.update {})]
@@ -80,7 +100,7 @@
       (let [text (content-text u.content)]
         (when text {:type :text : text}))
       :agent_thought_chunk
-      {:type :thought}
+      {:type :thought :text (content-text u.content)}
       :config_option_update
       {:type :config :options (parse-config-options u.configOptions)}
       :usage_update
@@ -90,13 +110,15 @@
        :id u.toolCallId
        :title u.title
        :kind u.kind
-       :status (or u.status :pending)}
+       :status (or u.status :pending)
+       :details (tool-details u)}
       :tool_call_update
       {:type :tool-update
        :id u.toolCallId
        :title u.title
        :kind u.kind
-       :status u.status}
+       :status u.status
+       :details (tool-details u)}
       _ nil)))
 
 (fn update-session-id [params]
