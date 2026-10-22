@@ -263,6 +263,9 @@
         diffs (icollect [_ c (ipairs content)] (when (= c.type :diff) c))
         texts (icollect [_ c (ipairs content)] (when (= c.type :text) c))
         lines []]
+    (when tool.full-title
+      (section lines "Title")
+      (vim.list_extend lines (fenced "text" tool.full-title)))
     (when (and details.locations (> (length details.locations) 0))
       (section lines "Files")
       (each [_ l (ipairs details.locations)]
@@ -297,41 +300,58 @@
 ;; Inline expansion: the details as real text under the tool line, so they can be
 ;; yanked, searched and gF'd. The session log is built from blocks, so it never sees them.
 
+;; Attached lines: real text shown under a block's line (tool details, permission
+;; choices) that isn't part of the turn, so the log never sees it. block.attached is
+;; how many lines are attached.
+;;
+;; They're inserted at the end of the block's line, not at the start of the next
+;; line, so the next line's extmark (left gravity at column 0) moves down with them.
+
+(fn line-length [buf row0]
+  (length (. (vim.api.nvim_buf_get_lines buf row0 (+ row0 1) false) 1)))
+
+(fn attached? [block]
+  (not= nil block.attached))
+
+(fn attach-lines [s block lines]
+  (let [row (line-row s block)]
+    (when (and row (not (attached? block)) (> (length lines) 0))
+      (let [row0 (- row 1)
+            col (line-length s.buf row0)]
+        (modify s #(vim.api.nvim_buf_set_text s.buf row0 col row0 col (vim.list_extend [""] lines)))
+        (set block.attached (length lines))))))
+
+(fn detach-lines [s block]
+  (let [row (line-row s block)]
+    (when (and row (attached? block))
+      (let [row0 (- row 1)
+            last0 (+ row0 block.attached)]
+        (modify s #(vim.api.nvim_buf_set_text s.buf row0 (line-length s.buf row0)
+                                              last0 (line-length s.buf last0) [""]))
+        (set block.attached nil)))))
+
+(fn attached-index [s block row]
+  ;; row is 1-based. 0 on the block's own line, 1..n on its attached lines, else nil.
+  (let [start (line-row s block)]
+    (when (and start (>= row start) (<= row (+ start (or block.attached 0))))
+      (- row start))))
+
 (fn expansion-lines [s tool]
   (let [sections (tool-sections s tool "####")]
     (vim.list_extend [""] (if (> (length sections) 0) sections ["_no details yet_" ""]))))
 
 (fn expanded? [tool]
-  (not= nil tool.block.expanded))
+  (attached? tool.block))
 
 (fn expansion-contains? [s tool row]
-  ;; row is 1-based; true on the tool line itself or inside its expansion.
-  (let [start (line-row s tool.block)]
-    (and start (>= row start) (<= row (+ start (or tool.block.expanded 0))))))
-
-;; Expansions are inserted at the end of the tool line, not at the start of the next
-;; line, so the next line's extmark (left gravity at column 0) moves down with it.
-
-(fn line-length [buf row0]
-  (length (. (vim.api.nvim_buf_get_lines buf row0 (+ row0 1) false) 1)))
+  ;; true on the tool line itself or inside its expansion.
+  (not= nil (attached-index s tool.block row)))
 
 (fn expand-tool [s tool]
-  (let [row (line-row s tool.block)]
-    (when (and row (not (expanded? tool)))
-      (let [lines (expansion-lines s tool)
-            row0 (- row 1)
-            col (line-length s.buf row0)]
-        (modify s #(vim.api.nvim_buf_set_text s.buf row0 col row0 col (vim.list_extend [""] lines)))
-        (set tool.block.expanded (length lines))))))
+  (attach-lines s tool.block (expansion-lines s tool)))
 
 (fn collapse-tool [s tool]
-  (let [row (line-row s tool.block)]
-    (when (and row (expanded? tool))
-      (let [row0 (- row 1)
-            last0 (+ row0 tool.block.expanded)]
-        (modify s #(vim.api.nvim_buf_set_text s.buf row0 (line-length s.buf row0)
-                                              last0 (line-length s.buf last0) [""]))
-        (set tool.block.expanded nil)))))
+  (detach-lines s tool.block))
 
 (fn refresh-tool [s tool]
   (when (expanded? tool)
@@ -413,6 +433,9 @@
  : update-line
  : line-row
  : open-tool-details
+ : attach-lines
+ : detach-lines
+ : attached-index
  : expanded?
  : expansion-contains?
  : expand-tool

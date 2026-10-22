@@ -30,13 +30,29 @@
    :completed "done"
    :failed "failed"})
 
-(fn short-title [s title]
-  (let [first-line (or (. (vim.split (or title "tool") "\n" {:plain true}) 1) "tool")]
-    (pick-values 1 (string.gsub first-line (vim.pesc (.. s.session.cwd "/")) ""))))
+(local title-width 72)
+(local activity-width 40)
+
+(fn short-title [s title width]
+  ;; First line only, project paths made relative, cut to width characters with "…".
+  ;; Returns the short title and whether anything was cut.
+  (let [width (or width title-width)
+        lines (vim.split (or title "tool") "\n" {:plain true})
+        first-line (pick-values 1 (string.gsub (or (. lines 1) "tool")
+                                               (vim.pesc (.. s.session.cwd "/")) ""))
+        multi-line? (> (length (vim.tbl_filter #(not= (vim.trim $1) "") lines)) 1)]
+    (if (> (vim.fn.strchars first-line) width)
+      (values (.. (vim.trim (vim.fn.strcharpart first-line 0 (- width 1))) "…") true)
+      multi-line?
+      (values (.. (vim.trim (pick-values 1 (string.gsub first-line "\\$" ""))) " …") true)
+      (values first-line false))))
 
 (fn tool-line [s tool]
-  (.. "> tool: " (short-title s tool.title)
-      " — " (or (. status-names tool.status) tool.status "pending")))
+  (let [(title cut?) (short-title s tool.title)]
+    ;; The expanded details show the full title when the line had to shorten it.
+    (set tool.full-title (when cut? tool.title))
+    (.. "> tool: " title
+        " — " (or (. status-names tool.status) tool.status "pending"))))
 
 (fn permission-line [s block]
   (.. "> permission: " (short-title s block.title)
@@ -106,7 +122,7 @@
   (each [_ id (ipairs (or s.turn.tool-ids []))]
     (let [tool (. s.tools id)]
       (when (and tool (or (= tool.status :pending) (= tool.status :in_progress)))
-        (set label (.. "running " (short-title s tool.title))))))
+        (set label (.. "running " (short-title s tool.title activity-width))))))
   label)
 
 (fn on-tool [s u]
@@ -120,7 +136,7 @@
       (table.insert s.turn.tool-ids u.id)
       (add-line-block s block))
     (when (and (running? s) (or (= tool.status :pending) (= tool.status :in_progress)))
-      (busy s (.. "running " (short-title s tool.title))))))
+      (busy s (.. "running " (short-title s tool.title activity-width))))))
 
 (fn on-tool-update [s u]
   (let [tool (. s.tools u.id)]
@@ -278,6 +294,7 @@
   (let [p s.permission]
     (when p
       (set s.permission nil)
+      (render.detach-lines s p.block)
       (set p.block.choice (if choice choice.name "cancelled"))
       (set p.block.line (permission-line s p.block))
       (render.update-line s p.block)
@@ -298,16 +315,45 @@
     (if (turn-active? s)
       (add-line-block s block)
       (render.add-line s block))
-    (set s.permission {: id : block})
-    (when (running? s) (busy s "waiting for your permission"))
+    (set s.permission {: id : block :options p.options})
     (if (= s.turn.state :cancelling)
       (answer-permission s nil)
-      (vim.ui.select p.options
-                     {:prompt (.. "Agent wants to: " (short-title s title))
-                      :format_item (fn [o] o.name)}
-                     (fn [choice]
-                       (when (and s.permission (= s.permission.id id))
-                         (answer-permission s choice)))))))
+      (do
+        ;; The choices go under the request in the chat; <CR> on one answers.
+        (render.attach-lines s block (icollect [i o (ipairs p.options)]
+                                       (.. "  " i ". " o.name)))
+        (when (running? s) (busy s "waiting for your permission"))
+        (when (not (render.visible? s.buf))
+          (vim.notify (.. "acp: agent wants to: " (pick-values 1 (short-title s title))
+                          " (:Acp to choose, or :AcpAllow / :AcpReject)")))))))
+
+(fn choice-at [s row]
+  ;; The permission choice on chat row (1-based), if any.
+  (let [p s.permission
+        index (when (and p row) (render.attached-index s p.block row))]
+    (when (and index (> index 0))
+      (. p.options index))))
+
+(fn choose-at [s row]
+  ;; Answers the open permission request with the choice on row. Returns false if
+  ;; there isn't one there.
+  (let [choice (choice-at s row)]
+    (if choice
+      (do (answer-permission s choice) true)
+      false)))
+
+(fn choose-kind [s kinds]
+  ;; Answers with the first choice whose kind is in kinds, tried in order.
+  (let [p (?. s :permission)
+        choice (when p
+                 (accumulate [found nil _ kind (ipairs kinds) &until found]
+                   (accumulate [hit nil _ o (ipairs p.options) &until hit]
+                     (when (= o.kind kind) o))))]
+    (if (not p)
+      (vim.notify "acp: nothing is waiting for permission" vim.log.levels.WARN)
+      (not choice)
+      (vim.notify (.. "acp: the agent offered no " (. kinds 1) " choice") vim.log.levels.WARN)
+      (answer-permission s choice))))
 
 ;; Requests from the agent ---------------------------------------------------------
 
@@ -534,6 +580,9 @@
  : config
  : config-option
  : tool-at
+ : choice-at
+ : choose-at
+ : choose-kind
  : toggle-tool
  : show-latest-tool
  : known-config

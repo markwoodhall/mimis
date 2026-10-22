@@ -67,6 +67,14 @@ for line in sys.stdin:
             text("Plain reply.")
             send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
             continue
+        if prompt == "long titles":
+            long = "cd /tmp/x && " + " && ".join("echo step-%d" % i for i in range(20))
+            update({"sessionUpdate": "tool_call", "toolCallId": "long1", "title": long, "kind": "execute", "status": "completed"})
+            update({"sessionUpdate": "tool_call", "toolCallId": "long2", "title": "cd /tmp/x && \\\n  make test",
+                    "kind": "execute", "status": "completed"})
+            update({"sessionUpdate": "tool_call", "toolCallId": "short", "title": "ls", "kind": "execute", "status": "completed"})
+            send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
+            continue
         if prompt == "leave plan":
             config["mode"] = "default"
             update({"sessionUpdate": "config_option_update", "configOptions": config_options()})

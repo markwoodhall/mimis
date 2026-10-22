@@ -4,16 +4,15 @@
 
 (set vim.g.acp-agent-cmd ["python3" (.. (vim.fn.stdpath :config) "/test/acp/fake_agent.py")])
 (set vim.g.acp-log-dir vim.env.ACP_TEST_LOG_DIR)
-(set vim.ui.select (fn [items _ cb] (vim.schedule #(cb (. items 1)))))
-
 (local session (require :modules.acp.session))
 (vim.cmd "Acp")
 (local s (session.current))
 (vim.wait 5000 #s.ready 10)
 (session.send-prompt s "completed turn")
+(vim.wait 5000 #(not= nil s.permission) 10)
+(vim.cmd "AcpAllow")
 (vim.wait 5000 #(and (= s.turn.state :idle) s.log.path) 10)
 
-(set vim.ui.select (fn []))
 (session.send-prompt s "slow")
 (vim.wait 5000 #(not= nil s.permission) 10)
 (vim.fn.writefile [s.log.path] vim.env.ACP_TEST_MARKER)

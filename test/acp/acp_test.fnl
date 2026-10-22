@@ -38,11 +38,14 @@
 (fn statusline-of [win]
   (. (vim.api.nvim_eval_statusline vim.o.statusline {:winid win}) :str))
 
-(fn select-first []
-  (set vim.ui.select (fn [items _ cb] (vim.schedule #(cb (. items 1))))))
-
-(fn select-never []
-  (set vim.ui.select (fn [])))
+;; While auto-allow is on, permission requests are answered with :AcpAllow.
+(var auto-allow true)
+(local auto-timer (vim.uv.new_timer))
+(auto-timer:start 20 20 (vim.schedule_wrap
+                          (fn []
+                            (let [current (session.current)]
+                              (when (and auto-allow current current.permission)
+                                (vim.cmd "AcpAllow"))))))
 
 ;; Before a session ------------------------------------------------------------
 
@@ -111,7 +114,6 @@
 
 ;; A full turn: streaming, tools, permission, unknown request ---------------------
 
-(select-first)
 (vim.api.nvim_set_current_win (vim.fn.bufwinid s.prompt-buf))
 (vim.api.nvim_buf_set_lines s.prompt-buf 0 -1 false ["hello there" "second line"])
 (vim.cmd "stopinsert")
@@ -198,18 +200,58 @@
 (press-enter-on edit-row)
 (check "a tool still collapses after more turns" (not (has-line (lines-of s.buf) "#### Files")))
 
-;; Expanded while running: the line and details update in place when it finishes
-(var pending-choice nil)
-(set vim.ui.select (fn [items _ cb] (set pending-choice #(cb (. items 1)))))
+;; Long tool titles are shortened, with the full title in the details
+(session.send-prompt s "long titles")
+(wait #(= s.turn.state :idle))
+(let [chat (lines-of s.buf)
+      long-line (accumulate [at nil _ l (ipairs chat)]
+                  (if (vim.startswith l "> tool: cd /tmp/x && echo step-0") l at))
+      long-row (row-of long-line)]
+  (check "long tool titles are cut to 72 characters"
+         (and long-line (vim.endswith long-line "… — done")
+              (= (+ 72 (vim.fn.strchars "> tool: " ) (vim.fn.strchars " — done")) (vim.fn.strchars long-line)))
+         long-line)
+  (check "multi-line titles show their first line and …"
+         (has-line chat "> tool: cd /tmp/x && … — done") chat)
+  (check "short titles are left alone" (has-line chat "> tool: ls — done"))
+  (press-enter-on long-row)
+  (let [details (lines-after long-row 5)]
+    (check "expanded details start with the full title"
+           (and (= "#### Title" (. details 2))
+                (vim.endswith (. details 4) "echo step-19"))
+           details))
+  (press-enter-on long-row))
+
+;; Permissions inline, and a tool expanded while it waits ---------------------------
+
+(fn last-row-of [line]
+  (accumulate [at nil i l (ipairs (lines-of s.buf))] (if (= l line) i at)))
+
+(set auto-allow false)
 (session.send-prompt s "expand while running")
 (wait #(not= nil s.permission))
-(local running-row
-  (accumulate [at nil i l (ipairs (lines-of s.buf))]
-    (if (= l "> tool: Edit file.clj — pending") i at)))
+(local permission-row (last-row-of "> permission: Edit file.clj — awaiting choice"))
+(check "permission choices are listed under the request"
+       (vim.deep_equal ["  1. Allow once" "  2. Reject"] (lines-after permission-row 2))
+       (lines-after (- permission-row 1) 4))
+(check "the statusline shows a waiting permission"
+       (not= nil (string.find (session.status-text) "waiting for your permission" 1 true)))
+
+(local running-row (last-row-of "> tool: Edit file.clj — pending"))
 (press-enter-on running-row)
 (check "a running tool expands" (= "#### Files" (. (lines-after running-row 2) 2)) (lines-after running-row 3))
-(pending-choice)
+
+(press-enter-on (last-row-of "> permission: Edit file.clj — awaiting choice"))
+(check "<CR> on the request itself doesn't answer it" (not= nil s.permission))
+(check "<CR> on the request leaves the tool expanded" (= "#### Files" (. (lines-after running-row 2) 2)))
+(press-enter-on (+ (last-row-of "> permission: Edit file.clj — awaiting choice") 1))
 (wait #(= s.turn.state :idle))
+(let [chat (lines-of s.buf)]
+  (check "<CR> on a choice answers it" (has-line chat "> permission: Edit file.clj — Allow once"))
+  (check "the choices go once answered" (not (has-line chat "  1. Allow once")) chat))
+(let [log (vim.fn.readfile s.log.path)]
+  (check "the log has the answer, not the choices"
+         (and (has-line log "> permission: Edit file.clj — Allow once") (not (has-line log "  2. Reject"))) log))
 (let [after (lines-after (- running-row 1) 24)]
   (check "a finished tool's line updates in place while expanded"
          (= "> tool: Edit file.clj — done" (. after 1)) after)
@@ -217,7 +259,27 @@
          (has-line after "The file /tmp/x/file.clj has been updated.") after))
 (press-enter-on running-row)
 (check "a refreshed expansion collapses cleanly" (not (has-line (lines-of s.buf) "#### Files")))
-(select-first)
+
+(session.send-prompt s "reject this one")
+(wait #(not= nil s.permission))
+(vim.api.nvim_set_current_win start-win)
+(vim.cmd "AcpReject")
+(wait #(= s.turn.state :idle))
+(check ":AcpReject answers from another window"
+       (has-line (lines-of s.buf) "> permission: Edit file.clj — Reject"))
+(check "a rejected tool shows as failed" (has-line (lines-of s.buf) "> tool: Edit file.clj — failed"))
+
+(session.send-prompt s "always allow")
+(wait #(not= nil s.permission))
+(vim.cmd "AcpAllow!")
+(wait #(= s.turn.state :idle))
+(let [last-permission (accumulate [at nil _ l (ipairs (lines-of s.buf))]
+                        (if (vim.startswith l "> permission:") l at))]
+  (check ":AcpAllow! falls back to allow once when always isn't offered"
+         (= "> permission: Edit file.clj — Allow once" last-permission) last-permission))
+(vim.cmd "AcpAllow")
+(check ":AcpAllow with nothing waiting is harmless" (= s.turn.state :idle))
+(set auto-allow true)
 
 (vim.api.nvim_set_current_win start-win)
 (vim.cmd "AcpTool")
@@ -239,7 +301,7 @@
 
 ;; Cancel with a permission prompt left open ---------------------------------------
 
-(select-never)
+(set auto-allow false)
 (session.send-prompt s "slow")
 (wait #(not= nil s.permission))
 (vim.wait 200)
@@ -253,7 +315,7 @@
 
 ;; Settings changed between turns and by the agent ------------------------------------
 
-(select-first)
+(set auto-allow true)
 (vim.cmd "AcpConfig mode plan")
 (wait #(= "plan" (. (session.config-option s :mode) :current)))
 (session.send-prompt s "leave plan")

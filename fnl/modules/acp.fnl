@@ -46,10 +46,25 @@
       (session.show-latest-tool s opts.mods))))
 
 (fn chat-keymaps [s]
+  ;; <CR> on a permission choice answers it, on a tool line toggles its details,
+  ;; anywhere else does what <CR> normally does.
   (vim.keymap.set :n "<CR>"
                   (fn []
-                    (if (session.tool-at s (chat-row s)) "<Cmd>AcpTool<CR>" "<CR>"))
-                  {:buffer s.buf :expr true :desc "ACP toggle tool details"}))
+                    (let [row (chat-row s)]
+                      (if (session.choice-at s row)
+                        ;; Expr mappings can't change text, so answer just after.
+                        (do (vim.schedule #(session.choose-at s row)) "")
+                        (session.tool-at s row)
+                        "<Cmd>AcpTool<CR>"
+                        "<CR>")))
+                  {:buffer s.buf :expr true :desc "ACP answer permission or toggle tool details"}))
+
+(fn allow [opts]
+  (session.choose-kind (session.current)
+                       (if opts.bang [:allow_always :allow_once] [:allow_once :allow_always])))
+
+(fn reject []
+  (session.choose-kind (session.current) [:reject_once :reject_always]))
 
 (fn open [opts]
   ;; :Acp [setting value]...  open or focus the session, changing any settings given
@@ -141,6 +156,10 @@
     {:nargs "*" :desc "Send the prompt buffer, or the given text, to the ACP agent"})
   (vim.api.nvim_create_user_command "AcpCancel" cancel {:desc "Cancel the running ACP turn"})
   (vim.api.nvim_create_user_command "AcpStop" quit {:desc "End the ACP session"})
+  (vim.api.nvim_create_user_command "AcpAllow" allow
+    {:bang true :desc "Allow the agent's permission request once (! to always allow)"})
+  (vim.api.nvim_create_user_command "AcpReject" reject
+    {:desc "Reject the agent's permission request"})
   (vim.api.nvim_create_user_command "AcpTool" tool
     {:desc "Toggle the details of the tool call under the cursor, or show the latest one"})
   (vim.api.nvim_create_user_command "AcpOpenBlock" render.open-code-block
