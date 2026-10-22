@@ -108,8 +108,9 @@
   (session.choose-kind (session.current) [:reject_once :reject_always]))
 
 (fn start-new [s name requested mods]
-  ;; Ends the current session, if any, and starts one with the named agent (default if nil).
-  (let [name (or name (agents.default-name))
+  ;; Ends the current session, if any, and starts one with the named agent; with none
+  ;; named, the current session's agent, else the default agent.
+  (let [name (or name (and s s.agent.name) (agents.default-name))
         agent (agents.get name)]
     (if (not agent)
       (vim.notify (.. "acp: unknown agent '" name "' in vim.g.acp-config (known: "
@@ -127,7 +128,8 @@
 (fn open [opts]
   ;; :Acp [agent] [setting value]...  open or focus the session, changing any settings
   ;; given; naming a different agent than the running one starts a new session with it
-  ;; :Acp! [agent] [setting value]... end the current session and start a new one
+  ;; :Acp! [agent] [setting value]... end the current session and start a new one, with
+  ;; the same agent unless another is named
   ;; New sessions start from vim.g.acp-config, with the arguments on top.
   (let [s (session.current)
         (parsed problem) (parse-args opts.fargs)]

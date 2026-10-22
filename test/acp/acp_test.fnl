@@ -564,14 +564,42 @@
            (set vim.g.acp-config nil)
            ok)))
 
-;; Environment: only the claude profile drops the API key
+;; Environment: every agent drops the API key unless its profile opts out
 (set vim.env.ANTHROPIC_API_KEY "secret")
 (check "clean-env drops what the profile lists"
        (and (= nil (. (transport.clean-env ["ANTHROPIC_API_KEY"]) :ANTHROPIC_API_KEY))
             (= "secret" (. (transport.clean-env []) :ANTHROPIC_API_KEY))))
-(check "only the claude profile removes ANTHROPIC_API_KEY"
+(check "claude removes ANTHROPIC_API_KEY, the built-in opencode opts out"
        (and (vim.deep_equal ["ANTHROPIC_API_KEY"] (. (agents.get :claude) :env-remove))
             (vim.deep_equal [] (. (agents.get :opencode) :env-remove))))
+(set vim.g.acp-agents {:list ["a" "b"]
+                       :str "c d"
+                       :prof {:cmd ["e" "f"] :env-remove []}
+                       :profstr {:cmd "g h" :env-remove ["X"]}
+                       :opencode {:cmd ["oc"]}
+                       :claude {:env-remove []}})
+(let [got (collect [_ n (ipairs (agents.names))]
+            (let [a (agents.get n)] (values n [a.cmd a.env-remove])))]
+  (set vim.g.acp-agents {:opencode ["python3" (.. here "/fake_agent.py") "opencode"]})
+  (check "agent entries may be argv lists, strings or profile tables"
+         (vim.deep_equal {:list [["a" "b"] ["ANTHROPIC_API_KEY"]]
+                          :str [["c" "d"] ["ANTHROPIC_API_KEY"]]
+                          :prof [["e" "f"] []]
+                          :profstr [["g" "h"] ["X"]]
+                          ;; a built-in keeps what the entry doesn't give
+                          :opencode [["oc"] []]
+                          :claude [["python3" (.. here "/fake_agent.py")] []]}
+                         got)
+         got))
+(check "vim.g.acp-agent-cmd on a custom default agent still drops the key"
+       (do
+         (set vim.g.acp-agents {:mine ["claude-agent-acp"]})
+         (set vim.g.acp-config {:agent "mine"})
+         (let [a (agents.get :mine)
+               ok (and (= "python3" (. a.cmd 1)) (vim.deep_equal ["ANTHROPIC_API_KEY"] a.env-remove))]
+           (set vim.g.acp-config nil)
+           (set vim.g.acp-agents {:opencode ["python3" (.. here "/fake_agent.py") "opencode"]})
+           ok)))
 
 ;; Starting, switching and focusing
 (let [messages (notified #(vim.cmd "Acp opencod model x"))]
@@ -612,14 +640,33 @@
 (check "switching leaves the new session as the only one"
        (= 1 (length (vim.tbl_filter #(vim.startswith (vim.api.nvim_buf_get_name $1) "acp://")
                                     (vim.api.nvim_list_bufs)))))
+
+;; A custom agent (it may run claude) drops the key too
+(set vim.g.acp-agents {:opencode ["python3" (.. here "/fake_agent.py") "opencode"]
+                       :mine ["python3" (.. here "/fake_agent.py") "mine"]})
+(vim.cmd "Acp mine")
+(local mine (session.current))
+(wait #mine.ready)
+(check "a custom agent drops the API key" (and (= "mine" mine.agent.name) (= "no-key" mine.agent.info.version))
+       mine.agent.info)
 (set vim.env.ANTHROPIC_API_KEY nil)
 
-;; vim.g.acp-config's agent is the default for new sessions, and is not a setting
+;; :Acp! with no agent named restarts the running session's agent, not the default
 (set vim.g.acp-config {:agent "opencode" :mode "plan"})
+(vim.cmd "Acp!")
+(local restarted (session.current))
+(wait #restarted.ready)
+(check ":Acp! restarts the current session's agent"
+       (and (not= mine restarted) (= "mine" restarted.agent.name) (= "fake mine" restarted.agent.info.name))
+       restarted.agent)
+(vim.cmd "AcpStop")
+(set vim.g.acp-agents {:opencode ["python3" (.. here "/fake_agent.py") "opencode"]})
+
+;; vim.g.acp-config's agent is the default for new sessions, and is not a setting
 (vim.cmd "Acp!")
 (local cd (session.current))
 (wait #cd.ready)
-(check ":Acp! starts the default agent from vim.g.acp-config" (= "opencode" cd.agent.name))
+(check ":Acp! without a session starts the default agent from vim.g.acp-config" (= "opencode" cd.agent.name))
 (check "the agent key is not passed as a setting"
        (and (= nil (. cd.requested :agent)) (= "plan" (. cd.requested :mode))
             (not (has-line (lines-of cd.buf) "> acp: unknown setting agent")))
@@ -627,8 +674,13 @@
 (check "the default agent's setting applies" (= "plan" (. (session.config-option cd :mode) :current)))
 (set vim.g.acp-config {:agent "opencod"})
 (let [messages (notified #(vim.cmd "Acp!"))]
+  (check ":Acp! with a session ignores the default agent"
+         (and (not (has-message messages "unknown agent")) (= "opencode" (. (session.current) :agent :name)))
+         messages))
+(vim.cmd "AcpStop")
+(let [messages (notified #(vim.cmd "Acp"))]
   (check "an unknown default agent warns" (has-message messages "unknown agent 'opencod' in vim.g.acp-config") messages)
-  (check "and leaves the session alone" (= cd (session.current))))
+  (check "and starts nothing" (= nil (session.current))))
 (set vim.g.acp-config nil)
 
 ;; An agent that is also a setting id is refused
