@@ -15,10 +15,6 @@
       root
       (vim.fn.getcwd))))
 
-(fn agent-cmd []
-  (let [cmd (or vim.g.acp-agent-cmd ["claude-agent-acp"])]
-    (if (= (type cmd) :string) (vim.split cmd " " {:trimempty true}) cmd)))
-
 (fn alive? [s]
   (and s s.agent.proc (not s.ended) (not s.exited)))
 
@@ -479,10 +475,11 @@
                              (when (> (length s.config) 0)
                                (render.status s (config-summary s))))}))))))))))
 
-(fn start [requested]
+(fn start [agent requested]
+  ;; agent: a profile from modules.acp.agents.
   ;; requested: {setting value} applied once the session exists, before it takes prompts.
   (let [cwd (project-root)
-        s {:agent {:cmd (agent-cmd)}
+        s {:agent {:name agent.name :cmd agent.cmd}
            :session {:id nil
                      : cwd
                      :project (vim.fn.fnamemodify cwd ":t")
@@ -501,7 +498,8 @@
                          :on-notification (fn [method params] (on-notification s method params))}))
     (let [(proc err) (transport.start s.agent.cmd cwd
                                       {:on-line (fn [line] (rpc.receive s.rpc line))
-                                       :on-exit (fn [code] (on-exit s code))})]
+                                       :on-exit (fn [code] (on-exit s code))}
+                                      agent.env-remove)]
       (set s.agent.proc proc)
       (set sessions.current s)
       (if proc
@@ -548,7 +546,7 @@
     (when row (+ row s.permission.choice-offset 1))))
 
 (fn status-text []
-  ;; Statusline segment. Model, mode and context use show in the session's own windows;
+  ;; Statusline segment. Agent, model, mode and context use show in the session's own windows;
   ;; activity shows everywhere while the agent is working.
   (let [s sessions.current]
     (if (not s)
@@ -557,6 +555,7 @@
                       (let [parts []
                             model (config-by-category s :model)
                             mode (config-by-category s :mode)]
+                        (table.insert parts s.agent.name)
                         (when model (table.insert parts model.display))
                         (when mode (table.insert parts mode.display))
                         (when (and s.usage s.usage.size (> s.usage.size 0))

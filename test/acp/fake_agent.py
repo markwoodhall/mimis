@@ -1,5 +1,11 @@
 """A scripted ACP v1 agent for testing the Neovim client. The prompt text picks the scenario."""
-import json, sys, time
+import json, os, sys, time
+
+# An optional argument names this instance (python3 fake_agent.py opencode), and the
+# version says whether the client let ANTHROPIC_API_KEY through, so tests can tell
+# agents and their environments apart.
+NAME = "fake" + (" " + sys.argv[1] if len(sys.argv) > 1 else "")
+VERSION = "key" if "ANTHROPIC_API_KEY" in os.environ else "no-key"
 
 SID = "sess-1"
 config = {"mode": "default", "model": "default"}
@@ -42,7 +48,7 @@ for line in sys.stdin:
     if m == "initialize":
         assert msg["params"]["protocolVersion"] == 1
         send({"id": msg["id"], "result": {"protocolVersion": 1, "agentCapabilities": {"loadSession": False},
-                                          "authMethods": [], "agentInfo": {"name": "fake"}}})
+                                          "authMethods": [], "agentInfo": {"name": NAME, "version": VERSION}}})
     elif m == "session/new":
         assert msg["params"]["mcpServers"] == []
         send({"id": msg["id"], "result": {"sessionId": SID, "configOptions": config_options()}})

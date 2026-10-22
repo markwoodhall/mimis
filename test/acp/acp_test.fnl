@@ -5,6 +5,9 @@
 
 (local here (.. (vim.fn.stdpath :config) "/test/acp"))
 (set vim.g.acp-agent-cmd ["python3" (.. here "/fake_agent.py")])
+;; The built-in opencode, replaced so tests never start the real one. claude keeps its
+;; built-in profile, run with the fake agent through vim.g.acp-agent-cmd.
+(set vim.g.acp-agents {:opencode ["python3" (.. here "/fake_agent.py") "opencode"]})
 (set vim.g.acp-log-dir (vim.fn.tempname))
 ;; Keep test traffic out of the real debug log and settings cache, even if a run aborts.
 (set vim.g.acp-debug-log (vim.fn.tempname))
@@ -107,8 +110,8 @@
        (has-line (lines-of s.buf) "> acp: Mode: Manual · Model: Opus 5.5"))
 
 (let [win (chat-win)]
-  (check "statusline in the chat window shows model and mode"
-         (not= nil (string.find (statusline-of win) "[acp Opus 5.5 · Manual]" 1 true))
+  (check "statusline in the chat window shows agent, model and mode"
+         (not= nil (string.find (statusline-of win) "[acp claude · Opus 5.5 · Manual]" 1 true))
          (statusline-of win))
   (check "statusline elsewhere is quiet while idle"
          (= nil (string.find (statusline-of start-win) "acp" 1 true))
@@ -482,8 +485,9 @@
 (check "AcpStop ends the session" (= nil (session.current)))
 (check "AcpStop removes the buffers" (not (vim.api.nvim_buf_is_valid chat-buf)))
 
-(check ":Acp completes settings from the last session"
-       (vim.deep_equal ["mode" "model"] (vim.fn.getcompletion "Acp " "cmdline")))
+(check ":Acp completes settings and agents from the last session"
+       (vim.deep_equal ["mode" "model" "claude" "opencode"] (vim.fn.getcompletion "Acp " "cmdline"))
+       (vim.fn.getcompletion "Acp " "cmdline"))
 (check ":Acp completes values from the last session"
        (vim.deep_equal ["default" "sonnet"] (vim.fn.getcompletion "Acp mode plan model " "cmdline")))
 (check ":Acp doesn't offer settings already given"
@@ -491,6 +495,164 @@
        (vim.fn.getcompletion "Acp mode plan " "cmdline"))
 (check ":AcpConfig completes only one pair"
        (vim.deep_equal [] (vim.fn.getcompletion "AcpConfig mode plan " "cmdline")))
+
+;; Choosing the agent ---------------------------------------------------------------
+
+(local acp (require :modules.acp))
+(local agents (require :modules.acp.agents))
+(local transport (require :modules.acp.transport))
+
+(fn notified [f]
+  ;; The vim.notify messages f produces.
+  (let [messages []
+        original vim.notify]
+    (set vim.notify (fn [msg] (table.insert messages msg)))
+    (let [(ok err) (pcall f)]
+      (set vim.notify original)
+      (when (not ok) (error err)))
+    messages))
+
+(fn has-message [messages text]
+  (accumulate [found false _ m (ipairs messages)]
+    (or found (not= nil (string.find m text 1 true)))))
+
+;; Argument parsing
+(check "no arguments: no agent, no settings"
+       (vim.deep_equal {:settings {}} (acp.parse-args [])))
+(check "settings only are pairs, as before"
+       (vim.deep_equal {:settings {:model "sonnet" :mode "plan"}}
+                       (acp.parse-args ["model" "sonnet" "mode" "plan"])))
+(check "a leading agent claims the extra argument"
+       (vim.deep_equal {:agent "opencode" :settings {:model "x" :mode "y"}}
+                       (acp.parse-args ["opencode" "model" "x" "mode" "y"])))
+(check "an agent alone is accepted"
+       (vim.deep_equal {:agent "opencode" :settings {}} (acp.parse-args ["opencode"])))
+(check "an agent name with an even count is still a setting"
+       (vim.deep_equal {:settings {:opencode "model"}} (acp.parse-args ["opencode" "model"])))
+(let [(parsed message) (acp.parse-args ["opencod" "model" "x"])]
+  (check "an odd count with an unknown first argument lists the known agents"
+         (and (= nil parsed)
+              (= "acp: unknown agent 'opencod' (known: claude, opencode), or settings come in pairs" message))
+         message))
+(let [(parsed message) (acp.parse-args ["model"])]
+  (check "a lone setting name is refused with the same message"
+         (and (= nil parsed) (vim.startswith message "acp: unknown agent 'model'"))
+         message))
+(check "user agents are merged over the built-in ones"
+       (do
+         (set vim.g.acp-agents {:opencode ["oc" "serve"] :mine "my-agent --acp"})
+         (let [ok (and (vim.deep_equal ["claude" "mine" "opencode"] (agents.names))
+                       (vim.deep_equal ["oc" "serve"] (. (agents.get :opencode) :cmd))
+                       (vim.deep_equal ["my-agent" "--acp"] (. (agents.get :mine) :cmd)))]
+           (set vim.g.acp-agents {:opencode ["python3" (.. here "/fake_agent.py") "opencode"]})
+           ok)))
+(check "vim.g.acp-agent-cmd overrides the default agent only"
+       (and (= "python3" (. (agents.get :claude) :cmd 1))
+            (vim.deep_equal ["python3" (.. here "/fake_agent.py") "opencode"] (. (agents.get :opencode) :cmd))))
+(check "vim.g.acp-config picks the default agent"
+       (do
+         (set vim.g.acp-config {:agent "opencode"})
+         (let [ok (and (= "opencode" (agents.default-name))
+                       ;; vim.g.acp-agent-cmd now overrides opencode, not claude
+                       (= "python3" (. (agents.get :opencode) :cmd 1))
+                       (= nil (. (agents.get :opencode) :cmd 3))
+                       (= "claude-agent-acp" (. (agents.get :claude) :cmd 1)))]
+           (set vim.g.acp-config nil)
+           ok)))
+
+;; Environment: only the claude profile drops the API key
+(set vim.env.ANTHROPIC_API_KEY "secret")
+(check "clean-env drops what the profile lists"
+       (and (= nil (. (transport.clean-env ["ANTHROPIC_API_KEY"]) :ANTHROPIC_API_KEY))
+            (= "secret" (. (transport.clean-env []) :ANTHROPIC_API_KEY))))
+(check "only the claude profile removes ANTHROPIC_API_KEY"
+       (and (vim.deep_equal ["ANTHROPIC_API_KEY"] (. (agents.get :claude) :env-remove))
+            (vim.deep_equal [] (. (agents.get :opencode) :env-remove))))
+
+;; Starting, switching and focusing
+(let [messages (notified #(vim.cmd "Acp opencod model x"))]
+  (check "an unknown agent warns and starts nothing"
+         (and (= nil (session.current)) (has-message messages "unknown agent 'opencod'"))
+         messages))
+
+(vim.cmd "Acp opencode model sonnet")
+(local oc (session.current))
+(check ":Acp <agent> starts that agent" (and (= "opencode" oc.agent.name) (= "opencode" (. oc.agent.cmd 3))))
+(wait #oc.ready)
+(check "the agent is told apart by its process" (= "fake opencode" oc.agent.info.name) oc.agent.info)
+(check "settings after the agent are applied" (= "sonnet" (. (session.config-option oc :model) :current)))
+(check "other agents keep the API key" (= "key" oc.agent.info.version) oc.agent.info)
+(check "the statusline names the agent"
+       (not= nil (string.find (statusline-of (vim.fn.bufwinid oc.buf)) "[acp opencode · Sonnet 5.5 · Manual" 1 true))
+       (statusline-of (vim.fn.bufwinid oc.buf)))
+
+(local messages-same (notified #(vim.cmd "Acp opencode mode plan")))
+(wait #(= "plan" (. (session.config-option oc :mode) :current)))
+(check "naming the running agent focuses it and applies settings"
+       (and (= oc (session.current)) (vim.api.nvim_buf_is_valid oc.buf)
+            (= oc.buf (vim.api.nvim_get_current_buf))
+            (not (has-message messages-same "switching"))))
+
+(vim.api.nvim_set_current_win start-win)
+(vim.cmd "Acp")
+(check "no agent named keeps the running one" (and (= oc (session.current)) (= oc.buf (vim.api.nvim_get_current_buf))))
+
+(local messages-switch (notified #(vim.cmd "Acp claude model sonnet")))
+(local cl (session.current))
+(check "naming another agent starts a new session"
+       (and (not= oc cl) (= "claude" cl.agent.name) (not (vim.api.nvim_buf_is_valid oc.buf))))
+(check "switching says so" (has-message messages-switch "acp: switching agent from opencode to claude") messages-switch)
+(wait #cl.ready)
+(check "the new session gets the settings" (= "sonnet" (. (session.config-option cl :model) :current)))
+(check "the claude profile drops the API key" (= "no-key" cl.agent.info.version) cl.agent.info)
+(check "switching leaves the new session as the only one"
+       (= 1 (length (vim.tbl_filter #(vim.startswith (vim.api.nvim_buf_get_name $1) "acp://")
+                                    (vim.api.nvim_list_bufs)))))
+(set vim.env.ANTHROPIC_API_KEY nil)
+
+;; vim.g.acp-config's agent is the default for new sessions, and is not a setting
+(set vim.g.acp-config {:agent "opencode" :mode "plan"})
+(vim.cmd "Acp!")
+(local cd (session.current))
+(wait #cd.ready)
+(check ":Acp! starts the default agent from vim.g.acp-config" (= "opencode" cd.agent.name))
+(check "the agent key is not passed as a setting"
+       (and (= nil (. cd.requested :agent)) (= "plan" (. cd.requested :mode))
+            (not (has-line (lines-of cd.buf) "> acp: unknown setting agent")))
+       cd.requested)
+(check "the default agent's setting applies" (= "plan" (. (session.config-option cd :mode) :current)))
+(set vim.g.acp-config {:agent "opencod"})
+(let [messages (notified #(vim.cmd "Acp!"))]
+  (check "an unknown default agent warns" (has-message messages "unknown agent 'opencod' in vim.g.acp-config") messages)
+  (check "and leaves the session alone" (= cd (session.current))))
+(set vim.g.acp-config nil)
+
+;; An agent that is also a setting id is refused
+(set vim.g.acp-agents {:mode ["python3" (.. here "/fake_agent.py") "mode"]})
+(let [(parsed message) (acp.parse-args ["mode"])]
+  (check "an agent named like a setting is refused"
+         (and (= nil parsed) (not= nil (string.find message "both an agent and a setting" 1 true)))
+         message))
+(check "completion doesn't offer it as an agent twice"
+       (= 1 (length (vim.tbl_filter #(= $1 "mode") (vim.fn.getcompletion "Acp " "cmdline")))))
+(set vim.g.acp-agents {:opencode ["python3" (.. here "/fake_agent.py") "opencode"]})
+
+;; Completion
+(vim.cmd "AcpStop")
+(check ":Acp completes settings and agent names"
+       (vim.deep_equal ["mode" "model" "claude" "opencode"] (vim.fn.getcompletion "Acp " "cmdline")))
+(check ":Acp completes an agent name's prefix"
+       (vim.deep_equal ["opencode"] (vim.fn.getcompletion "Acp ope" "cmdline")))
+(check ":Acp completes settings after an agent"
+       (vim.deep_equal ["mode" "model"] (vim.fn.getcompletion "Acp opencode " "cmdline")))
+(check ":Acp completes values after an agent"
+       (vim.deep_equal ["default" "sonnet"] (vim.fn.getcompletion "Acp opencode model " "cmdline")))
+(check ":Acp counts pairs from after the agent"
+       (vim.deep_equal ["model"] (vim.fn.getcompletion "Acp opencode mode plan " "cmdline")))
+(check ":Acp offers no agent after the first argument"
+       (vim.deep_equal ["model"] (vim.fn.getcompletion "Acp mode plan " "cmdline")))
+(check ":AcpConfig doesn't complete agents"
+       (vim.deep_equal ["mode" "model"] (vim.fn.getcompletion "AcpConfig " "cmdline")))
 
 ;; Killing Neovim mid-turn keeps every completed turn ---------------------------------
 

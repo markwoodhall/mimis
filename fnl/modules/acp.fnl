@@ -1,6 +1,7 @@
 ;; ACP client: user commands. See fnl/modules/acp/ for the pieces.
 
 (local session (require :modules.acp.session))
+(local agents (require :modules.acp.agents))
 (local render (require :modules.acp.render))
 (local log (require :modules.acp.log))
 
@@ -22,12 +23,40 @@
   (session.stop (session.current)))
 
 (fn setting-pairs [fargs]
-  ;; ["model" "sonnet" "mode" "plan"] -> {:model "sonnet" :mode "plan"}, or nil if unpaired.
-  (when (= 0 (% (length fargs) 2))
-    (let [requested {}]
-      (for [i 1 (length fargs) 2]
-        (tset requested (. fargs i) (. fargs (+ i 1))))
-      requested)))
+  ;; ["model" "sonnet" "mode" "plan"] -> {:model "sonnet" :mode "plan"}
+  (let [requested {}]
+    (for [i 1 (length fargs) 2]
+      (tset requested (. fargs i) (. fargs (+ i 1))))
+    requested))
+
+(fn setting-ids []
+  ;; The settings the running session offers, or the last one did.
+  (collect [_ o (ipairs (session.known-config))]
+    (values o.id true)))
+
+(fn parse-args [fargs]
+  ;; ["opencode" "model" "x"] -> {:agent "opencode" :settings {:model "x"}}
+  ;; ["model" "x"]            -> {:settings {:model "x"}}
+  ;; Settings come in pairs, so an odd count means the first argument is an agent name.
+  ;; Returns nil and a message when it isn't one, or is also a setting id (such an agent
+  ;; must be renamed: completion and reading the command line would be ambiguous).
+  (let [first (. fargs 1)]
+    (if (= 0 (% (length fargs) 2))
+      {:settings (setting-pairs fargs)}
+      (not (agents.get first))
+      (values nil (.. "acp: unknown agent '" first "' (known: "
+                      (table.concat (agents.names) ", ")
+                      "), or settings come in pairs"))
+      (. (setting-ids) first)
+      (values nil (.. "acp: '" first "' is both an agent and a setting of the agent, "
+                      "rename the agent in vim.g.acp-agents"))
+      {:agent first :settings (setting-pairs (vim.list_slice fargs 2))})))
+
+(fn start-config []
+  ;; vim.g.acp-config minus :agent, which picks the agent and is not a setting.
+  (let [config (vim.deepcopy (or vim.g.acp-config {}))]
+    (set config.agent nil)
+    config))
 
 (fn chat-row [s]
   (when (and s (= (vim.api.nvim_get_current_buf) s.buf))
@@ -73,24 +102,39 @@
 (fn reject []
   (session.choose-kind (session.current) [:reject_once :reject_always]))
 
+(fn start-new [s name requested mods]
+  ;; Ends the current session, if any, and starts one with the named agent (default if nil).
+  (let [name (or name (agents.default-name))
+        agent (agents.get name)]
+    (if (not agent)
+      (vim.notify (.. "acp: unknown agent '" name "' in vim.g.acp-config (known: "
+                      (table.concat (agents.names) ", ") ")")
+                  vim.log.levels.WARN)
+      (do
+        (when s
+          (when (and (session.alive? s) (not= name s.agent.name))
+            (vim.notify (.. "acp: switching agent from " s.agent.name " to " name)))
+          (session.stop s))
+        (let [s (session.start agent (vim.tbl_extend :force (start-config) requested))]
+          (chat-keymaps s)
+          (focus s mods))))))
+
 (fn open [opts]
-  ;; :Acp [setting value]...  open or focus the session, changing any settings given
-  ;; :Acp! [setting value]... end the current session and start a new one
+  ;; :Acp [agent] [setting value]...  open or focus the session, changing any settings
+  ;; given; naming a different agent than the running one starts a new session with it
+  ;; :Acp! [agent] [setting value]... end the current session and start a new one
   ;; New sessions start from vim.g.acp-config, with the arguments on top.
   (let [s (session.current)
-        mods opts.mods
-        requested (setting-pairs opts.fargs)]
-    (if (not requested)
-      (vim.notify "acp: settings come in pairs, e.g. :Acp model sonnet mode plan" vim.log.levels.WARN)
-      (and (session.alive? s) (not opts.bang))
+        (parsed problem) (parse-args opts.fargs)]
+    (if (not parsed)
+      (vim.notify problem vim.log.levels.WARN)
+      (and (session.alive? s) (not opts.bang)
+           (or (not parsed.agent) (= parsed.agent s.agent.name)))
       (do
-        (when (next requested)
-          (session.configure s requested))
-        (focus s mods))
-      (let [_ (when s (session.stop s))
-            s (session.start (vim.tbl_extend :force (or vim.g.acp-config {}) requested))]
-        (chat-keymaps s)
-        (focus s mods)))))
+        (when (next parsed.settings)
+          (session.configure s parsed.settings))
+        (focus s opts.mods))
+      (start-new s parsed.agent parsed.settings opts.mods))))
 
 (fn pick-value [s option]
   (vim.ui.select option.values
@@ -121,19 +165,28 @@
           (pick-value s option)
           (session.configure s {id value}))))))
 
-(fn complete-settings [max-pairs]
+(fn complete-settings [max-pairs agents?]
   ;; Completes "setting value" pairs, from the running session or the last one seen.
+  ;; With agents?, the first argument may also be an agent name, which shifts the pairs by one.
   (fn [arglead cmdline _]
     (let [known (session.known-config)
+          ids (setting-ids)
           args (. (vim.api.nvim_parse_cmd cmdline {}) :args)
           done (if (= arglead "") (length args) (- (length args) 1))
-          candidates (if (>= done (* 2 max-pairs))
+          lead (when (and agents? (> done 0)) (. args 1))
+          offset (if (and lead (agents.get lead) (not (. ids lead))) 1 0)
+          candidates (if (>= (- done offset) (* 2 max-pairs))
                        []
-                       (= 0 (% done 2))
+                       (= 0 (% (- done offset) 2))
                        (let [given (collect [i a (ipairs args)]
-                                     (when (and (<= i done) (= 1 (% i 2))) (values a true)))]
-                         (icollect [_ o (ipairs known)]
-                           (when (not (. given o.id)) o.id)))
+                                     (when (and (> i offset) (<= i done) (= 1 (% (- i offset) 2)))
+                                       (values a true)))
+                             settings (icollect [_ o (ipairs known)]
+                                        (when (not (. given o.id)) o.id))]
+                         (if (and agents? (= done 0))
+                           (vim.list_extend settings (icollect [_ n (ipairs (agents.names))]
+                                                       (when (not (. ids n)) n)))
+                           settings))
                        (let [id (. args done)]
                          (accumulate [choices [] _ o (ipairs known)]
                            (if (= o.id id) o.values choices))))]
@@ -153,8 +206,8 @@
      :callback #(session.shutdown)})
 
   (vim.api.nvim_create_user_command "Acp" open
-    {:nargs "*" :bang true :complete (complete-settings 10)
-     :desc "Open or focus the ACP session; ! starts a new one; args are setting/value pairs"})
+    {:nargs "*" :bang true :complete (complete-settings 10 true)
+     :desc "Open or focus the ACP session; ! starts a new one; args are an optional agent, then setting/value pairs"})
   (vim.api.nvim_create_user_command "AcpConfig" configure
     {:nargs "*" :complete (complete-settings 1)
      :desc "Show or change ACP session settings (model, mode, effort...)"})
@@ -177,4 +230,5 @@
     {:nargs "+" :desc "Search ACP session logs"}))
 
 {: enable
- : setup}
+ : setup
+ : parse-args}

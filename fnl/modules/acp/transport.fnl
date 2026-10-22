@@ -20,13 +20,14 @@
     (when (> (vim.fn.getfsize path) debug-limit)
       (vim.fn.rename path (.. path ".old")))))
 
-(fn clean-env []
-  ;; Never pass an API key through, or Claude Code bills the API instead of the subscription.
+(fn clean-env [remove]
+  ;; This Neovim's environment without the variables the agent's profile lists.
   (let [env (vim.fn.environ)]
-    (tset env :ANTHROPIC_API_KEY nil)
+    (each [_ name (ipairs (or remove []))]
+      (tset env name nil))
     env))
 
-(fn start [cmd cwd handlers]
+(fn start [cmd cwd handlers env-remove]
   (var leftover "")
   (rotate-debug)
   (debug "--" (.. "start " (table.concat cmd " ") " in " cwd))
@@ -54,7 +55,7 @@
               (handlers.on-exit obj.code))))
         (ok proc) (pcall vim.system cmd
                          {:cwd cwd
-                          :env (clean-env)
+                          :env (clean-env env-remove)
                           :clear_env true
                           :stdin true
                           :text true
@@ -77,6 +78,7 @@
     (proc:kill :sigterm)))
 
 {: start
+ : clean-env
  : send
  : stop
  : debug
