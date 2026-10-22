@@ -10,6 +10,11 @@
 (local session (require :modules.acp.session))
 (local failures [])
 
+;; The fake agent's settings must not replace the real cache used for completion.
+(local known-path (.. (vim.fn.stdpath :data) "/acp-config.json"))
+(local known-backup (when (= 1 (vim.fn.filereadable known-path)) (vim.fn.readfile known-path)))
+(vim.fn.delete known-path)
+
 (fn out [line]
   (io.stdout:write (.. line "\n")))
 
@@ -109,8 +114,9 @@
 (select-first)
 (vim.api.nvim_set_current_win (vim.fn.bufwinid s.prompt-buf))
 (vim.api.nvim_buf_set_lines s.prompt-buf 0 -1 false ["hello there" "second line"])
-(vim.api.nvim_feedkeys (vim.keycode "<C-s>") :x false)
-(check "<C-s> sends and clears the prompt" (vim.deep_equal [""] (lines-of s.prompt-buf)))
+(vim.cmd "stopinsert")
+(vim.api.nvim_feedkeys (vim.keycode "<CR>") :x false)
+(check "<CR> in normal mode sends and clears the prompt" (vim.deep_equal [""] (lines-of s.prompt-buf)))
 (wait #(and (= s.turn.state :idle) (not= nil s.log.path)))
 
 (let [chat (lines-of s.buf)]
@@ -174,11 +180,61 @@
        (and (= "clojure" vim.bo.filetype) (= "(+ 1 2)" (vim.api.nvim_get_current_line))))
 (vim.cmd "close")
 
-(local chat-buf s.buf)
+(vim.api.nvim_set_current_win (vim.fn.bufwinid s.prompt-buf))
+(vim.api.nvim_feedkeys (.. "o" (vim.keycode "<CR>") "more" (vim.keycode "<Esc>")) :x false)
+(check "<CR> in insert mode is still a newline" (vim.deep_equal ["draft" "" "more"] (lines-of s.prompt-buf))
+       (lines-of s.prompt-buf))
+
+;; Starting with settings -----------------------------------------------------------
+
+(vim.cmd "Acp model")
+(check "unpaired settings are refused" (= s (session.current)))
+
+(vim.cmd "Acp mode plan")
+(wait #(= "plan" (. (session.config-option s :mode) :current)))
+(check ":Acp with settings changes the running session" (= s (session.current)))
+(check ":Acp with settings notes the change" (has-line (lines-of s.buf) "> acp: Mode → Plan"))
+
+(set vim.g.acp-config {:mode "plan" :model "nonsense"})
+(vim.cmd "Acp! model sonnet")
+(local s2 (session.current))
+(check ":Acp! starts a new session" (and (not= s s2) (not (vim.api.nvim_buf_is_valid s.buf))))
+(check "prompts wait until settings are applied" (not (session.send-prompt s2 "too soon")))
+(wait #s2.ready)
+(check "arguments override vim.g.acp-config" (= "sonnet" (. (session.config-option s2 :model) :current)))
+(check "vim.g.acp-config applies to new sessions" (= "plan" (. (session.config-option s2 :mode) :current)))
+(check "starting settings are not noted as changes"
+       (not (has-line (lines-of s2.buf) "> acp: Model → Sonnet 5.5")))
+(check "connected line shows the applied settings"
+       (has-line (lines-of s2.buf) "> acp: Mode: Plan · Model: Sonnet 5.5")
+       (lines-of s2.buf))
+(set vim.g.acp-config nil)
+
+(vim.cmd "Acp! model nonsense")
+(local s3 (session.current))
+(wait #s3.ready)
+(check "bad starting values are reported, not fatal"
+       (and s3.ready (has-line (lines-of s3.buf) "> acp: nonsense is not a value of model"))
+       (lines-of s3.buf))
+
+(local chat-buf s3.buf)
 (vim.cmd "AcpStop")
 (check "AcpStop ends the session" (= nil (session.current)))
 (check "AcpStop removes the buffers" (not (vim.api.nvim_buf_is_valid chat-buf)))
 
+(check ":Acp completes settings from the last session"
+       (vim.deep_equal ["mode" "model"] (vim.fn.getcompletion "Acp " "cmdline")))
+(check ":Acp completes values from the last session"
+       (vim.deep_equal ["default" "sonnet"] (vim.fn.getcompletion "Acp mode plan model " "cmdline")))
+(check ":Acp doesn't offer settings already given"
+       (vim.deep_equal ["model"] (vim.fn.getcompletion "Acp mode plan " "cmdline"))
+       (vim.fn.getcompletion "Acp mode plan " "cmdline"))
+(check ":AcpConfig completes only one pair"
+       (vim.deep_equal [] (vim.fn.getcompletion "AcpConfig mode plan " "cmdline")))
+
 (vim.fn.delete vim.g.acp-log-dir "rf")
+(if known-backup
+  (vim.fn.writefile known-backup known-path)
+  (vim.fn.delete known-path))
 (out (if (= 0 (length failures)) "all passed" (.. (length failures) " failed")))
 (vim.cmd (if (= 0 (length failures)) "qa!" "cquit!"))

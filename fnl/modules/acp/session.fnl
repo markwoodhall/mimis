@@ -146,6 +146,28 @@
       (render.add-line s {:type :line : line})
       (log.append-note s line))))
 
+;; The settings and values last seen, kept on disk so :Acp can complete them
+;; before a session exists.
+(fn known-path []
+  (.. (vim.fn.stdpath :data) "/acp-config.json"))
+
+(fn remember [options]
+  (let [known (icollect [_ o (ipairs options)]
+                {:id o.id :values (icollect [_ v (ipairs o.values)] v.value)})
+        encoded (vim.json.encode known)]
+    (when (not= encoded sessions.known-encoded)
+      (set sessions.known-encoded encoded)
+      (pcall vim.fn.writefile [encoded] (known-path)))))
+
+(fn known-config []
+  ;; [{:id :values [value ...]}] from the running session, else from the last one.
+  (let [live (?. sessions.current :config)]
+    (if (and live (> (length live) 0))
+      (icollect [_ o (ipairs live)]
+        {:id o.id :values (icollect [_ v (ipairs o.values)] v.value)})
+      (let [(ok known) (pcall #(vim.json.decode (table.concat (vim.fn.readfile (known-path)) "")))]
+        (if (and ok (= (type known) :table)) known [])))))
+
 (fn apply-config [s options announce?]
   (when (> (length options) 0)
     (each [_ o (ipairs options)]
@@ -154,18 +176,59 @@
         (when (and announce? previous (not= previous.current o.current))
           (note s (.. "> acp: " o.name " → " o.display)))))
     (set s.config options)
+    (remember options)
     (vim.cmd "redrawstatus!")))
 
-(fn set-config [s id value]
-  (if (not (alive? s))
-    (vim.notify "acp: no running session" vim.log.levels.WARN)
-    (rpc.request s.rpc protocol.methods.set-config-option
-                 (protocol.set-config-params s.session.id id value)
-                 (fn [err result]
-                   (if err
-                     (vim.notify (.. "acp: could not set " id ": " (or err.message "unknown"))
-                                 vim.log.levels.WARN)
-                     (apply-config s (protocol.parse-set-config-result result) true))))))
+(fn validate [s id value]
+  ;; nil if value can be set for id, else why not.
+  (let [option (config-option s id)]
+    (if (not option)
+      (.. "unknown setting " id)
+      (not (accumulate [ok false _ v (ipairs option.values)] (or ok (= v.value value))))
+      (.. value " is not a value of " id))))
+
+(fn set-config [s id value opts]
+  ;; opts: {:quiet true} to skip the change note, {:done (fn [])} to run afterwards.
+  (let [opts (or opts {})
+        done (or opts.done #nil)]
+    (if (not (alive? s))
+      (vim.notify "acp: no running session" vim.log.levels.WARN)
+      (rpc.request s.rpc protocol.methods.set-config-option
+                   (protocol.set-config-params s.session.id id value)
+                   (fn [err result]
+                     (if err
+                       (vim.notify (.. "acp: could not set " id ": " (or err.message "unknown"))
+                                   vim.log.levels.WARN)
+                       (apply-config s (protocol.parse-set-config-result result) (not opts.quiet)))
+                     (done))))))
+
+(fn configure [s requested opts]
+  ;; requested: {id value}. Applied one at a time in the agent's option order, so a
+  ;; setting that depends on another (effort on model) is checked against the new choices.
+  (let [opts (or opts {})
+        done (or opts.done #nil)
+        warn (fn [message]
+               (if opts.quiet
+                 (render.status s message)
+                 (vim.notify (.. "acp: " message) vim.log.levels.WARN)))
+        pending (icollect [_ o (ipairs s.config)]
+                  (let [value (. requested o.id)]
+                    (when value [o.id value])))]
+    (each [id _ (pairs requested)]
+      (when (not (config-option s id))
+        (warn (.. "unknown setting " id))))
+    (fn step [i]
+      (let [pair (. pending i)]
+        (if (not pair)
+          (done)
+          (let [[id value] pair
+                problem (validate s id value)]
+            (if problem
+              (do (warn problem) (step (+ i 1)))
+              (= value (. (config-option s id) :current))
+              (step (+ i 1))
+              (set-config s id value {:quiet opts.quiet :done #(step (+ i 1))}))))))
+    (step 1)))
 
 (fn on-update [s params]
   (when (= (protocol.update-session-id params) s.session.id)
@@ -248,7 +311,7 @@
 (fn send-prompt [s text]
   (if (not (alive? s))
     (vim.notify "acp: no running session" vim.log.levels.WARN)
-    (not s.session.id)
+    (not s.ready)
     (vim.notify "acp: session is still starting" vim.log.levels.WARN)
     (turn-active? s)
     (vim.notify "acp: a turn is already running" vim.log.levels.WARN)
@@ -301,23 +364,32 @@
           (rpc.request s.rpc protocol.methods.session-new
                        (protocol.new-session-params s.session.cwd)
             (fn [err result]
-              (idle s)
               (if err
-                (render.status s (.. "session/new failed: " (or err.message "unknown")
-                                     (if (> (length info.auth-methods) 0)
-                                       (.. " (agent auth methods: "
-                                           (table.concat info.auth-methods ", ") ")")
-                                       "")))
+                (do
+                  (idle s)
+                  (render.status s (.. "session/new failed: " (or err.message "unknown")
+                                       (if (> (length info.auth-methods) 0)
+                                         (.. " (agent auth methods: "
+                                             (table.concat info.auth-methods ", ") ")")
+                                         ""))))
                 (let [new-session (protocol.parse-new-session result)]
                   (set s.session.id new-session.id)
                   (apply-config s new-session.config false)
-                  (render.status s (.. "connected to " (or info.name (. s.agent.cmd 1))
-                                       " · protocol v" (tostring info.protocol-version)
-                                       " · " s.session.cwd))
-                  (when (> (length s.config) 0)
-                    (render.status s (config-summary s))))))))))))
+                  (when (next s.requested)
+                    (busy s "applying settings"))
+                  (configure s s.requested
+                    {:quiet true
+                     :done (fn []
+                             (set s.ready true)
+                             (idle s)
+                             (render.status s (.. "connected to " (or info.name (. s.agent.cmd 1))
+                                                  " · protocol v" (tostring info.protocol-version)
+                                                  " · " s.session.cwd))
+                             (when (> (length s.config) 0)
+                               (render.status s (config-summary s))))}))))))))))
 
-(fn start []
+(fn start [requested]
+  ;; requested: {setting value} applied once the session exists, before it takes prompts.
   (let [cwd (project-root)
         s {:agent {:cmd (agent-cmd)}
            :session {:id nil
@@ -327,6 +399,8 @@
            :turn {:state :idle}
            :tools {}
            :config []
+           :requested (or requested {})
+           :ready false
            :usage nil
            :permission nil}]
     (log.init s)
@@ -397,7 +471,10 @@
  : status-text
  : config
  : config-option
+ : known-config
+ : validate
  : set-config
+ : configure
  : stop
  : send-prompt
  : cancel

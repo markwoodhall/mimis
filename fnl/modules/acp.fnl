@@ -21,14 +21,31 @@
 (fn quit []
   (session.stop (session.current)))
 
+(fn setting-pairs [fargs]
+  ;; ["model" "sonnet" "mode" "plan"] -> {:model "sonnet" :mode "plan"}, or nil if unpaired.
+  (when (= 0 (% (length fargs) 2))
+    (let [requested {}]
+      (for [i 1 (length fargs) 2]
+        (tset requested (. fargs i) (. fargs (+ i 1))))
+      requested)))
+
 (fn open [opts]
+  ;; :Acp [setting value]...  open or focus the session, changing any settings given
+  ;; :Acp! [setting value]... end the current session and start a new one
+  ;; New sessions start from vim.g.acp-config, with the arguments on top.
   (let [s (session.current)
-        mods (?. opts :mods)]
-    (if (session.alive? s)
-      (render.show s mods)
+        mods opts.mods
+        requested (setting-pairs opts.fargs)]
+    (if (not requested)
+      (vim.notify "acp: settings come in pairs, e.g. :Acp model sonnet mode plan" vim.log.levels.WARN)
+      (and (session.alive? s) (not opts.bang))
+      (do
+        (when (next requested)
+          (session.configure s requested))
+        (render.show s mods))
       (let [_ (when s (session.stop s))
-            s (session.start)]
-        (vim.keymap.set [:n :i] "<C-s>" send {:buffer s.prompt-buf :desc "ACP send prompt"})
+            s (session.start (vim.tbl_extend :force (or vim.g.acp-config {}) requested))]
+        (vim.keymap.set :n "<CR>" send {:buffer s.prompt-buf :desc "ACP send prompt"})
         (render.show s mods)))))
 
 (fn pick-value [s option]
@@ -58,24 +75,26 @@
           (vim.notify (.. "acp: unknown setting " id) vim.log.levels.WARN)
           (not value)
           (pick-value s option)
-          (let [known (accumulate [ok false _ v (ipairs option.values)]
-                        (or ok (= v.value value)))]
-            (if known
-              (session.set-config s id value)
-              (vim.notify (.. "acp: " value " is not a value of " id) vim.log.levels.WARN))))))))
+          (session.configure s {id value}))))))
 
-(fn complete-config [arglead cmdline _]
-  (let [s (session.current)
-        args (. (vim.api.nvim_parse_cmd cmdline {}) :args)
-        done (if (= arglead "") (length args) (- (length args) 1))
-        candidates (if (= done 0)
-                     (icollect [_ o (ipairs (session.config s))] o.id)
-                     (= done 1)
-                     (let [option (session.config-option s (. args 1))]
-                       (icollect [_ v (ipairs (or (?. option :values) []))] v.value))
-                     [])]
-    (icollect [_ c (ipairs candidates)]
-      (when (vim.startswith c arglead) c))))
+(fn complete-settings [max-pairs]
+  ;; Completes "setting value" pairs, from the running session or the last one seen.
+  (fn [arglead cmdline _]
+    (let [known (session.known-config)
+          args (. (vim.api.nvim_parse_cmd cmdline {}) :args)
+          done (if (= arglead "") (length args) (- (length args) 1))
+          candidates (if (>= done (* 2 max-pairs))
+                       []
+                       (= 0 (% done 2))
+                       (let [given (collect [i a (ipairs args)]
+                                     (when (and (<= i done) (= 1 (% i 2))) (values a true)))]
+                         (icollect [_ o (ipairs known)]
+                           (when (not (. given o.id)) o.id)))
+                       (let [id (. args done)]
+                         (accumulate [choices [] _ o (ipairs known)]
+                           (if (= o.id id) o.values choices))))]
+      (icollect [_ c (ipairs candidates)]
+        (when (vim.startswith c arglead) c)))))
 
 (fn enable [])
 
@@ -84,9 +103,11 @@
     (set vim.g.markdown_fenced_languages
          [:clojure :fennel :sh :bash=sh :diff :json :lua :sql :python]))
 
-  (vim.api.nvim_create_user_command "Acp" open {:desc "Open or focus the ACP agent session"})
+  (vim.api.nvim_create_user_command "Acp" open
+    {:nargs "*" :bang true :complete (complete-settings 10)
+     :desc "Open or focus the ACP session; ! starts a new one; args are setting/value pairs"})
   (vim.api.nvim_create_user_command "AcpConfig" configure
-    {:nargs "*" :complete complete-config
+    {:nargs "*" :complete (complete-settings 1)
      :desc "Show or change ACP session settings (model, mode, effort...)"})
   (vim.api.nvim_create_user_command "AcpSend" send
     {:nargs "*" :desc "Send the prompt buffer, or the given text, to the ACP agent"})
