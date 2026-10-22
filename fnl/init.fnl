@@ -28,7 +28,8 @@
    :modules.git []
    :modules.statusline []
    :modules.quickfix []
-   :modules.colors []}
+   :modules.colors []
+   :modules.acp []}
   :stable)
 
 (set vim.g.mimis-notes-path "/home/markwoodhall/notes")
@@ -63,6 +64,7 @@
     :post-setup (fn [])}
    :modules.statusline []
    :modules.quickfix [] 
+   :modules.acp []
 
    ;; Structure and syntax
    :modules.surround []})

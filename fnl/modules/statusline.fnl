@@ -10,8 +10,12 @@
                              name))) :totable))
       (.. "[" (table.concat names ", ") "]")))
 
+  (fn acp-status []
+    (let [acp (. package.loaded :modules.acp.session)]
+      (if acp (acp.status-text) "")))
+
   (fn _G.statusline []
-    (table.concat ["%f" "%h%w%m%r" "%=" (lsp-status) " %-14(%l,%c%V%)" "%P"] " "))
+    (table.concat ["%f" "%h%w%m%r" "%=" (acp-status) (lsp-status) " %-14(%l,%c%V%)" "%P"] " "))
   (set vim.o.statusline "%{%v:lua._G.statusline()%}")	)
 
 {: enable

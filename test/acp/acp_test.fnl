@@ -1,0 +1,170 @@
+;; End-to-end tests for the ACP client against test/acp/fake_agent.py.
+;; Run from anywhere:
+;;   nvim --headless -c "lua require('fennel').dofile(vim.fn.stdpath('config') .. '/test/acp/acp_test.fnl')"
+;; Exits non-zero if anything fails.
+
+(local here (.. (vim.fn.stdpath :config) "/test/acp"))
+(set vim.g.acp-agent-cmd ["python3" (.. here "/fake_agent.py")])
+(set vim.g.acp-log-dir (vim.fn.tempname))
+
+(local session (require :modules.acp.session))
+(local failures [])
+
+(fn out [line]
+  (io.stdout:write (.. line "\n")))
+
+(fn check [name ok detail]
+  (if ok
+    (out (.. "ok   " name))
+    (do
+      (table.insert failures name)
+      (out (.. "FAIL " name (if detail (.. "\n     " (vim.inspect detail)) ""))))))
+
+(fn wait [pred ms]
+  (vim.wait (or ms 3000) pred 10))
+
+(fn lines-of [buf]
+  (vim.api.nvim_buf_get_lines buf 0 -1 false))
+
+(fn has-line [lines text]
+  (accumulate [found false _ l (ipairs lines)]
+    (or found (= l text))))
+
+(fn statusline-of [win]
+  (. (vim.api.nvim_eval_statusline vim.o.statusline {:winid win}) :str))
+
+(fn select-first []
+  (set vim.ui.select (fn [items _ cb] (vim.schedule #(cb (. items 1))))))
+
+(fn select-never []
+  (set vim.ui.select (fn [])))
+
+;; Before a session ------------------------------------------------------------
+
+(vim.cmd "AcpSend too early")
+(check "AcpSend without a session is refused" (= nil (session.current)))
+
+(local start-win (vim.api.nvim_get_current_win))
+(vim.cmd "tab Acp")
+(local s (session.current))
+(check ":tab Acp opens in a new tab" (= 2 (vim.fn.tabpagenr)))
+(check "chat and prompt buffers are listed"
+       (and (= 1 (vim.fn.buflisted s.buf)) (= 1 (vim.fn.buflisted s.prompt-buf))))
+(check "activity shows while starting" (not= nil (string.find (session.status-text) "starting agent" 1 true)))
+
+(wait #(not= nil s.session.id))
+(check "session connects" (= "sess-1" s.session.id))
+
+;; Config options ----------------------------------------------------------------
+
+(let [model (session.config-option s :model)
+      mode (session.config-option s :mode)]
+  (check "boolean config options are ignored" (= 2 (length (session.config s))) (session.config s))
+  (check "grouped values are flattened" (= 2 (length model.values)))
+  (check "a Default value shows what it resolves to" (= "Opus 5.5" model.display))
+  (check "mode is shown by name" (= "Manual" mode.display)))
+
+(check "connected line lists the settings"
+       (has-line (lines-of s.buf) "> acp: Mode: Manual · Model: Opus 5.5"))
+
+(let [prompt-win (vim.fn.bufwinid s.prompt-buf)]
+  (check "statusline in session windows shows model and mode"
+         (not= nil (string.find (statusline-of prompt-win) "[acp Opus 5.5 · Manual]" 1 true))
+         (statusline-of prompt-win))
+  (check "statusline elsewhere is quiet while idle"
+         (= nil (string.find (statusline-of start-win) "acp" 1 true))
+         (statusline-of start-win)))
+
+(check "AcpConfig completes setting names"
+       (vim.deep_equal ["mode" "model"] (vim.fn.getcompletion "AcpConfig " "cmdline"))
+       (vim.fn.getcompletion "AcpConfig " "cmdline"))
+(check "AcpConfig completes values"
+       (vim.deep_equal ["default" "sonnet"] (vim.fn.getcompletion "AcpConfig model " "cmdline")))
+
+(vim.cmd "AcpConfig model nonsense")
+(vim.wait 200)
+(check "unknown values are rejected" (= "default" (. (session.config-option s :model) :current)))
+
+(vim.cmd "AcpConfig model sonnet")
+(wait #(= "sonnet" (. (session.config-option s :model) :current)))
+(check "AcpConfig sets a value" (= "Sonnet 5.5" (. (session.config-option s :model) :display)))
+(check "the change is noted in the chat" (has-line (lines-of s.buf) "> acp: Model → Sonnet 5.5"))
+
+;; A full turn: streaming, tools, permission, unknown request ---------------------
+
+(select-first)
+(vim.api.nvim_set_current_win (vim.fn.bufwinid s.prompt-buf))
+(vim.api.nvim_buf_set_lines s.prompt-buf 0 -1 false ["hello there" "second line"])
+(vim.api.nvim_feedkeys (vim.keycode "<C-s>") :x false)
+(check "<C-s> sends and clears the prompt" (vim.deep_equal [""] (lines-of s.prompt-buf)))
+(wait #(and (= s.turn.state :idle) (not= nil s.log.path)))
+
+(let [chat (lines-of s.buf)]
+  (check "reply streams in across split JSON lines" (has-line chat "You said: hello there"))
+  (check "tool lines are rewritten in place" (has-line chat "> tool: Read /tmp/x/file.clj — done"))
+  (check "permission choice is recorded" (has-line chat "> permission: Edit file.clj — Allow once"))
+  (check "stop reason is shown" (has-line chat "> stop: end_turn")))
+
+(check "context use shows in the statusline"
+       (not= nil (string.find (statusline-of (vim.fn.bufwinid s.prompt-buf)) "Sonnet 5.5 · Manual · 25%" 1 true))
+       (statusline-of (vim.fn.bufwinid s.prompt-buf)))
+
+(let [log (vim.fn.readfile s.log.path)]
+  (check "log header records the settings" (and (has-line log "model: Sonnet 5.5") (has-line log "mode: Manual")) log)
+  (check "log header records the session" (has-line log "session: sess-1"))
+  (check "log has the turn" (and (has-line log "## Agent") (has-line log "> tool: Edit file.clj — done"))))
+
+;; Cancel with a permission prompt left open ---------------------------------------
+
+(select-never)
+(session.send-prompt s "slow")
+(wait #(not= nil s.permission))
+(vim.wait 200)
+(check "activity shows a waiting permission" (= "waiting for your permission" (?. s.activity :label)))
+(vim.cmd "AcpCancel")
+(wait #(= s.turn.state :idle))
+(let [chat (lines-of s.buf)]
+  (check "cancel answers the open permission" (has-line chat "> permission: Run `rm -rf build` — cancelled"))
+  (check "cancel ends the turn" (has-line chat "> stop: cancelled")))
+(check "activity clears after cancel" (and (= nil s.activity) (= nil s.activity-timer)))
+
+;; Settings changed between turns and by the agent ------------------------------------
+
+(select-first)
+(vim.cmd "AcpConfig mode plan")
+(wait #(= "plan" (. (session.config-option s :mode) :current)))
+(session.send-prompt s "leave plan")
+(wait #(= s.turn.state :idle))
+(check "agent-initiated changes are applied" (= "Manual" (. (session.config-option s :mode) :display)))
+(let [log (vim.fn.readfile s.log.path)]
+  (check "a change between turns is logged" (has-line log "> acp: Mode → Plan") log)
+  (check "a change during a turn is logged" (has-line log "> acp: Mode → Manual") log))
+
+;; Commands ------------------------------------------------------------------------
+
+(vim.api.nvim_buf_set_lines s.prompt-buf 0 -1 false ["draft"])
+(vim.cmd "AcpSend from the command line")
+(wait #(= s.turn.state :idle))
+(check "AcpSend <text> leaves the draft alone" (vim.deep_equal ["draft"] (lines-of s.prompt-buf)))
+(check "AcpSend <text> sends the text" (has-line (lines-of s.buf) "You said: from the command line"))
+
+(vim.cmd "wa")
+(vim.wait 200)
+(check ":wa does not send the prompt" (vim.deep_equal ["draft"] (lines-of s.prompt-buf)))
+
+(vim.api.nvim_set_current_win (vim.fn.bufwinid s.buf))
+(each [i l (ipairs (lines-of s.buf))]
+  (when (= l "(+ 1 2)") (vim.api.nvim_win_set_cursor 0 [i 0])))
+(vim.cmd "AcpOpenBlock")
+(check "AcpOpenBlock opens the block with its filetype"
+       (and (= "clojure" vim.bo.filetype) (= "(+ 1 2)" (vim.api.nvim_get_current_line))))
+(vim.cmd "close")
+
+(local chat-buf s.buf)
+(vim.cmd "AcpStop")
+(check "AcpStop ends the session" (= nil (session.current)))
+(check "AcpStop removes the buffers" (not (vim.api.nvim_buf_is_valid chat-buf)))
+
+(vim.fn.delete vim.g.acp-log-dir "rf")
+(out (if (= 0 (length failures)) "all passed" (.. (length failures) " failed")))
+(vim.cmd (if (= 0 (length failures)) "qa!" "cquit!"))
