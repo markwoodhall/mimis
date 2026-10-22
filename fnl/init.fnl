@@ -17,6 +17,7 @@
    :modules.terraform []
    :modules.lisp []
    :modules.sql []
+   :modules.packages.python []
 
    :modules.org []
 
@@ -46,6 +47,7 @@
    :modules.terraform []
    :modules.lisp []
    :modules.sql []
+   :modules.packages.python []
 
    :modules.org [:org-babel-like :notes]
 
