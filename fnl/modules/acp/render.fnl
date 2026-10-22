@@ -3,7 +3,7 @@
 (local ns (vim.api.nvim_create_namespace "acp"))
 
 (fn scratch [name ft]
-  (let [buf (vim.api.nvim_create_buf true true)]
+  (let [buf (vim.api.nvim_create_buf false true)]
     (vim.api.nvim_buf_set_name buf name)
     (tset (. vim.bo buf) :swapfile false)
     (tset (. vim.bo buf) :bufhidden :hide)
@@ -44,6 +44,16 @@
         (vim.api.nvim_set_current_win (vim.fn.bufwinid s.buf))
         (open-prompt-below)
         (vim.api.nvim_win_set_buf 0 s.prompt-buf)))
+    (visible? s.prompt-buf)
+    (let [prompt-win (vim.fn.bufwinid s.prompt-buf)]
+      (vim.api.nvim_set_current_win prompt-win)
+      (vim.cmd "aboveleft split")
+      (vim.api.nvim_win_set_buf 0 s.buf)
+      (chat-window-options 0)
+      (vim.cmd "normal! G")
+      (vim.api.nvim_set_current_win prompt-win)
+      (vim.api.nvim_win_set_height prompt-win 8)
+      (tset (. vim.wo prompt-win) :winfixheight true))
     (do
       (vim.cmd (if (and mods (not= mods "")) (.. mods " split") "botright vsplit"))
       (vim.api.nvim_win_set_buf 0 s.buf)

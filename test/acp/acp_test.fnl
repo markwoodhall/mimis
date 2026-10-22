@@ -48,8 +48,22 @@
 (vim.cmd "tab Acp")
 (local s (session.current))
 (check ":tab Acp opens in a new tab" (= 2 (vim.fn.tabpagenr)))
-(check "chat and prompt buffers are listed"
-       (and (= 1 (vim.fn.buflisted s.buf)) (= 1 (vim.fn.buflisted s.prompt-buf))))
+(check "chat and prompt buffers are unlisted"
+       (and (= 0 (vim.fn.buflisted s.buf)) (= 0 (vim.fn.buflisted s.prompt-buf))))
+
+;; :Acp brings a hidden session back
+(fn windows-showing [buf]
+  (length (vim.fn.win_findbuf buf)))
+
+(vim.cmd "only")
+(vim.cmd "Acp")
+(check ":Acp shows the chat again after :only in the prompt"
+       (and (= 1 (windows-showing s.buf)) (= 1 (windows-showing s.prompt-buf))))
+(vim.cmd "enew")
+(vim.cmd "only")
+(vim.cmd "Acp")
+(check ":Acp shows a fully hidden session again"
+       (and (= 1 (windows-showing s.buf)) (= 1 (windows-showing s.prompt-buf))))
 (check "activity shows while starting" (not= nil (string.find (session.status-text) "starting agent" 1 true)))
 
 (wait #(not= nil s.session.id))
