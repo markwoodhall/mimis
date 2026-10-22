@@ -6,18 +6,16 @@
 (local here (.. (vim.fn.stdpath :config) "/test/acp"))
 (set vim.g.acp-agent-cmd ["python3" (.. here "/fake_agent.py")])
 (set vim.g.acp-log-dir (vim.fn.tempname))
-;; Keep test traffic out of the real debug log.
+;; Keep test traffic out of the real debug log and settings cache, even if a run aborts.
 (set vim.g.acp-debug-log (vim.fn.tempname))
+(set vim.g.acp-config-cache (vim.fn.tempname))
 (local real-debug-log (.. (vim.fn.stdpath :log) "/acp-debug.log"))
 (local real-debug-size (vim.fn.getfsize real-debug-log))
+(local real-cache (.. (vim.fn.stdpath :data) "/acp-config.json"))
+(local real-cache-before (when (= 1 (vim.fn.filereadable real-cache)) (vim.fn.readfile real-cache)))
 
 (local session (require :modules.acp.session))
 (local failures [])
-
-;; The fake agent's settings must not replace the real cache used for completion.
-(local known-path (.. (vim.fn.stdpath :data) "/acp-config.json"))
-(local known-backup (when (= 1 (vim.fn.filereadable known-path)) (vim.fn.readfile known-path)))
-(vim.fn.delete known-path)
 
 (fn out [line]
   (io.stdout:write (.. line "\n")))
@@ -60,22 +58,37 @@
 (vim.cmd "tab Acp")
 (local s (session.current))
 (check ":tab Acp opens in a new tab" (= 2 (vim.fn.tabpagenr)))
-(check "chat and prompt buffers are unlisted"
-       (and (= 0 (vim.fn.buflisted s.buf)) (= 0 (vim.fn.buflisted s.prompt-buf))))
+(check "the chat buffer is unlisted" (= 0 (vim.fn.buflisted s.buf)))
+(check "there is just one buffer, the chat"
+       (= 1 (length (vim.tbl_filter #(vim.startswith (vim.api.nvim_buf_get_name $1) "acp://")
+                                    (vim.api.nvim_list_bufs)))))
+
+;; The input area at the bottom of the chat
+(local render (require :modules.acp.render))
+
+(fn input-lines []
+  (vim.api.nvim_buf_get_lines s.buf (- (render.input-row s) 1) -1 false))
+
+(fn set-input [lines]
+  (vim.api.nvim_buf_set_lines s.buf (- (render.input-row s) 1) -1 false lines))
+
+(fn chat-win []
+  (vim.fn.bufwinid s.buf))
+
+(check "the chat ends with an input area"
+       (vim.deep_equal ["" "## You" ""] (vim.list_slice (lines-of s.buf) (- (length (lines-of s.buf)) 2)))
+       (lines-of s.buf))
+(check ":Acp puts the cursor in the input area"
+       (= (render.input-row s) (. (vim.api.nvim_win_get_cursor (chat-win)) 1)))
 
 ;; :Acp brings a hidden session back
 (fn windows-showing [buf]
   (length (vim.fn.win_findbuf buf)))
 
-(vim.cmd "only")
-(vim.cmd "Acp")
-(check ":Acp shows the chat again after :only in the prompt"
-       (and (= 1 (windows-showing s.buf)) (= 1 (windows-showing s.prompt-buf))))
 (vim.cmd "enew")
 (vim.cmd "only")
 (vim.cmd "Acp")
-(check ":Acp shows a fully hidden session again"
-       (and (= 1 (windows-showing s.buf)) (= 1 (windows-showing s.prompt-buf))))
+(check ":Acp shows a hidden session again" (= 1 (windows-showing s.buf)))
 (check "activity shows while starting" (not= nil (string.find (session.status-text) "starting agent" 1 true)))
 
 (wait #(not= nil s.session.id))
@@ -93,10 +106,10 @@
 (check "connected line lists the settings"
        (has-line (lines-of s.buf) "> acp: Mode: Manual · Model: Opus 5.5"))
 
-(let [prompt-win (vim.fn.bufwinid s.prompt-buf)]
-  (check "statusline in session windows shows model and mode"
-         (not= nil (string.find (statusline-of prompt-win) "[acp Opus 5.5 · Manual]" 1 true))
-         (statusline-of prompt-win))
+(let [win (chat-win)]
+  (check "statusline in the chat window shows model and mode"
+         (not= nil (string.find (statusline-of win) "[acp Opus 5.5 · Manual]" 1 true))
+         (statusline-of win))
   (check "statusline elsewhere is quiet while idle"
          (= nil (string.find (statusline-of start-win) "acp" 1 true))
          (statusline-of start-win)))
@@ -118,12 +131,39 @@
 
 ;; A full turn: streaming, tools, permission, unknown request ---------------------
 
-(vim.api.nvim_set_current_win (vim.fn.bufwinid s.prompt-buf))
-(vim.api.nvim_buf_set_lines s.prompt-buf 0 -1 false ["hello there" "second line"])
+(vim.api.nvim_set_current_win (chat-win))
+(set-input ["hello there" "second line"])
+(vim.api.nvim_win_set_cursor 0 [(render.input-row s) 0])
 (vim.cmd "stopinsert")
 (vim.api.nvim_feedkeys (vim.keycode "<CR>") :x false)
-(check "<CR> in normal mode sends and clears the prompt" (vim.deep_equal [""] (lines-of s.prompt-buf)))
+(wait #(not= s.turn.state :idle) 1000)
+(check "<CR> in the input area sends and clears it" (vim.deep_equal [""] (input-lines)) (input-lines))
+(check "the cursor stays in the input area after sending"
+       (= (render.input-row s) (. (vim.api.nvim_win_get_cursor 0) 1)))
+(check "the sent prompt moves into the transcript, above the input area"
+       (let [chat (lines-of s.buf)
+             you (accumulate [at nil i l (ipairs chat)] (if (vim.startswith l "## You — ") i at))]
+         (and you (= "hello there" (. chat (+ you 1))) (< you (- (render.input-row s) 2))))
+       (lines-of s.buf))
+
+;; Typing the next prompt while the reply streams in
+(set-input ["next question"])
 (wait #(and (= s.turn.state :idle) (not= nil s.log.path)))
+(check "a draft typed during a reply is kept, below the reply"
+       (and (vim.deep_equal ["next question"] (input-lines))
+            (= "## You" (. (lines-of s.buf) (- (render.input-row s) 1))))
+       (lines-of s.buf))
+(check "the reply lands above the input area"
+       (let [chat (lines-of s.buf)
+             stop (accumulate [at nil i l (ipairs chat)] (if (= l "> stop: end_turn") i at))]
+         (and stop (< stop (- (render.input-row s) 1)))))
+(check "agent output can't be undone"
+       (do
+         (vim.api.nvim_set_current_win (chat-win))
+         (vim.cmd "silent! undo")
+         (has-line (lines-of s.buf) "You said: hello there"))
+       (lines-of s.buf))
+(set-input [""])
 
 (let [chat (lines-of s.buf)]
   (check "reply streams in across split JSON lines" (has-line chat "You said: hello there"))
@@ -149,7 +189,7 @@
   (accumulate [at nil i l (ipairs (lines-of s.buf)) &until at] (when (= l line) i)))
 
 (fn press-enter-on [row]
-  (vim.api.nvim_set_current_win (vim.fn.bufwinid s.buf))
+  (vim.api.nvim_set_current_win (. (vim.fn.win_findbuf s.buf) 1))
   (vim.api.nvim_win_set_cursor 0 [row 0])
   (vim.api.nvim_feedkeys (vim.keycode "<CR>") :x false))
 
@@ -157,7 +197,7 @@
   (vim.api.nvim_buf_get_lines s.buf row (+ row n) false))
 
 (local before-expanding (lines-of s.buf))
-(local edit-row (row-of "> tool: Edit file.clj — done"))
+(local edit-row (row-of "> tool: Edit file.clj (+1 -1) — done"))
 (local read-row (row-of "> tool: Read /tmp/x/file.clj — done"))
 
 ;; Read is directly above Edit, so expanding it also checks Edit's line moves with it.
@@ -168,7 +208,7 @@
          (and (has-line read "#### Input") (has-line read "  \"file_path\": \"/tmp/x/file.clj\"")) read)
   (check "expanded details strip terminal colours" (has-line read "(ns x)") read))
 
-(local edit-row-now (row-of "> tool: Edit file.clj — done"))
+(local edit-row-now (row-of "> tool: Edit file.clj (+1 -1) — done"))
 (check "lines below an expansion move down with it" (> edit-row-now edit-row))
 (vim.api.nvim_win_set_cursor 0 [edit-row-now 0])
 (vim.cmd "AcpTool")
@@ -235,20 +275,32 @@
 (session.send-prompt s "expand while running")
 (wait #(not= nil s.permission))
 (local permission-row (last-row-of "> permission: Edit file.clj — awaiting choice"))
-(check "permission choices are listed under the request"
-       (vim.deep_equal ["  1. Allow once" "  2. Reject"] (lines-after permission-row 2))
-       (lines-after (- permission-row 1) 4))
+(let [under (lines-after permission-row 12)]
+  (check "an edit's diff is shown under its permission request"
+         (vim.deep_equal ["" "```diff" "--- /tmp/x/file.clj" "+++ /tmp/x/file.clj" "@@ -1,2 +1,2 @@"
+                          " (ns x)" "-(def a 1)" "+(def a 2)" "```" ""]
+                         (vim.list_slice under 1 10))
+         under)
+  (check "the choices follow the diff"
+         (vim.deep_equal ["  1. Allow once" "  2. Reject"] (vim.list_slice under 11 12))
+         under))
+(vim.cmd "Acp")
+(check ":Acp puts the cursor on the first choice, below the diff"
+       (= "  1. Allow once" (vim.api.nvim_get_current_line))
+       (vim.api.nvim_get_current_line))
 (check "the statusline shows a waiting permission"
        (not= nil (string.find (session.status-text) "waiting for your permission" 1 true)))
 
-(local running-row (last-row-of "> tool: Edit file.clj — pending"))
+(local running-row (last-row-of "> tool: Edit file.clj (+1 -1) — pending"))
 (press-enter-on running-row)
 (check "a running tool expands" (= "#### Files" (. (lines-after running-row 2) 2)) (lines-after running-row 3))
 
 (press-enter-on (last-row-of "> permission: Edit file.clj — awaiting choice"))
 (check "<CR> on the request itself doesn't answer it" (not= nil s.permission))
 (check "<CR> on the request leaves the tool expanded" (= "#### Files" (. (lines-after running-row 2) 2)))
-(press-enter-on (+ (last-row-of "> permission: Edit file.clj — awaiting choice") 1))
+(press-enter-on (+ (last-row-of "> permission: Edit file.clj — awaiting choice") 3))
+(check "<CR> inside the diff doesn't answer" (not= nil s.permission))
+(press-enter-on (session.first-choice-row s))
 (wait #(= s.turn.state :idle))
 (let [chat (lines-of s.buf)]
   (check "<CR> on a choice answers it" (has-line chat "> permission: Edit file.clj — Allow once"))
@@ -258,7 +310,7 @@
          (and (has-line log "> permission: Edit file.clj — Allow once") (not (has-line log "  2. Reject"))) log))
 (let [after (lines-after (- running-row 1) 24)]
   (check "a finished tool's line updates in place while expanded"
-         (= "> tool: Edit file.clj — done" (. after 1)) after)
+         (= "> tool: Edit file.clj (+1 -1) — done" (. after 1)) after)
   (check "an expanded tool's details refresh when it finishes"
          (has-line after "The file /tmp/x/file.clj has been updated.") after))
 (press-enter-on running-row)
@@ -271,7 +323,7 @@
 (wait #(= s.turn.state :idle))
 (check ":AcpReject answers from another window"
        (has-line (lines-of s.buf) "> permission: Edit file.clj — Reject"))
-(check "a rejected tool shows as failed" (has-line (lines-of s.buf) "> tool: Edit file.clj — failed"))
+(check "a rejected tool shows as failed" (has-line (lines-of s.buf) "> tool: Edit file.clj (+1 -1) — failed"))
 
 (session.send-prompt s "always allow")
 (wait #(not= nil s.permission))
@@ -283,25 +335,52 @@
          (= "> permission: Edit file.clj — Allow once" last-permission) last-permission))
 (vim.cmd "AcpAllow")
 (check ":AcpAllow with nothing waiting is harmless" (= s.turn.state :idle))
+
+(session.send-prompt s "long command")
+(wait #(not= nil s.permission))
+(let [row (render.line-row s s.permission.block)
+      under (vim.api.nvim_buf_get_lines s.buf row (+ row 6) false)]
+  (check "a shortened command is shown in full under its permission request"
+         (and (= "```sh" (. under 2)) (vim.endswith (. under 3) "echo step-19") (= "  1. Yes" (. under 6)))
+         under))
+(vim.cmd "AcpReject")
+(wait #(= s.turn.state :idle))
+
+(session.send-prompt s "big edit")
+(wait #(not= nil s.permission))
+(let [row (render.line-row s s.permission.block)
+      under (vim.api.nvim_buf_get_lines s.buf row (+ row 90) false)]
+  (check "a large diff is capped under the permission request"
+         (and (has-line under "… 123 more lines, <CR> on the tool line shows them all")
+              (has-line under "  1. Yes")
+              (not (has-line under "+line 199")))
+         under))
+(check "a new file's tool line shows its size" (has-line (lines-of s.buf) "> tool: Write big.txt (+200 -0) — pending"))
+(vim.cmd "AcpAllow")
+(wait #(= s.turn.state :idle))
+(let [row (last-row-of "> tool: Write big.txt (+200 -0) — done")]
+  (press-enter-on row)
+  (check "the tool's expansion shows the whole diff" (has-line (lines-of s.buf) "+line 199"))
+  (press-enter-on row))
 (set auto-allow true)
 
 (vim.api.nvim_set_current_win start-win)
 (vim.cmd "AcpTool")
-(check "AcpTool elsewhere shows the latest tool call" (= "# Edit file.clj — done" (vim.api.nvim_get_current_line)))
+(check "AcpTool elsewhere shows the latest tool call" (= "# Write big.txt — done" (vim.api.nvim_get_current_line)))
 (vim.cmd "close")
-(vim.api.nvim_set_current_win (. (vim.fn.win_findbuf s.prompt-buf) 1))
+(vim.api.nvim_set_current_win (. (vim.fn.win_findbuf s.buf) 1))
 
 (let [log (vim.fn.readfile s.log.path)]
   (check "thinking is kept in the log" (has-line log ">> let me think") log))
 
 (check "context use shows in the statusline"
-       (not= nil (string.find (statusline-of (vim.fn.bufwinid s.prompt-buf)) "Sonnet 5.5 · Manual · 25%" 1 true))
-       (statusline-of (vim.fn.bufwinid s.prompt-buf)))
+       (not= nil (string.find (statusline-of (chat-win)) "Sonnet 5.5 · Manual · 25%" 1 true))
+       (statusline-of (chat-win)))
 
 (let [log (vim.fn.readfile s.log.path)]
   (check "log header records the settings" (and (has-line log "model: Sonnet 5.5") (has-line log "mode: Manual")) log)
   (check "log header records the session" (has-line log "session: sess-1"))
-  (check "log has the turn" (and (has-line log "## Agent") (has-line log "> tool: Edit file.clj — done"))))
+  (check "log has the turn" (and (has-line log "## Agent") (has-line log "> tool: Edit file.clj (+1 -1) — done"))))
 
 ;; Cancel with a permission prompt left open ---------------------------------------
 
@@ -331,15 +410,15 @@
 
 ;; Commands ------------------------------------------------------------------------
 
-(vim.api.nvim_buf_set_lines s.prompt-buf 0 -1 false ["draft"])
+(set-input ["draft"])
 (vim.cmd "AcpSend from the command line")
 (wait #(= s.turn.state :idle))
-(check "AcpSend <text> leaves the draft alone" (vim.deep_equal ["draft"] (lines-of s.prompt-buf)))
+(check "AcpSend <text> leaves the draft alone" (vim.deep_equal ["draft"] (input-lines)))
 (check "AcpSend <text> sends the text" (has-line (lines-of s.buf) "You said: from the command line"))
 
 (vim.cmd "wa")
 (vim.wait 200)
-(check ":wa does not send the prompt" (vim.deep_equal ["draft"] (lines-of s.prompt-buf)))
+(check ":wa does not send the prompt" (vim.deep_equal ["draft"] (input-lines)))
 
 (vim.api.nvim_set_current_win (vim.fn.bufwinid s.buf))
 (each [i l (ipairs (lines-of s.buf))]
@@ -349,10 +428,22 @@
        (and (= "clojure" vim.bo.filetype) (= "(+ 1 2)" (vim.api.nvim_get_current_line))))
 (vim.cmd "close")
 
-(vim.api.nvim_set_current_win (vim.fn.bufwinid s.prompt-buf))
+(vim.api.nvim_set_current_win (chat-win))
+(vim.api.nvim_win_set_cursor 0 [(render.input-row s) 0])
 (vim.api.nvim_feedkeys (.. "o" (vim.keycode "<CR>") "more" (vim.keycode "<Esc>")) :x false)
-(check "<CR> in insert mode is still a newline" (vim.deep_equal ["draft" "" "more"] (lines-of s.prompt-buf))
-       (lines-of s.prompt-buf))
+(check "<CR> in insert mode is still a newline" (vim.deep_equal ["draft" "" "more"] (input-lines))
+       (input-lines))
+
+(vim.cmd "AcpSend")
+(wait #(= s.turn.state :idle))
+(check ":AcpSend sends the input area and clears it"
+       (and (vim.deep_equal [""] (input-lines)) (has-line (lines-of s.buf) "You said: draft")))
+
+(vim.api.nvim_set_current_win start-win)
+(vim.cmd "Acp")
+(check ":Acp from elsewhere focuses the chat's input area"
+       (and (= (vim.api.nvim_get_current_buf) s.buf)
+            (= (render.input-row s) (. (vim.api.nvim_win_get_cursor 0) 1))))
 
 ;; Starting with settings -----------------------------------------------------------
 
@@ -409,7 +500,8 @@
                          (.. "lua require('fennel').dofile('" here "/kill_child.fnl')")]
                         {:env {:ACP_TEST_MARKER marker
                                :ACP_TEST_LOG_DIR child-log-dir
-                               :ACP_TEST_DEBUG_LOG vim.g.acp-debug-log}})]
+                               :ACP_TEST_DEBUG_LOG vim.g.acp-debug-log
+                               :ACP_TEST_CONFIG_CACHE vim.g.acp-config-cache}})]
   (wait #(= 1 (vim.fn.filereadable marker)) 15000)
   (child:kill :sigkill)
   (child:wait 5000)
@@ -443,8 +535,9 @@
 (vim.fn.delete vim.g.acp-debug-log)
 
 (vim.fn.delete vim.g.acp-log-dir "rf")
-(if known-backup
-  (vim.fn.writefile known-backup known-path)
-  (vim.fn.delete known-path))
+(check "the real settings cache is left alone"
+       (vim.deep_equal real-cache-before
+                       (when (= 1 (vim.fn.filereadable real-cache)) (vim.fn.readfile real-cache))))
+(vim.fn.delete vim.g.acp-config-cache)
 (out (if (= 0 (length failures)) "all passed" (.. (length failures) " failed")))
 (vim.cmd (if (= 0 (length failures)) "qa!" "cquit!"))

@@ -129,6 +129,8 @@
     {:session-id params.sessionId
      :tool-id tool.toolCallId
      :title tool.title
+     :kind tool.kind
+     :details (tool-details tool)
      :options (icollect [_ o (ipairs (or params.options []))]
                 {:id o.optionId :name o.name :kind o.kind})}))
 

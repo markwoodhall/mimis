@@ -46,18 +46,25 @@
       (session.show-latest-tool s opts.mods))))
 
 (fn chat-keymaps [s]
-  ;; <CR> on a permission choice answers it, on a tool line toggles its details,
-  ;; anywhere else does what <CR> normally does.
+  ;; <CR> in the input area sends the prompt, on a permission choice answers it, on
+  ;; a tool line toggles its details, anywhere else does what <CR> normally does.
+  ;; Expr mappings can't change text, so the actions run just after.
   (vim.keymap.set :n "<CR>"
                   (fn []
                     (let [row (chat-row s)]
-                      (if (session.choice-at s row)
-                        ;; Expr mappings can't change text, so answer just after.
+                      (if (render.in-input? s row)
+                        (do (vim.schedule send) "")
+                        (session.choice-at s row)
                         (do (vim.schedule #(session.choose-at s row)) "")
                         (session.tool-at s row)
                         "<Cmd>AcpTool<CR>"
                         "<CR>")))
-                  {:buffer s.buf :expr true :desc "ACP answer permission or toggle tool details"}))
+                  {:buffer s.buf :expr true :desc "ACP send, answer permission or toggle tool details"}))
+
+(fn focus [s mods]
+  ;; Shows the chat with the cursor on a waiting permission choice, else in the input.
+  (render.show s mods)
+  (render.cursor-to s (session.first-choice-row s)))
 
 (fn allow [opts]
   (session.choose-kind (session.current)
@@ -79,12 +86,11 @@
       (do
         (when (next requested)
           (session.configure s requested))
-        (render.show s mods))
+        (focus s mods))
       (let [_ (when s (session.stop s))
             s (session.start (vim.tbl_extend :force (or vim.g.acp-config {}) requested))]
-        (vim.keymap.set :n "<CR>" send {:buffer s.prompt-buf :desc "ACP send prompt"})
         (chat-keymaps s)
-        (render.show s mods)))))
+        (focus s mods)))))
 
 (fn pick-value [s option]
   (vim.ui.select option.values

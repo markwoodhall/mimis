@@ -48,10 +48,12 @@
       (values first-line false))))
 
 (fn tool-line [s tool]
-  (let [(title cut?) (short-title s tool.title)]
+  (let [(title cut?) (short-title s tool.title)
+        (added removed) (render.diff-stats tool.details)]
     ;; The expanded details show the full title when the line had to shorten it.
     (set tool.full-title (when cut? tool.title))
     (.. "> tool: " title
+        (if added (.. " (+" added " -" removed ")") "")
         " — " (or (. status-names tool.status) tool.status "pending"))))
 
 (fn permission-line [s block]
@@ -191,7 +193,7 @@
 ;; The settings and values last seen, kept on disk so :Acp can complete them
 ;; before a session exists.
 (fn known-path []
-  (.. (vim.fn.stdpath :data) "/acp-config.json"))
+  (vim.fn.expand (or vim.g.acp-config-cache (.. (vim.fn.stdpath :data) "/acp-config.json"))))
 
 (fn remember [options]
   (let [known (icollect [_ o (ipairs options)]
@@ -306,22 +308,35 @@
 
 (fn on-permission [s params id]
   (let [p (protocol.parse-permission params)
-        title (or p.title (?. (. s.tools (or p.tool-id "")) :title) "use a tool")
+        tool (. s.tools (or p.tool-id ""))
+        title (or p.title (?. tool :title) "use a tool")
         block {:type :line : title}]
     (when s.permission
       ;; Only one prompt at a time; an older unanswered one is cancelled.
       (answer-permission s nil))
+    (when tool
+      ;; The request often knows more than the tool line so far, e.g. the diff.
+      (each [k v (pairs p.details)]
+        (tset tool.details k v))
+      (when p.title (set tool.title p.title))
+      (set tool.block.line (tool-line s tool))
+      (render.update-line s tool.block)
+      (render.refresh-tool s tool))
     (set block.line (permission-line s block))
     (if (turn-active? s)
       (add-line-block s block)
       (render.add-line s block))
-    (set s.permission {: id : block :options p.options})
+    (set s.permission {: id : block :options p.options :choice-offset 0})
     (if (= s.turn.state :cancelling)
       (answer-permission s nil)
-      (do
-        ;; The choices go under the request in the chat; <CR> on one answers.
-        (render.attach-lines s block (icollect [i o (ipairs p.options)]
-                                       (.. "  " i ". " o.name)))
+      (let [(_ cut?) (short-title s title)
+            (lines offset) (render.permission-lines s (if tool tool.details p.details)
+                                                    (when cut? title)
+                                                    (or p.kind (?. tool :kind))
+                                                    p.options)]
+        ;; What's being asked for, then the choices; <CR> on a choice answers.
+        (set s.permission.choice-offset offset)
+        (render.attach-lines s block lines)
         (when (running? s) (busy s "waiting for your permission"))
         (when (not (render.visible? s.buf))
           (vim.notify (.. "acp: agent wants to: " (pick-values 1 (short-title s title))
@@ -330,9 +345,10 @@
 (fn choice-at [s row]
   ;; The permission choice on chat row (1-based), if any.
   (let [p s.permission
-        index (when (and p row) (render.attached-index s p.block row))]
-    (when (and index (> index 0))
-      (. p.options index))))
+        index (when (and p row) (render.attached-index s p.block row))
+        choice (when index (- index p.choice-offset))]
+    (when (and choice (> choice 0))
+      (. p.options choice))))
 
 (fn choose-at [s row]
   ;; Answers the open permission request with the choice on row. Returns false if
@@ -524,7 +540,12 @@
         (transport.stop s.agent.proc)))))
 
 (fn session-buffer? [s buf]
-  (or (= buf s.buf) (= buf s.prompt-buf)))
+  (= buf s.buf))
+
+(fn first-choice-row [s]
+  ;; 1-based row of the first choice of a waiting permission request, if any.
+  (let [row (when s.permission (render.line-row s s.permission.block))]
+    (when row (+ row s.permission.choice-offset 1))))
 
 (fn status-text []
   ;; Statusline segment. Model, mode and context use show in the session's own windows;
@@ -582,6 +603,7 @@
  : tool-at
  : choice-at
  : choose-at
+ : first-choice-row
  : choose-kind
  : toggle-tool
  : show-latest-tool

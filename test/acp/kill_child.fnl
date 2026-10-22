@@ -5,6 +5,7 @@
 (set vim.g.acp-agent-cmd ["python3" (.. (vim.fn.stdpath :config) "/test/acp/fake_agent.py")])
 (set vim.g.acp-log-dir vim.env.ACP_TEST_LOG_DIR)
 (set vim.g.acp-debug-log vim.env.ACP_TEST_DEBUG_LOG)
+(set vim.g.acp-config-cache vim.env.ACP_TEST_CONFIG_CACHE)
 (local session (require :modules.acp.session))
 (vim.cmd "Acp")
 (local s (session.current))

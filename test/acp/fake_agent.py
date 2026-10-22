@@ -75,6 +75,21 @@ for line in sys.stdin:
             update({"sessionUpdate": "tool_call", "toolCallId": "short", "title": "ls", "kind": "execute", "status": "completed"})
             send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
             continue
+        if prompt in ("long command", "big edit"):
+            if prompt == "long command":
+                tool = {"toolCallId": "long3", "kind": "execute",
+                        "title": "cd /tmp/x && " + " && ".join("echo step-%d" % i for i in range(20))}
+            else:
+                tool = {"toolCallId": "big1", "kind": "edit", "title": "Write big.txt",
+                        "content": [{"type": "diff", "path": "/tmp/x/big.txt", "oldText": "",
+                                     "newText": "\n".join("line %d" % i for i in range(200))}]}
+            update(dict(tool, sessionUpdate="tool_call", status="pending"))
+            send({"id": 103, "method": "session/request_permission",
+                  "params": {"sessionId": SID, "toolCall": tool,
+                             "options": [{"optionId": "allow-once", "name": "Yes", "kind": "allow_once"},
+                                         {"optionId": "reject-once", "name": "No", "kind": "reject_once"}]}})
+            pending_tool = tool["toolCallId"]
+            continue
         if prompt == "leave plan":
             config["mode"] = "default"
             update({"sessionUpdate": "config_option_update", "configOptions": config_options()})
@@ -100,9 +115,17 @@ for line in sys.stdin:
                              "oldText": "(ns x)\n(def a 1)", "newText": "(ns x)\n(def a 2)"}]})
         send({"id": 100, "method": "fs/unknown_thing", "params": {}})
         send({"id": 101, "method": "session/request_permission",
-              "params": {"sessionId": SID, "toolCall": {"toolCallId": "t2", "title": "Edit file.clj"},
+              "params": {"sessionId": SID,
+                         "toolCall": {"toolCallId": "t2", "title": "Edit file.clj", "kind": "edit",
+                                      "content": [{"type": "diff", "path": "/tmp/x/file.clj",
+                                                   "oldText": "(ns x)\n(def a 1)", "newText": "(ns x)\n(def a 2)"}]},
                          "options": [{"optionId": "allow", "name": "Allow once", "kind": "allow_once"},
                                      {"optionId": "reject", "name": "Reject", "kind": "reject_once"}]}})
+    elif msg.get("id") == 103:
+        allowed = msg["result"]["outcome"].get("optionId") == "allow-once"
+        update({"sessionUpdate": "tool_call_update", "toolCallId": pending_tool,
+                "status": "completed" if allowed else "failed"})
+        send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
     elif m == "session/cancel":
         send({"id": pending_prompt, "result": {"stopReason": "cancelled"}})
     elif msg.get("id") == 101:
