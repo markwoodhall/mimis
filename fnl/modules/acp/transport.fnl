@@ -1,12 +1,15 @@
 ;; Agent subprocess: spawn, line-buffered stdout, raw debug log.
 
+;; Every Neovim appends to the same log, so each line carries its process id.
+(local pid (vim.fn.getpid))
+
 (fn debug-path []
-  (.. (vim.fn.stdpath :log) "/acp-debug.log"))
+  (vim.fn.expand (or vim.g.acp-debug-log (.. (vim.fn.stdpath :log) "/acp-debug.log"))))
 
 (fn debug [direction text]
   (let [stamp (os.date "%H:%M:%S")
         lines (icollect [_ l (ipairs (vim.split text "\n" {:plain true}))]
-                (.. stamp " " direction " " l))]
+                (.. stamp " [" pid "] " direction " " l))]
     (vim.fn.writefile lines (debug-path) "a")))
 
 (local debug-limit (* 2 1024 1024))

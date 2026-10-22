@@ -6,6 +6,10 @@
 (local here (.. (vim.fn.stdpath :config) "/test/acp"))
 (set vim.g.acp-agent-cmd ["python3" (.. here "/fake_agent.py")])
 (set vim.g.acp-log-dir (vim.fn.tempname))
+;; Keep test traffic out of the real debug log.
+(set vim.g.acp-debug-log (vim.fn.tempname))
+(local real-debug-log (.. (vim.fn.stdpath :log) "/acp-debug.log"))
+(local real-debug-size (vim.fn.getfsize real-debug-log))
 
 (local session (require :modules.acp.session))
 (local failures [])
@@ -403,7 +407,9 @@
       child-log-dir (vim.fn.tempname)
       child (vim.system ["nvim" "--headless" "-c"
                          (.. "lua require('fennel').dofile('" here "/kill_child.fnl')")]
-                        {:env {:ACP_TEST_MARKER marker :ACP_TEST_LOG_DIR child-log-dir}})]
+                        {:env {:ACP_TEST_MARKER marker
+                               :ACP_TEST_LOG_DIR child-log-dir
+                               :ACP_TEST_DEBUG_LOG vim.g.acp-debug-log}})]
   (wait #(= 1 (vim.fn.filereadable marker)) 15000)
   (child:kill :sigkill)
   (child:wait 5000)
@@ -414,6 +420,27 @@
     (check "a killed session drops the unfinished turn" (not (has-line log "slow")) log))
   (vim.fn.delete marker)
   (vim.fn.delete child-log-dir "rf"))
+
+;; Debug log ------------------------------------------------------------------------
+
+(let [debug-lines (vim.fn.readfile vim.g.acp-debug-log)
+      tag (.. " [" (vim.fn.getpid) "] ")
+      pids (collect [_ l (ipairs debug-lines)]
+             (let [p (string.match l "^%d%d:%d%d:%d%d %[(%d+)%] ")]
+               (when p (values p true))))]
+  (check "debug traffic goes to vim.g.acp-debug-log" (> (length debug-lines) 0))
+  (check "every debug line carries a process id"
+         (accumulate [ok true _ l (ipairs debug-lines)]
+           (and ok (not= nil (string.match l "^%d%d:%d%d:%d%d %[%d+%] "))))
+         (. debug-lines 1))
+  (check "two Neovims sharing a log are told apart (this one and the killed child)"
+         (and (. pids (tostring (vim.fn.getpid))) (= 2 (length (vim.tbl_keys pids))))
+         (vim.tbl_keys pids))
+  (check "the real debug log has nothing from the tests"
+         (or (= -1 real-debug-size)
+             (accumulate [clean true _ l (ipairs (vim.fn.readfile real-debug-log))]
+               (and clean (= nil (string.find l tag 1 true)))))))
+(vim.fn.delete vim.g.acp-debug-log)
 
 (vim.fn.delete vim.g.acp-log-dir "rf")
 (if known-backup
