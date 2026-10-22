@@ -527,8 +527,12 @@
                        (acp.parse-args ["opencode" "model" "x" "mode" "y"])))
 (check "an agent alone is accepted"
        (vim.deep_equal {:agent "opencode" :settings {}} (acp.parse-args ["opencode"])))
-(check "an agent name with an even count is still a setting"
-       (vim.deep_equal {:settings {:opencode "model"}} (acp.parse-args ["opencode" "model"])))
+(let [(parsed message) (acp.parse-args ["claude" "sonnet"])]
+  (check "an agent followed by an unpaired value is refused, not read as a setting"
+         (and (= nil parsed)
+              (= "acp: settings come in pairs after the agent, e.g. :Acp claude model sonnet"
+                 message))
+         message))
 (let [(parsed message) (acp.parse-args ["opencod" "model" "x"])]
   (check "an odd count with an unknown first argument lists the known agents"
          (and (= nil parsed)

@@ -37,20 +37,25 @@
 (fn parse-args [fargs]
   ;; ["opencode" "model" "x"] -> {:agent "opencode" :settings {:model "x"}}
   ;; ["model" "x"]            -> {:settings {:model "x"}}
-  ;; Settings come in pairs, so an odd count means the first argument is an agent name.
-  ;; Returns nil and a message when it isn't one, or is also a setting id (such an agent
-  ;; must be renamed: completion and reading the command line would be ambiguous).
-  (let [first (. fargs 1)]
-    (if (= 0 (% (length fargs) 2))
+  ;; A first argument that names an agent (and isn't also a setting id) is the agent,
+  ;; and what follows must be pairs. Otherwise all arguments are pairs, and an odd
+  ;; count means the first one was meant as an agent that doesn't exist, or is also a
+  ;; setting id (such an agent must be renamed: completion would be ambiguous).
+  (let [first (. fargs 1)
+        agent? (and first (agents.get first) (not (. (setting-ids) first)))]
+    (if agent?
+      (if (= 0 (% (length fargs) 2))
+        (values nil (.. "acp: settings come in pairs after the agent, e.g. :Acp "
+                        first " model sonnet"))
+        {:agent first :settings (setting-pairs (vim.list_slice fargs 2))})
+      (= 0 (% (length fargs) 2))
       {:settings (setting-pairs fargs)}
-      (not (agents.get first))
-      (values nil (.. "acp: unknown agent '" first "' (known: "
-                      (table.concat (agents.names) ", ")
-                      "), or settings come in pairs"))
-      (. (setting-ids) first)
+      (agents.get first)
       (values nil (.. "acp: '" first "' is both an agent and a setting of the agent, "
                       "rename the agent in vim.g.acp-agents"))
-      {:agent first :settings (setting-pairs (vim.list_slice fargs 2))})))
+      (values nil (.. "acp: unknown agent '" first "' (known: "
+                      (table.concat (agents.names) ", ")
+                      "), or settings come in pairs")))))
 
 (fn start-config []
   ;; vim.g.acp-config minus :agent, which picks the agent and is not a setting.
