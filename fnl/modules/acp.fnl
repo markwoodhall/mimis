@@ -202,7 +202,24 @@
 
 (fn enable [])
 
+(fn diff-highlights []
+  ;; Make added/removed lines in ```diff blocks visibly different. Linking to the
+  ;; DiffAdd/DiffDelete groups gives them green/red backgrounds in most colorschemes.
+  (each [_ [group target] (ipairs [[:diffAdded :DiffAdd]
+                                   [:diffRemoved :DiffDelete]
+                                   [:diffChanged :DiffChange]
+                                   ["@diff.plus" :DiffAdd]
+                                   ["@diff.minus" :DiffDelete]
+                                   ["@diff.delta" :DiffChange]])]
+    (vim.api.nvim_set_hl 0 group {:link target :default false})))
+
 (fn setup []
+  (diff-highlights)
+  (vim.api.nvim_create_autocmd :ColorScheme
+    {:group (vim.api.nvim_create_augroup "acp-diff-hl" {:clear true})
+     :desc "Reapply ACP diff highlights"
+     :callback diff-highlights})
+
   (when (not vim.g.markdown_fenced_languages)
     (set vim.g.markdown_fenced_languages
          [:clojure :fennel :sh :bash=sh :diff :json :lua :sql :python]))
