@@ -69,6 +69,7 @@
 (vim.cmd "set wildignore+=**/fugitive:/**")
 (vim.cmd "set wildignore+=**/target/**")
 (vim.cmd "set wildignore+=**/logs/**")
+(vim.cmd "set wildignore+=**/*.pyc")
 
 (vim.cmd "set grepprg=rg\\ --vimgrep")
 (vim.cmd "set grepformat^=%f:%l:%c:%m")
