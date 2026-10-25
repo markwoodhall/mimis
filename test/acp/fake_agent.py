@@ -8,6 +8,15 @@ NAME = "fake" + (" " + sys.argv[1] if len(sys.argv) > 1 else "")
 VERSION = "key" if "ANTHROPIC_API_KEY" in os.environ else "no-key"
 
 SID = "sess-1"
+RESUMABLE = len(sys.argv) > 1 and sys.argv[1] == "resumable"
+HERE = os.getcwd()
+# Earlier sessions the "resumable" instance can list and load: id -> (cwd, title, updated at).
+OLD = {
+    "old-1": (HERE, "First chat", "2026-10-01T09:00:00Z"),
+    "old-2": (HERE, "Second chat\nwith a second line", "2026-10-02T09:00:00Z"),
+    "old-3": (HERE, None, "2026-10-03T09:00:00Z"),
+    "other-1": (os.environ.get("FAKE_OTHER_CWD", "/tmp/elsewhere"), "Other project", "2026-10-04T09:00:00Z"),
+}
 config = {"mode": "default", "model": "default"}
 
 
@@ -23,6 +32,30 @@ def update(u):
 
 def text(t):
     update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": t}})
+
+
+def user(t):
+    update({"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": t}})
+
+
+def thought(t):
+    update({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": t}})
+
+
+def replay(session_id):
+    user("hel")
+    user("lo there")
+    thought("pondering")
+    text("Hi ")
+    text("there.")
+    update({"sessionUpdate": "tool_call", "toolCallId": "r1", "title": "Read /tmp/x/a.txt", "kind": "read",
+            "status": "pending"})
+    update({"sessionUpdate": "tool_call_update", "toolCallId": "r1", "status": "completed",
+            "rawOutput": "contents"})
+    user("second question")
+    text("Second answer.")
+    update({"sessionUpdate": "usage_update", "used": 5000, "size": 100000})
+    update({"sessionUpdate": "config_option_update", "configOptions": config_options()})
 
 
 def config_options():
@@ -47,12 +80,33 @@ for line in sys.stdin:
     m = msg.get("method")
     if m == "initialize":
         assert msg["params"]["protocolVersion"] == 1
-        send({"id": msg["id"], "result": {"protocolVersion": 1, "agentCapabilities": {"loadSession": False},
+        send({"id": msg["id"], "result": {"protocolVersion": 1, "agentCapabilities":
+                                          dict({"loadSession": RESUMABLE},
+                                               **({"sessionCapabilities": {"list": {}}} if RESUMABLE else {})),
                                           "authMethods": [], "agentInfo": {"name": NAME, "version": VERSION}}})
     elif m == "session/new":
         assert msg["params"]["mcpServers"] == []
         send({"id": msg["id"], "result": {"sessionId": SID, "configOptions": config_options()}})
         update({"sessionUpdate": "available_commands_update", "availableCommands": []})
+    elif m == "session/list":
+        p = msg["params"]
+        found = [{"sessionId": i, "cwd": c, "title": t, "updatedAt": u}
+                 for i, (c, t, u) in OLD.items() if "cwd" not in p or p["cwd"] == c]
+        start = int(p.get("cursor") or 0)
+        page = found[start:start + 2]
+        result = {"sessions": [{k: v for k, v in x.items() if v is not None} for x in page]}
+        if start + 2 < len(found):
+            result["nextCursor"] = str(start + 2)
+        send({"id": msg["id"], "result": result})
+    elif m == "session/load":
+        p = msg["params"]
+        assert p["mcpServers"] == []
+        if p["sessionId"] not in OLD:
+            send({"id": msg["id"], "error": {"code": -32602, "message": "session not found"}})
+            continue
+        SID = p["sessionId"]
+        replay(SID)
+        send({"id": msg["id"], "result": {"configOptions": config_options()}})
     elif m == "session/set_config_option":
         p = msg["params"]
         config[p["configId"]] = p["value"]

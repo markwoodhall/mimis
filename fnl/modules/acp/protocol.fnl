@@ -6,6 +6,8 @@
   {:initialize "initialize"
    :authenticate "authenticate"
    :session-new "session/new"
+   :session-load "session/load"
+   :session-list "session/list"
    :session-prompt "session/prompt"
    :session-cancel "session/cancel"
    :session-update "session/update"
@@ -23,6 +25,7 @@
         info (or result.agentInfo {})]
     {:protocol-version result.protocolVersion
      :load-session (= caps.loadSession true)
+     :list-sessions (not= nil (?. caps :sessionCapabilities :list))
      :auth-methods (icollect [_ m (ipairs (or result.authMethods []))]
                      (or m.name m.id))
      :name (or info.title info.name)
@@ -30,6 +33,20 @@
 
 (fn new-session-params [cwd]
   {: cwd :mcpServers []})
+
+(fn load-params [session-id cwd]
+  {:sessionId session-id : cwd :mcpServers []})
+
+(fn list-params [cwd cursor]
+  ;; Both optional: no cwd lists every project's sessions.
+  (if (or cwd cursor)
+    {: cwd : cursor}
+    (vim.empty_dict)))
+
+(fn parse-list [result]
+  {:sessions (icollect [_ i (ipairs (or (?. result :sessions) []))]
+               {:id i.sessionId :cwd i.cwd :title i.title :updated i.updatedAt})
+   :next-cursor (?. result :nextCursor)})
 
 (fn parse-config-options [options]
   ;; Select options only (boolean ones need a client capability we don't declare).
@@ -51,6 +68,9 @@
 (fn parse-new-session [result]
   {:id result.sessionId
    :config (parse-config-options result.configOptions)})
+
+(fn parse-load-session [result]
+  {:config (parse-config-options (?. result :configOptions))})
 
 (fn set-config-params [session-id config-id value]
   {:sessionId session-id :configId config-id : value})
@@ -99,6 +119,9 @@
       :agent_message_chunk
       (let [text (content-text u.content)]
         (when text {:type :text : text}))
+      :user_message_chunk
+      (let [text (content-text u.content)]
+        (when text {:type :user : text}))
       :agent_thought_chunk
       {:type :thought :text (content-text u.content)}
       :config_option_update
@@ -146,6 +169,10 @@
  : parse-initialize
  : new-session-params
  : parse-new-session
+ : load-params
+ : list-params
+ : parse-list
+ : parse-load-session
  : set-config-params
  : parse-set-config-result
  : prompt-params

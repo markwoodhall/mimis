@@ -25,6 +25,11 @@
     (vim.api.nvim_buf_call buf #(vim.cmd "syntax sync minlines=200"))
     (set s.buf buf)))
 
+(fn retitle [s]
+  ;; The session moved to another project.
+  (when (vim.api.nvim_buf_is_valid s.buf)
+    (pcall vim.api.nvim_buf_set_name s.buf (.. "acp://chat/" s.session.project))))
+
 (fn visible? [buf]
   (not= -1 (vim.fn.bufwinid buf)))
 
@@ -194,7 +199,7 @@
 
 (fn begin-turn [s turn]
   (let [lines (vim.list_extend
-                [(.. "## You — " turn.time)]
+                [(if turn.time (.. "## You — " turn.time) "## You")]
                 (vim.split turn.prompt "\n" {:plain true}))]
     (vim.list_extend lines ["" "## Agent" ""])
     (modify s
@@ -490,6 +495,7 @@
           (tset (. vim.bo 0) :filetype ft))))))
 
 {: create-buffers
+ : retitle
  : show
  : cursor-to
  : in-input?

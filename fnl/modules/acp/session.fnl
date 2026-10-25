@@ -5,6 +5,7 @@
 (local protocol (require :modules.acp.protocol))
 (local render (require :modules.acp.render))
 (local log (require :modules.acp.log))
+(local history (require :modules.acp.history))
 
 (local sessions {:current nil})
 
@@ -151,7 +152,8 @@
         (render.refresh-tool s tool)))
     (when (or (= u.status :completed) (= u.status :failed))
       (when (running? s) (busy s (still-running-label s)))
-      (pcall vim.cmd "checktime"))))
+      (when (not s.replay)
+        (pcall vim.cmd "checktime")))))
 
 ;; Config options (model, mode, effort...) -----------------------------------------
 
@@ -270,9 +272,61 @@
               (set-config s id value {:quiet opts.quiet :done #(step (+ i 1))}))))))
     (step 1)))
 
+;; Replay ------------------------------------------------------------------------------
+;; session/load streams the old conversation back as updates. Your prompts open turns
+;; and the rest fills them, much as live ones do, so the chat looks as it did.
+
+(fn open-replay-turn [s]
+  (when (not (turn-active? s))
+    (let [turn {:state :replaying
+                :prompt (or s.replay.prompt "")
+                :blocks []
+                :tool-ids []}]
+      (set s.replay.prompt nil)
+      (set s.turn turn)
+      (render.begin-turn s turn))))
+
+(fn close-replay-turn [s]
+  (when (turn-active? s)
+    (table.insert s.replay.turns s.turn)
+    (set s.turn {:state :idle})))
+
+(fn replay-update [s u]
+  (if (= u.type :user)
+    (do
+      ;; Prompt text arrives in chunks; a reply already under way means this is the next one.
+      (close-replay-turn s)
+      (set s.replay.prompt (.. (or s.replay.prompt "") u.text)))
+    (vim.tbl_contains [:text :thought :tool :tool-update] u.type)
+    (open-replay-turn s)))
+
+(fn abandon-replay [s]
+  (when s.replay
+    (when s.replay.prompt (open-replay-turn s))
+    (close-replay-turn s)
+    (set s.replay nil)))
+
+(fn finish-replay [s]
+  ;; Returns the replayed turns.
+  (let [r s.replay]
+    (abandon-replay s)
+    r.turns))
+
+(fn log-replayed [s turns]
+  ;; A session already logged carries on in its file; one from elsewhere gets the
+  ;; replayed turns written to a new one, so the log still holds the whole conversation.
+  (if (log.adopt s)
+    (log.append-note s "> acp: resumed")
+    (do
+      (set s.log.resumed true)
+      (each [_ turn (ipairs turns)]
+        (log.append-turn s turn)))))
+
 (fn on-update [s params]
   (when (= (protocol.update-session-id params) s.session.id)
     (let [u (protocol.parse-update params)]
+      (when (and s.replay u)
+        (replay-update s u))
       (case (?. u :type)
         :text (when (turn-active? s) (add-text s u.text))
         :thought (when (turn-active? s)
@@ -281,7 +335,7 @@
                      (when (running? s) (busy s "thinking"))))
         :tool (on-tool s u)
         :tool-update (on-tool-update s u)
-        :config (apply-config s u.options true)
+        :config (apply-config s u.options (not s.replay))
         :usage (do
                  (set s.usage {:used u.used :size u.size})
                  (vim.cmd "redrawstatus!"))))))
@@ -432,11 +486,149 @@
   (set s.exited true)
   (when (and (not s.ended) (= vim.v.exiting vim.NIL))
     (rpc.fail-all s.rpc (.. "agent exited with code " code))
+    (abandon-replay s)
     (set s.permission nil)
     (set s.turn {:state :idle})
     (idle s)
     (render.status s (.. "agent exited with code " code
                          " — see " (transport.debug-path)))))
+
+;; Resuming ------------------------------------------------------------------------
+
+(fn resume-problem [info]
+  ;; nil if the agent can list and load sessions, else why not.
+  (let [name (or info.name "this agent")]
+    (if (not info.load-session)
+      (.. name " can't load earlier sessions")
+      (not info.list-sessions)
+      (.. name " can't list earlier sessions"))))
+
+(fn list-sessions [s cwd done]
+  ;; Every session the agent lists for cwd (all of them for nil), across its pages.
+  ;; done is called with the sessions, or with nil and the error message.
+  (let [all []]
+    (fn page [cursor pages]
+      (rpc.request s.rpc protocol.methods.session-list (protocol.list-params cwd cursor)
+        (fn [err result]
+          (if err
+            (done nil (or err.message "unknown error"))
+            (let [parsed (protocol.parse-list result)]
+              (vim.list_extend all parsed.sessions)
+              (if (and parsed.next-cursor (< pages 20))
+                (page parsed.next-cursor (+ pages 1))
+                (done all)))))))
+    (page nil 1)))
+
+(fn pick-live [s intent done]
+  ;; Chooses an earlier session through a running session's agent, and calls done
+  ;; with it. Nothing happens to the running session.
+  (let [problem (resume-problem s.agent.info)]
+    (if problem
+      (vim.notify (.. "acp: " problem) vim.log.levels.WARN)
+      (list-sessions s (when (not intent.all?)
+                         ;; From the chat itself the project is the session's, not
+                         ;; whatever root the chat buffer would have.
+                         (if (= (vim.api.nvim_get_current_buf) s.buf)
+                           s.session.cwd
+                           (project-root)))
+        (fn [sessions err]
+          (if err
+            (vim.notify (.. "acp: could not list sessions: " err) vim.log.levels.WARN)
+            (history.select sessions intent
+              (fn [chosen reason]
+                (if chosen
+                  (done chosen)
+                  (vim.notify (.. "acp: " reason)))))))))))
+
+(fn connected [s info requested resumed?]
+  ;; The session exists: apply the requested settings, then take prompts.
+  (when (next requested)
+    (busy s "applying settings"))
+  (configure s requested
+    {:quiet true
+     :done (fn []
+             (set s.ready true)
+             (idle s)
+             (render.status s (.. (if resumed?
+                                    (.. "resumed " (or s.session.title s.session.id))
+                                    (.. "connected to " (or info.name (. s.agent.cmd 1))))
+                                  " · protocol v" (tostring info.protocol-version)
+                                  " · " s.session.cwd))
+             (when (> (length s.config) 0)
+               (render.status s (config-summary s))))}))
+
+(fn create-session [s info]
+  (busy s "creating session")
+  (rpc.request s.rpc protocol.methods.session-new
+               (protocol.new-session-params s.session.cwd)
+    (fn [err result]
+      (if err
+        (do
+          (idle s)
+          (render.status s (.. "session/new failed: " (or err.message "unknown")
+                               (if (> (length info.auth-methods) 0)
+                                 (.. " (agent auth methods: "
+                                     (table.concat info.auth-methods ", ") ")")
+                                 ""))))
+        (let [new-session (protocol.parse-new-session result)]
+          (set s.session.id new-session.id)
+          (apply-config s new-session.config false)
+          (connected s info s.requested false))))))
+
+(fn load-session [s info chosen]
+  ;; chosen: {:id :cwd :title}. Settings stay as the session had them.
+  (let [problem (resume-problem info)]
+    (if problem
+      (do (idle s) (render.status s problem))
+      (do
+        ;; Updates are matched on the id, and the replay starts before the reply to the load.
+        (set s.session.id chosen.id)
+        (set s.session.title (when chosen.title
+                               (vim.trim (. (vim.split chosen.title "\n" {:plain true}) 1))))
+        (when (and chosen.cwd (not= chosen.cwd s.session.cwd))
+          (set s.session.cwd chosen.cwd)
+          (set s.session.project (vim.fn.fnamemodify chosen.cwd ":t"))
+          (render.retitle s))
+        (set s.replay {:turns []})
+        (busy s "loading session")
+        (rpc.request s.rpc protocol.methods.session-load
+                     (protocol.load-params chosen.id s.session.cwd)
+          (fn [err result]
+            (if err
+              (do
+                (abandon-replay s)
+                (idle s)
+                (render.status s (.. "session/load failed: " (or err.message "unknown"))))
+              (let [turns (finish-replay s)
+                    (ok e) (pcall log-replayed s turns)]
+                (when (not ok)
+                  (vim.notify (.. "acp: could not write session log: " (tostring e))
+                              vim.log.levels.ERROR))
+                (apply-config s (. (protocol.parse-load-session result) :config) false)
+                (connected s info {} true)))))))))
+
+(fn pick-session [s info]
+  ;; The agent was started just to pick a session: list, choose, load into it. When
+  ;; there's nothing to resume it carries on as a new session instead.
+  (let [intent s.intent
+        problem (resume-problem info)
+        fall-back (fn [reason]
+                    (render.status s (.. reason ", starting a new session"))
+                    (create-session s info))]
+    (if problem
+      (fall-back problem)
+      (do
+        (busy s "listing sessions")
+        (list-sessions s (when (not intent.all?) s.session.cwd)
+          (fn [sessions err]
+            (idle s)
+            (if err
+              (fall-back (.. "could not list sessions: " err))
+              (history.select sessions intent
+                (fn [chosen reason]
+                  (if chosen
+                    (load-session s info chosen)
+                    (fall-back reason)))))))))))
 
 (fn handshake [s]
   (rpc.request s.rpc protocol.methods.initialize (protocol.initialize-params)
@@ -447,39 +639,20 @@
           (render.status s (.. "initialize failed: " (or err.message "unknown"))))
         (let [info (protocol.parse-initialize result)]
           (set s.agent.info info)
-          (busy s "creating session")
-          (rpc.request s.rpc protocol.methods.session-new
-                       (protocol.new-session-params s.session.cwd)
-            (fn [err result]
-              (if err
-                (do
-                  (idle s)
-                  (render.status s (.. "session/new failed: " (or err.message "unknown")
-                                       (if (> (length info.auth-methods) 0)
-                                         (.. " (agent auth methods: "
-                                             (table.concat info.auth-methods ", ") ")")
-                                         ""))))
-                (let [new-session (protocol.parse-new-session result)]
-                  (set s.session.id new-session.id)
-                  (apply-config s new-session.config false)
-                  (when (next s.requested)
-                    (busy s "applying settings"))
-                  (configure s s.requested
-                    {:quiet true
-                     :done (fn []
-                             (set s.ready true)
-                             (idle s)
-                             (render.status s (.. "connected to " (or info.name (. s.agent.cmd 1))
-                                                  " · protocol v" (tostring info.protocol-version)
-                                                  " · " s.session.cwd))
-                             (when (> (length s.config) 0)
-                               (render.status s (config-summary s))))}))))))))))
+          (case s.intent.kind
+            :load (load-session s info s.intent)
+            :pick (pick-session s info)
+            _ (create-session s info)))))))
 
-(fn start [agent requested]
+(fn start [agent requested intent]
   ;; agent: a profile from modules.acp.agents.
   ;; requested: {setting value} applied once the session exists, before it takes prompts.
-  (let [cwd (project-root)
+  ;; intent: {:kind :new} (the default), {:kind :pick :all? :id} to choose an earlier session
+  ;; once the agent is up, or {:kind :load :id :cwd :title} for one already chosen.
+  (let [intent (or intent {:kind :new})
+        cwd (or intent.cwd (project-root))
         s {:agent {:name agent.name :cmd agent.cmd}
+           : intent
            :session {:id nil
                      : cwd
                      :project (vim.fn.fnamemodify cwd ":t")
@@ -595,6 +768,9 @@
       (vim.notify "acp: no tool calls in this session" vim.log.levels.WARN))))
 
 {: start
+ : project-root
+ : list-sessions
+ : pick-live
  : shutdown
  : status-text
  : config

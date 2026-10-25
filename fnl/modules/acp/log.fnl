@@ -35,6 +35,8 @@
                (.. "agent: " (table.concat s.agent.cmd " "))]]
     (each [_ o (ipairs (or s.config []))]
       (table.insert lines (.. o.id ": " o.display)))
+    (when s.log.resumed
+      (table.insert lines "resumed: true"))
     (vim.list_extend lines [(.. "session: " (or s.session.id ""))
                             (.. "git: " s.log.git)
                             "---"
@@ -52,7 +54,7 @@
 
 (fn turn-lines [turn]
   ;; Mirrors how render lays out the chat buffer, so the log reads the same.
-  (let [lines [(.. "## You — " turn.time)]]
+  (let [lines [(if turn.time (.. "## You — " turn.time) "## You")]]
     (vim.list_extend lines (vim.split turn.prompt "\n" {:plain true}))
     (vim.list_extend lines ["" "## Agent" ""])
     (each [_ b (ipairs turn.blocks)]
@@ -83,12 +85,26 @@
   (vim.fn.writefile (turn-lines turn) s.log.path "a")
   (set s.log.written-turns (+ s.log.written-turns 1)))
 
+(fn adopt [s]
+  ;; A resumed session carries on in the log it already has, found by its id. Returns
+  ;; whether there was one; the newest wins, as a resumed copy holds the whole history.
+  (var found nil)
+  (each [_ path (ipairs (vim.fn.glob (.. (log-dir) "/*.md") false true))]
+    (when (vim.tbl_contains (vim.fn.readfile path "" 20) (.. "session: " s.session.id))
+      (set found path)))
+  (when found
+    (set s.log.path found)
+    (set s.log.written-turns
+         (length (vim.tbl_filter #(vim.startswith $1 "## You") (vim.fn.readfile found))))
+    true))
+
 (fn append-note [s line]
   ;; Before the first turn there's no file yet; the header will carry the current state.
   (when s.log.path
     (vim.fn.writefile [line ""] s.log.path "a")))
 
 {: init
+ : adopt
  : append-turn
  : append-note
  : log-dir

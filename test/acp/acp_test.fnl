@@ -710,6 +710,207 @@
 (check ":AcpConfig doesn't complete agents"
        (vim.deep_equal ["mode" "model"] (vim.fn.getcompletion "AcpConfig " "cmdline")))
 
+;; Resuming an earlier session ----------------------------------------------------------
+
+(local history (require :modules.acp.history))
+(local original-select vim.ui.select)
+(var picked nil)
+
+(fn stub-select [choose]
+  ;; Replaces vim.ui.select: records what was offered and answers with choose(items).
+  (set picked nil)
+  (set vim.ui.select
+       (fn [items opts on-choice]
+         (set picked {: items
+                      :prompt opts.prompt
+                      :labels (icollect [_ i (ipairs items)] (opts.format_item i))})
+         (on-choice (choose items)))))
+
+(fn item-with [id]
+  (fn [items]
+    (accumulate [found nil _ i (ipairs items)] (if (= i.id id) i found))))
+
+(fn count-lines [lines text]
+  (length (vim.tbl_filter #(= $1 text) lines)))
+
+(fn line-starting [lines prefix]
+  (accumulate [found nil _ l (ipairs lines)] (or found (when (vim.startswith l prefix) l))))
+
+;; The picker's pure parts
+(let [now (os.time)
+      stamp (fn [secs] (os.date "!%Y-%m-%dT%H:%M:%SZ" (- now secs)))]
+  (check "a minute-old session is recent" (= "just now" (history.age (stamp 20) now)))
+  (check "ages count minutes, hours and days"
+         (and (= "5m ago" (history.age (stamp 300) now))
+              (= "3h ago" (history.age (stamp (* 3 3600)) now))
+              (= "2d ago" (history.age (stamp (* 2 86400)) now))))
+  (check "older than a week shows the date" (= 10 (length (history.age (stamp (* 30 86400)) now))))
+  (check "no timestamp, no age" (= "" (history.age nil now))))
+(let [sessions [{:id "abc-1" :updated "2026-01-01T00:00:00Z"}
+                {:id "abc-2" :updated "2026-03-01T00:00:00Z"}
+                {:id "xyz"}]]
+  (check "sessions are newest first, undated last"
+         (vim.deep_equal ["abc-2" "abc-1" "xyz"] (icollect [_ x (ipairs (history.sort-recent sessions))] x.id)))
+  (check "a session is found by its id" (= "abc-2" (. (history.find sessions "abc-2") :id)))
+  (check "or by an unambiguous prefix" (= "xyz" (. (history.find sessions "x") :id)))
+  (check "an ambiguous prefix finds nothing" (= nil (history.find sessions "abc"))))
+(check "a title's first line is the label"
+       (vim.startswith (history.label {:id "i" :title "One\nTwo"} (os.time) false) "One")
+       (history.label {:id "i" :title "One\nTwo"} (os.time) false))
+
+;; Another project, for the agent to list sessions of
+(local elsewhere (.. (vim.fn.tempname) "/elsewhere"))
+(vim.fn.mkdir elsewhere :p)
+(set vim.env.FAKE_OTHER_CWD elsewhere)
+;; An agent that can't load sessions carries on as a new session
+(set vim.g.acp-agents {:opencode ["python3" (.. here "/fake_agent.py") "opencode"]
+                       :resumable ["python3" (.. here "/fake_agent.py") "resumable"]})
+(check "AcpResume completes agent names"
+       (vim.deep_equal ["resumable"] (vim.fn.getcompletion "AcpResume res" "cmdline")))
+
+(vim.cmd "AcpResume")
+(local plain (session.current))
+(wait #plain.ready)
+(check "an agent without loadSession starts a new session instead"
+       (and plain.ready (= "sess-1" plain.session.id)
+            (has-line (lines-of plain.buf) "> acp: fake can't load earlier sessions, starting a new session"))
+       (lines-of plain.buf))
+(vim.cmd "AcpStop")
+
+;; Choosing from this project's sessions, through the agent started for the purpose
+(stub-select (item-with "old-1"))
+(vim.cmd "AcpResume resumable")
+(local r1 (session.current))
+(check "the agent started to pick is the one named" (= "resumable" r1.agent.name))
+(wait #r1.ready)
+(check "the picker offers this project's sessions only, across pages, newest first"
+       (and picked (vim.deep_equal ["old-3" "old-2" "old-1"] (icollect [_ i (ipairs picked.items)] i.id)))
+       (and picked picked.labels))
+(check "labels show the title's first line and how long ago"
+       (and (vim.startswith (. picked.labels 2) "Second chat · ")
+            (not (string.find (. picked.labels 2) "second line" 1 true))
+            (vim.startswith (. picked.labels 1) "(untitled old-3)"))
+       picked.labels)
+(check "the project's sessions don't show their directory" (not (string.find (. picked.labels 1) "/" 1 true)) picked.labels)
+(check "the chosen session is the one loaded" (and r1.ready (= "old-1" r1.session.id)) r1.session.id)
+(let [lines (lines-of r1.buf)]
+  (check "your replayed prompts are in the chat, whole" (has-line lines "hello there") lines)
+  (check "replayed replies are in the chat" (and (has-line lines "Hi there.") (has-line lines "Second answer.")) lines)
+  (check "replayed thinking is quoted" (has-line lines ">> pondering") lines)
+  (check "replayed tool calls show as lines" (has-line lines "> tool: Read /tmp/x/a.txt — done") lines)
+  (check "the second prompt opens its own turn" (has-line lines "second question") lines)
+  (check "a heading for each replayed prompt, and one for the input"
+         (= 3 (count-lines lines "## You")) lines)
+  (check "replays don't invent stop lines" (not (line-starting lines "> stop:")) lines)
+  (check "the chat says it resumed the session"
+         (not= nil (line-starting lines "> acp: resumed First chat · protocol v1")) lines)
+  (check "the chat ends with the input area"
+         (vim.deep_equal ["" "## You" ""] (vim.list_slice lines (- (length lines) 2))) lines))
+(check "nothing is left of the replay" (and (= nil r1.replay) (= :idle r1.turn.state)))
+(check "the replayed usage shows" (and r1.usage (= 5000 r1.usage.used)))
+(let [log (vim.fn.readfile r1.log.path)]
+  (check "a session with no log of its own gets its replayed turns written to a new one"
+         (and (has-line log "resumed: true") (has-line log "session: old-1")
+              (has-line log "hello there") (has-line log "Second answer.")
+              (= 2 (length (vim.tbl_filter #(vim.startswith $1 "## You") log))))
+         log))
+
+;; A resumed session takes prompts, as itself
+(vim.cmd "AcpSend plain")
+(wait #(= r1.turn.state :idle) 3000)
+(check "prompts go to the resumed session" (has-line (lines-of r1.buf) "Plain reply.") (lines-of r1.buf))
+(let [log (vim.fn.readfile r1.log.path)]
+  (check "and are logged after the replayed turns"
+         (and (has-line log "Plain reply.")
+              (= 3 (length (vim.tbl_filter #(vim.startswith $1 "## You") log))))
+         log))
+
+;; A session that already has a log carries on in it
+(local old2-log (.. vim.g.acp-log-dir "/2026-10-02-0900-proj-second-chat.md"))
+(vim.fn.writefile ["---" "date: 2026-10-02T09:00" "session: old-2" "---" ""
+                   "## You — 09:00" "hello" "" "## Agent" "" "Hi." ""]
+                  old2-log)
+
+;; Through a running session; an id skips the picker
+(stub-select #(error "the picker should not open"))
+(vim.cmd "AcpResume resumable old-2")
+(wait #(not= (session.current) r1))
+(local r2 (session.current))
+(check "resuming ends the running session" (not (vim.api.nvim_buf_is_valid r1.buf)))
+(wait #r2.ready)
+(check "an id loads that session directly" (and r2.ready (= "old-2" r2.session.id)) r2.session.id)
+(check "a multi-line title is cut to its first line"
+       (not= nil (line-starting (lines-of r2.buf) "> acp: resumed Second chat · protocol v1"))
+       (lines-of r2.buf))
+(let [log (vim.fn.readfile old2-log)]
+  (check "it carries on in its existing log" (= old2-log r2.log.path))
+  (check "the replay isn't written to it again"
+         (= 1 (length (vim.tbl_filter #(vim.startswith $1 "## You") log))) log)
+  (check "the log notes the resumption" (= "> acp: resumed" (. log (- (length log) 1))) log))
+(vim.cmd "AcpSend plain")
+(wait #(= r2.turn.state :idle) 3000)
+(let [log (vim.fn.readfile old2-log)]
+  (check "new turns are appended to it"
+         (and (has-line log "Plain reply.") (= 2 (length (vim.tbl_filter #(vim.startswith $1 "## You") log))))
+         log))
+
+;; Choosing nothing, or something that isn't there, leaves the running session alone
+(stub-select (fn [] nil))
+(let [messages (notified #(do (vim.cmd "AcpResume") (vim.wait 300)))]
+  (check "cancelling the picker keeps the running session"
+         (and (= r2 (session.current)) (vim.api.nvim_buf_is_valid r2.buf)
+              (has-message messages "acp: no session chosen"))
+         messages))
+(let [messages (notified #(do (vim.cmd "AcpResume resumable nope") (vim.wait 300)))]
+  (check "an unknown id says so and keeps the running session"
+         (and (= r2 (session.current)) (has-message messages "acp: no session matches nope"))
+         messages))
+
+;; ! lists every project's sessions, and a session from another project loads there
+(stub-select (item-with "other-1"))
+(vim.cmd "AcpResume! resumable")
+(wait #(not= (session.current) r2))
+(local r3 (session.current))
+(check "the picker offers every project's sessions"
+       (and picked (= 4 (length picked.items)) (= "other-1" (. picked.items 1 :id)))
+       (and picked (icollect [_ i (ipairs picked.items)] i.id)))
+(check "and shows where each one lives"
+       (and (string.find (. picked.labels 1) elsewhere 1 true) true)
+       picked.labels)
+(wait #r3.ready)
+(check "a session from another project loads for that project"
+       (and r3.ready (= "other-1" r3.session.id) (= elsewhere r3.session.cwd)
+            (= "elsewhere" r3.session.project)
+            (= "acp://chat/elsewhere" (vim.api.nvim_buf_get_name r3.buf)))
+       r3.session)
+(vim.cmd "AcpStop")
+(set vim.env.FAKE_OTHER_CWD nil)
+(vim.fn.delete (vim.fn.fnamemodify elsewhere ":h") "rf")
+
+;; Cancelling when the agent was started just to pick
+(stub-select (fn [] nil))
+(vim.cmd "AcpResume resumable")
+(local r4 (session.current))
+(wait #r4.ready)
+(check "cancelling the picker carries on as a new session"
+       (and r4.ready (= "sess-1" r4.session.id)
+            (has-line (lines-of r4.buf) "> acp: no session chosen, starting a new session"))
+       (lines-of r4.buf))
+(vim.cmd "AcpStop")
+
+;; A session that fails to load
+(let [failed (session.start (agents.get :resumable) {}
+                            {:kind :load :id "gone" :cwd (vim.fn.getcwd) :title "Gone"})]
+  (wait #(has-line (lines-of failed.buf) "> acp: session/load failed: session not found"))
+  (check "a failing load is reported"
+         (has-line (lines-of failed.buf) "> acp: session/load failed: session not found")
+         (lines-of failed.buf))
+  (check "and the session never takes prompts" (not failed.ready))
+  (session.stop failed))
+
+(set vim.ui.select original-select)
+(set vim.g.acp-agents {:opencode ["python3" (.. here "/fake_agent.py") "opencode"]})
+
 ;; Killing Neovim mid-turn keeps every completed turn ---------------------------------
 
 (let [marker (vim.fn.tempname)

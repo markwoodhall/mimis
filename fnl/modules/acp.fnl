@@ -107,9 +107,10 @@
 (fn reject []
   (session.choose-kind (session.current) [:reject_once :reject_always]))
 
-(fn start-new [s name requested mods]
+(fn start-new [s name requested mods intent]
   ;; Ends the current session, if any, and starts one with the named agent; with none
-  ;; named, the current session's agent, else the default agent.
+  ;; named, the current session's agent, else the default agent. intent says what the
+  ;; session is for when it isn't just a new one, see session.start.
   (let [name (or name (and s s.agent.name) (agents.default-name))
         agent (agents.get name)]
     (if (not agent)
@@ -121,7 +122,7 @@
           (when (and (session.alive? s) (not= name s.agent.name))
             (vim.notify (.. "acp: switching agent from " s.agent.name " to " name)))
           (session.stop s))
-        (let [s (session.start agent (vim.tbl_extend :force (start-config) requested))]
+        (let [s (session.start agent (vim.tbl_extend :force (start-config) requested) intent)]
           (chat-keymaps s)
           (focus s mods))))))
 
@@ -142,6 +143,28 @@
           (session.configure s parsed.settings))
         (focus s opts.mods))
       (start-new s parsed.agent parsed.settings opts.mods))))
+
+(fn resume [opts]
+  ;; :AcpResume [agent] [session-id]  choose an earlier session of this project to
+  ;; continue; the chat replays it. With an id (or the start of one) it is loaded directly.
+  ;; :AcpResume!  choose from the sessions of every project
+  ;; The running session is only ended once a session is chosen.
+  (let [s (session.current)
+        fargs opts.fargs
+        agent-name (when (agents.get (or (. fargs 1) "")) (. fargs 1))
+        id (if agent-name (. fargs 2) (. fargs 1))
+        name (or agent-name (and s s.agent.name) (agents.default-name))
+        intent {:kind :pick :all? (or opts.bang (not= id nil)) : id}]
+    (if (not (agents.get name))
+      (vim.notify (.. "acp: unknown agent '" name "' (known: "
+                      (table.concat (agents.names) ", ") ")")
+                  vim.log.levels.WARN)
+      (and (session.alive? s) s.ready (= name s.agent.name))
+      (session.pick-live s intent
+        (fn [chosen]
+          (start-new s name {} opts.mods
+                     {:kind :load :id chosen.id :cwd chosen.cwd :title chosen.title})))
+      (start-new s name {} opts.mods intent))))
 
 (fn pick-value [s option]
   (vim.ui.select option.values
@@ -232,6 +255,12 @@
   (vim.api.nvim_create_user_command "Acp" open
     {:nargs "*" :bang true :complete (complete-settings 10 true)
      :desc "Open or focus the ACP session; ! starts a new one; args are an optional agent, then setting/value pairs"})
+  (vim.api.nvim_create_user_command "AcpResume" resume
+    {:nargs "*" :bang true
+     :complete (fn [arglead _ _]
+                 (icollect [_ n (ipairs (agents.names))]
+                   (when (vim.startswith n arglead) n)))
+     :desc "Resume an earlier ACP session of this project; ! lists every project's; args are an optional agent and session id"})
   (vim.api.nvim_create_user_command "AcpConfig" configure
     {:nargs "*" :complete (complete-settings 1)
      :desc "Show or change ACP session settings (model, mode, effort...)"})
