@@ -8,6 +8,9 @@
 ;; The built-in opencode, replaced so tests never start the real one. claude keeps its
 ;; built-in profile, run with the fake agent through vim.g.acp-agent-cmd.
 (set vim.g.acp-agents {:opencode ["python3" (.. here "/fake_agent.py") "opencode"]})
+;; The built-in opencode keeps its credits command, which runs the real opencode: off
+;; except where the credits tests turn it on with a command of their own.
+(set vim.g.acp-credits false)
 (set vim.g.acp-log-dir (vim.fn.tempname))
 ;; Keep test traffic out of the real debug log and settings cache, even if a run aborts.
 (set vim.g.acp-debug-log (vim.fn.tempname))
@@ -910,6 +913,103 @@
 
 (set vim.ui.select original-select)
 (set vim.g.acp-agents {:opencode ["python3" (.. here "/fake_agent.py") "opencode"]})
+
+;; Credits ----------------------------------------------------------------------------
+
+(local credits (require :modules.acp.credits))
+(check "usage limits show the fullest Go window and the picked budgets"
+       (= "go 43% · $12.50/$50.00"
+          (credits.summary
+            (vim.json.encode {:location {:directory "/x"}
+                              :data {:workspace {:id "w" :usageURL "u"}
+                                     :go {:rolling {:percent 10 :limited false :resetsAt 0}
+                                          :weekly {:percent 42.6 :limited false :resetsAt 0}
+                                          :monthly {:percent 20 :limited false :resetsAt 0}}
+                                     :budgets [{:limit 50 :spent 12.5 :picked true}
+                                               {:limit 100 :spent 1 :picked false}]}}))))
+(check "a limited Go window says so, every budget shows when none is picked"
+       (= "go limited · $1.00/$5.00 $2.00/$9.00"
+          (credits.summary
+            (vim.json.encode {:data {:go {:rolling {:percent 100 :limited true :resetsAt 0}}
+                                     :budgets [{:limit 5 :spent 1 :picked false}
+                                               {:limit 9 :spent 2 :picked false}]}}))))
+(check "opencode stats show the spend over their range"
+       (and (= "30d $69.25"
+               (credits.summary (vim.json.encode {:range {:from 0 :to (* 29.5 86400000)}
+                                                  :sessions 28 :cost 69.2514})))
+            (= "1d $1.00"
+               (credits.summary (vim.json.encode {:range {:from 0 :to 3600000} :cost 1})))))
+(check "not signed in shows nothing" (= nil (credits.summary "{\"location\":{},\"data\":null}")))
+(check "plain output shows its first line" (= "£4.20 left" (credits.summary "£4.20 left\nmore\n")))
+(check "nothing to show is nil" (= nil (credits.summary "  \n")))
+(check "profiles may set or turn off the credits command"
+       (do
+         (set vim.g.acp-agents {:opencode {:credits-cmd false} :mine {:cmd "m" :credits-cmd "c --x"}})
+         (let [ok (and (= nil (. (agents.get :opencode) :credits-cmd))
+                       (vim.deep_equal ["c" "--x"] (. (agents.get :mine) :credits-cmd))
+                       (= nil (. (agents.get :claude) :credits-cmd)))]
+           (set vim.g.acp-agents nil)
+           (and ok (= "opencode" (. (agents.get :opencode) :credits-cmd 1))))))
+
+(let [counter (vim.fn.tempname)]
+  (set vim.g.acp-credits true)
+  (set vim.g.acp-agents
+       {:opencode {:cmd ["python3" (.. here "/fake_agent.py") "opencode"]
+                   :credits-cmd ["sh" "-c" (.. "n=$(($(cat " counter " 2>/dev/null || echo 0) + 1)); "
+                                               "echo $n > " counter "; "
+                                               "[ \"$PWD\" = \"$1\" ] && echo \"credits $n\"")
+                                 "sh" "{cwd}"]}})
+  (vim.cmd "Acp! opencode")
+  (local cr (session.current))
+  (wait #(and cr.ready cr.credits))
+  (check "credits are fetched once the session starts, in its directory" (= "credits 1" cr.credits) cr.credits)
+  (vim.cmd "AcpSend plain")
+  (wait #(= "credits 2" cr.credits))
+  (check "and again after each prompt" (= "credits 2" cr.credits) cr.credits)
+  (check "the statusline shows the session cost and the credits"
+         (not= nil (string.find (statusline-of (vim.fn.bufwinid cr.buf)) "· 25% · $0.13 · credits 2]" 1 true))
+         (statusline-of (vim.fn.bufwinid cr.buf)))
+  (set cr.agent.credits-cmd ["false"])
+  (vim.cmd "AcpSend plain")
+  (wait #(= :idle cr.turn.state))
+  (vim.wait 300)
+  (check "a failing credits command keeps the last figure" (= "credits 2" cr.credits) cr.credits)
+  (vim.cmd "AcpStop")
+  (vim.fn.delete counter)
+  (set vim.g.acp-credits false)
+  (set vim.g.acp-agents {:opencode ["python3" (.. here "/fake_agent.py") "opencode"]}))
+
+;; Agent-supplied rows don't leak markdown syntax into the lines below ----------------
+
+(let [buf (vim.api.nvim_create_buf false true)]
+  (vim.api.nvim_buf_set_lines buf 0 -1 false
+    ["> tool: printf ' ```diff ' — done"
+     ""
+     "### Agent"
+     ""
+     "A normal reply."])
+  (render.markdown buf)
+  (vim.api.nvim_buf_call buf
+    (fn []
+      (local group (fn [row] (vim.fn.synIDattr (vim.fn.synID row 1 1) :name)))
+      (local in-code?
+        (fn [row]
+          (accumulate [found false _ id (ipairs (vim.fn.synstack row 1))]
+            (or found (= "markdownCode" (vim.fn.synIDattr id :name))))))
+      (local protected?
+        (fn [row]
+          (accumulate [found false _ id (ipairs (vim.fn.synstack row 1))]
+            (or found (= "AcpUiLine" (vim.fn.synIDattr id :name))))))
+      (check "a tool title with a fence doesn't open a code block"
+             (not (in-code? 3))
+             (group 3))
+      (check "the line after a tool title is still normal"
+             (= "" (group 5))
+             (group 5))
+      (check "the tool row itself is protected"
+             (protected? 1)
+             (group 1))))
+  (vim.api.nvim_buf_delete buf {:force true}))
 
 ;; Killing Neovim mid-turn keeps every completed turn ---------------------------------
 

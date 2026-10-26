@@ -116,7 +116,8 @@ for line in sys.stdin:
         prompt = msg["params"]["prompt"][0]["text"]
         update({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "hmm\nlet me "}})
         update({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "think"}})
-        update({"sessionUpdate": "usage_update", "used": 25000, "size": 100000})
+        update({"sessionUpdate": "usage_update", "used": 25000, "size": 100000,
+                "cost": {"amount": 0.126, "currency": "USD"}})
         if prompt == "slow":
             text("Working on it")
             send({"id": 102, "method": "session/request_permission",

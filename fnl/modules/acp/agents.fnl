@@ -12,6 +12,11 @@
 ;; Code never bills the API instead of the subscription. An agent that needs the key
 ;; opts out with :env-remove [] (the built-in opencode does).
 ;;
+;; :credits-cmd is a command (argv list or string) whose output shows the account's
+;; spend or credits in the statusline, refreshed after every turn; see
+;; modules.acp.credits. The built-in opencode shows the last 30 days' spend.
+;; :credits-cmd false turns it off for one agent.
+;;
 ;; The default agent is the one :Acp starts when none is named: vim.g.acp-config's
 ;; :agent, else claude. vim.g.acp-agent-cmd, when set, replaces the command of the
 ;; default agent (keeping its other profile settings) and wins over its
@@ -22,7 +27,9 @@
 
 (local builtin
   {:claude {:cmd ["claude-agent-acp"]}
-   :opencode {:cmd ["opencode" "acp"] :env-remove []}})
+   :opencode {:cmd ["opencode" "acp"]
+              :env-remove []
+              :credits-cmd ["opencode" "stats" "--days" "30" "--json"]}})
 
 (fn parse-cmd [cmd]
   ;; A string is split on spaces, as vim.g.acp-agent-cmd always allowed.
@@ -34,7 +41,9 @@
 (fn parse-entry [entry]
   ;; A vim.g.acp-agents value -> the profile fields it gives.
   (if (and (= (type entry) :table) (not (vim.islist entry)))
-    {:cmd (parse-cmd entry.cmd) :env-remove entry.env-remove}
+    {:cmd (parse-cmd entry.cmd)
+     :env-remove entry.env-remove
+     :credits-cmd (if (= entry.credits-cmd false) false (parse-cmd entry.credits-cmd))}
     {:cmd (parse-cmd entry)}))
 
 (fn profiles []
@@ -46,6 +55,8 @@
           (set p.cmd given.cmd))
         (when (= (type given.env-remove) :table)
           (set p.env-remove given.env-remove))
+        (when (not= given.credits-cmd nil)
+          (set p.credits-cmd given.credits-cmd))
         (when (and p.cmd (> (length p.cmd) 0))
           (tset all name p))))
     all))
@@ -60,13 +71,15 @@
     (if (= (type name) :string) name "claude")))
 
 (fn get [name]
-  ;; {:name :cmd :env-remove [VAR ...]}, or nil if name isn't a configured agent.
+  ;; {:name :cmd :env-remove [VAR ...] :credits-cmd}, or nil if name isn't a configured
+  ;; agent. :credits-cmd is nil when the agent has none.
   (let [p (. (profiles) name)
         override (when (= name (default-name)) (parse-cmd vim.g.acp-agent-cmd))]
     (when p
       {: name
        :cmd (if (and override (> (length override) 0)) override p.cmd)
-       :env-remove (or p.env-remove default-env-remove)})))
+       :env-remove (or p.env-remove default-env-remove)
+       :credits-cmd (when (and p.credits-cmd (> (length p.credits-cmd) 0)) p.credits-cmd)})))
 
 {: names
  : default-name

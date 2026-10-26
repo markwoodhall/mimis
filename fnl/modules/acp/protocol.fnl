@@ -127,7 +127,8 @@
       :config_option_update
       {:type :config :options (parse-config-options u.configOptions)}
       :usage_update
-      {:type :usage :used u.used :size u.size}
+      {:type :usage :used u.used :size u.size
+       :cost (?. u :cost :amount) :currency (?. u :cost :currency)}
       :tool_call
       {:type :tool
        :id u.toolCallId

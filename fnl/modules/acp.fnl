@@ -225,7 +225,7 @@
 
 (fn enable [])
 
-(fn diff-highlights []
+(fn highlights []
   ;; Make added/removed lines in ```diff blocks visibly different. Linking to the
   ;; DiffAdd/DiffDelete groups gives them green/red backgrounds in most colorschemes.
   (each [_ [group target] (ipairs [[:diffAdded :DiffAdd]
@@ -234,14 +234,17 @@
                                    ["@diff.plus" :DiffAdd]
                                    ["@diff.minus" :DiffDelete]
                                    ["@diff.delta" :DiffChange]])]
-    (vim.api.nvim_set_hl 0 group {:link target :default false})))
+    (vim.api.nvim_set_hl 0 group {:link target :default false}))
+  ;; Rows protected from markdown in render.markdown; keep their old blockquote look.
+  (vim.api.nvim_set_hl 0 :AcpUiLine {:link :Normal :default false})
+  (vim.api.nvim_set_hl 0 :AcpUiPrefix {:link :Comment :default false}))
 
 (fn setup []
-  (diff-highlights)
+  (highlights)
   (vim.api.nvim_create_autocmd :ColorScheme
-    {:group (vim.api.nvim_create_augroup "acp-diff-hl" {:clear true})
-     :desc "Reapply ACP diff highlights"
-     :callback diff-highlights})
+    {:group (vim.api.nvim_create_augroup "acp-hl" {:clear true})
+     :desc "Reapply ACP highlights"
+     :callback highlights})
 
   (when (not vim.g.markdown_fenced_languages)
     (set vim.g.markdown_fenced_languages

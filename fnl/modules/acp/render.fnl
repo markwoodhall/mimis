@@ -12,12 +12,28 @@
 
 (local ns (vim.api.nvim_create_namespace "acp"))
 
+(fn markdown [buf]
+  ;; The bundled markdown ftplugin starts treesitter, which leaves ```diff blocks
+  ;; uncoloured without a diff parser; vim syntax colours them via
+  ;; markdown_fenced_languages.
+  (tset (. vim.bo buf) :filetype :markdown)
+  (pcall vim.treesitter.stop buf)
+  (tset (. vim.bo buf) :syntax :markdown)
+  ;; The tool, permission, stop and acp rows carry agent-supplied titles. Left to
+  ;; markdown, a stray backtick or fence in a title opens syntax that colours every
+  ;; line below it, so keep those rows (and the folded >> thinking) out of markdown.
+  (vim.api.nvim_buf_call buf
+    (fn []
+      (vim.cmd (.. "syntax region AcpUiLine matchgroup=AcpUiPrefix "
+                   "start=/^>\\%(>\\| \\%(tool\\|permission\\|stop\\|acp\\):\\)/ "
+                   "end=/$/ contains=NONE")))))
+
 (fn create-buffers [s]
   (let [buf (vim.api.nvim_create_buf false true)]
     (vim.api.nvim_buf_set_name buf (.. "acp://chat/" s.session.project))
     (tset (. vim.bo buf) :swapfile false)
     (tset (. vim.bo buf) :bufhidden :hide)
-    (tset (. vim.bo buf) :filetype :markdown)
+    (markdown buf)
     (vim.api.nvim_buf_set_lines buf 0 -1 false ["" "" "## You" ""])
     (set s.input-mark (vim.api.nvim_buf_set_extmark buf ns 1 0 {}))
     (vim.api.nvim_buf_set_extmark buf ns 2 0 {:virt_text [["<CR> to send" :Comment]]
@@ -439,7 +455,7 @@
     (pcall vim.api.nvim_buf_set_name buf (.. "acp://tool/" tool.id))
     (vim.api.nvim_buf_set_lines buf 0 -1 false (tool-detail-lines s tool status-name))
     (tset (. vim.bo buf) :modifiable false)
-    (tset (. vim.bo buf) :filetype :markdown)))
+    (markdown buf)))
 
 (fn prompt-text [s]
   (let [lines (vim.api.nvim_buf_get_lines s.buf (- (input-row s) 1) -1 false)]
@@ -496,6 +512,7 @@
 
 {: create-buffers
  : retitle
+ : markdown
  : show
  : cursor-to
  : in-input?

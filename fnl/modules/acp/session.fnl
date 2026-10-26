@@ -6,6 +6,7 @@
 (local render (require :modules.acp.render))
 (local log (require :modules.acp.log))
 (local history (require :modules.acp.history))
+(local credits (require :modules.acp.credits))
 
 (local sessions {:current nil})
 
@@ -337,8 +338,30 @@
         :tool-update (on-tool-update s u)
         :config (apply-config s u.options (not s.replay))
         :usage (do
-                 (set s.usage {:used u.used :size u.size})
+                 (set s.usage {:used u.used :size u.size :cost u.cost :currency u.currency})
                  (vim.cmd "redrawstatus!"))))))
+
+;; Credits -----------------------------------------------------------------------------
+
+(fn refresh-credits [s]
+  ;; Asks the agent's credits command again. One run at a time; a refresh asked for
+  ;; while one runs follows it, so the figure is never older than the last turn.
+  (when (and s.agent.credits-cmd (credits.enabled?))
+    (if s.credits-running
+      (set s.credits-again true)
+      (do
+        (set s.credits-running true)
+        (credits.fetch s.agent.credits-cmd s.session.cwd
+          (fn [text]
+            (set s.credits-running false)
+            (when (not s.ended)
+              ;; A failed run keeps the last figure rather than blanking it.
+              (when text
+                (set s.credits text)
+                (vim.cmd "redrawstatus!"))
+              (when s.credits-again
+                (set s.credits-again false)
+                (refresh-credits s)))))))))
 
 ;; Permissions -------------------------------------------------------------------
 
@@ -443,6 +466,7 @@
     (add-line-block s {:type :line :line (.. "> stop: " reason)})
     (set s.turn {:state :idle})
     (idle s)
+    (refresh-credits s)
     (when (not (render.visible? s.buf))
       (vim.notify (.. "acp: agent finished (" reason ")")))
     (let [(ok e) (pcall log.append-turn s turn)]
@@ -549,6 +573,7 @@
      :done (fn []
              (set s.ready true)
              (idle s)
+             (refresh-credits s)
              (render.status s (.. (if resumed?
                                     (.. "resumed " (or s.session.title s.session.id))
                                     (.. "connected to " (or info.name (. s.agent.cmd 1))))
@@ -651,7 +676,7 @@
   ;; once the agent is up, or {:kind :load :id :cwd :title} for one already chosen.
   (let [intent (or intent {:kind :new})
         cwd (or intent.cwd (project-root))
-        s {:agent {:name agent.name :cmd agent.cmd}
+        s {:agent {:name agent.name :cmd agent.cmd :credits-cmd agent.credits-cmd}
            : intent
            :session {:id nil
                      : cwd
@@ -663,6 +688,7 @@
            :requested (or requested {})
            :ready false
            :usage nil
+           :credits nil
            :permission nil}]
     (log.init s)
     (render.create-buffers s)
@@ -718,9 +744,41 @@
   (let [row (when s.permission (render.line-row s s.permission.block))]
     (when row (+ row s.permission.choice-offset 1))))
 
+(local status-groups
+  {:frame "AcpStatus"
+   :name "AcpStatusName"
+   :agent "AcpStatusAgent"
+   :model "AcpStatusModel"
+   :mode "AcpStatusMode"
+   :context "AcpStatusContext"
+   :context-warn "AcpStatusContextWarn"
+   :context-critical "AcpStatusContextCritical"
+   :cost "AcpStatusCost"
+   :credits "AcpStatusCredits"
+   :separator "AcpStatusSeparator"
+   :activity "AcpStatusActivity"
+   :alert "AcpStatusAlert"})
+
+(fn status-highlight [group text]
+  ;; Statusline text in a highlight group, with % escaped so it survives the parser.
+  (.. "%#" group "#"
+      (pick-values 1 (string.gsub (tostring text) "%%" "%%%%"))
+      "%#" status-groups.frame "#"))
+
+(fn status-context-group [pct]
+  (if (>= pct 90) status-groups.context-critical
+      (>= pct 70) status-groups.context-warn
+      status-groups.context))
+
+(fn status-activity-group [s]
+  (let [label (?. s :activity :label)]
+    (if (and label (string.find label "permission" 1 true))
+      status-groups.alert
+      status-groups.activity)))
+
 (fn status-text []
-  ;; Statusline segment. Agent, model, mode and context use show in the session's own windows;
-  ;; activity shows everywhere while the agent is working.
+  ;; Statusline segment. Agent, model, mode, context use, session cost and account credits
+  ;; show in the session's own windows; activity shows everywhere while the agent is working.
   (let [s sessions.current]
     (if (not s)
       ""
@@ -728,17 +786,36 @@
                       (let [parts []
                             model (config-by-category s :model)
                             mode (config-by-category s :mode)]
-                        (table.insert parts s.agent.name)
-                        (when model (table.insert parts model.display))
-                        (when mode (table.insert parts mode.display))
+                        (table.insert parts (status-highlight status-groups.agent s.agent.name))
+                        (when model
+                          (table.insert parts (status-highlight status-groups.model model.display)))
+                        (when mode
+                          (table.insert parts (status-highlight status-groups.mode mode.display)))
                         (when (and s.usage s.usage.size (> s.usage.size 0))
-                          (table.insert parts (.. (math.floor (/ (* 100 s.usage.used) s.usage.size)) "%")))
-                        (when (> (length parts) 0) (table.concat parts " · "))))
+                          (let [pct (math.floor (/ (* 100 s.usage.used) s.usage.size))]
+                            (table.insert parts
+                                          (status-highlight (status-context-group pct) (.. pct "%")))))
+                        (when (= (type (?. s.usage :cost)) :number)
+                          (let [cost (if (or (= s.usage.currency "USD") (not s.usage.currency))
+                                         (string.format "$%.2f" s.usage.cost)
+                                         (string.format "%.2f %s" s.usage.cost s.usage.currency))]
+                            (table.insert parts (status-highlight status-groups.cost cost))))
+                        (when s.credits
+                          (table.insert parts (status-highlight status-groups.credits s.credits)))
+                        (when (> (length parts) 0)
+                          (table.concat parts
+                                        (status-highlight status-groups.separator " · ")))))
             activity (render.activity-text s)
-            text (if (and details activity) (.. details " | " activity)
+            body (if (and details activity)
+                     (.. details (status-highlight status-groups.separator " | ")
+                         (status-highlight (status-activity-group s) activity))
                      (or details activity))]
-        (if text
-          (pick-values 1 (string.gsub (.. "[acp " text "]") "%%" "%%%%"))
+        (if body
+          (.. (status-highlight status-groups.frame "[")
+              (status-highlight status-groups.name "acp") " "
+              body
+              (status-highlight status-groups.frame "]")
+              "%*")
           "")))))
 
 (fn config [s]
