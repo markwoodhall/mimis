@@ -4,6 +4,7 @@
 (local agents (require :modules.acp.agents))
 (local render (require :modules.acp.render))
 (local log (require :modules.acp.log))
+(local summary (require :modules.acp.summary))
 
 (fn send [opts]
   (let [s (session.current)
@@ -166,6 +167,11 @@
                      {:kind :load :id chosen.id :cwd chosen.cwd :title chosen.title})))
       (start-new s name {} opts.mods intent))))
 
+(fn show-summary [opts]
+  ;; :AcpSummary  a markdown buffer of this project's logged sessions.
+  ;; :AcpSummary!  every project's sessions. Command modifiers choose the split.
+  (summary.open {:all? opts.bang :root (session.project-root) :mods opts.mods}))
+
 (fn pick-value [s option]
   (vim.ui.select option.values
                  {:prompt (.. option.name ": ")
@@ -264,6 +270,9 @@
                  (icollect [_ n (ipairs (agents.names))]
                    (when (vim.startswith n arglead) n)))
      :desc "Resume an earlier ACP session of this project; ! lists every project's; args are an optional agent and session id"})
+  (vim.api.nvim_create_user_command "AcpSummary" show-summary
+    {:bang true
+     :desc "Show a markdown summary of this project's ACP session logs; ! includes every project"})
   (vim.api.nvim_create_user_command "AcpConfig" configure
     {:nargs "*" :complete (complete-settings 1)
      :desc "Show or change ACP session settings (model, mode, effort...)"})
