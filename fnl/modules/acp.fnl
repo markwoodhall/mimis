@@ -5,6 +5,7 @@
 (local render (require :modules.acp.render))
 (local log (require :modules.acp.log))
 (local summary (require :modules.acp.summary))
+(local ui (require :modules.acp.ui))
 
 (fn send [opts]
   (let [s (session.current)
@@ -207,14 +208,14 @@
   (summary.open {:all? opts.bang :root (session.project-root) :mods opts.mods}))
 
 (fn pick-value [s option]
-  (vim.ui.select option.values
-                 {:prompt (.. option.name ": ")
-                  :format_item (fn [v]
-                                 (.. (if (= v.value option.current) "* " "  ")
-                                     v.name
-                                     (if v.description (.. " — " v.description) "")))}
-                 (fn [v]
-                   (when v (session.set-config s option.id v.value)))))
+  (ui.select option.values
+             {:prompt (.. option.name ": ")
+              :format_item (fn [v]
+                             (.. (if (= v.value option.current) "* " "  ")
+                                 v.name
+                                 (if v.description (.. " — " v.description) "")))}
+             (fn [v]
+               (when v (session.set-config s option.id v.value)))))
 
 (fn configure [opts]
   (let [s (session.current)
@@ -224,10 +225,10 @@
       (= (length (session.config s)) 0)
       (vim.notify "acp: the agent offers no settings" vim.log.levels.WARN)
       (not id)
-      (vim.ui.select (session.config s)
-                     {:prompt "Setting: "
-                      :format_item (fn [o] (.. o.name ": " o.display))}
-                     (fn [o] (when o (pick-value s o))))
+      (ui.select (session.config s)
+                 {:prompt "Setting: "
+                  :format_item (fn [o] (.. o.name ": " o.display))}
+                 (fn [o] (when o (pick-value s o))))
       (let [option (session.config-option s id)]
         (if (not option)
           (vim.notify (.. "acp: unknown setting " id) vim.log.levels.WARN)

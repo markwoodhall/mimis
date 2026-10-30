@@ -19,12 +19,18 @@
 ;;
 ;; :sandbox runs the agent in a network namespace where the only way out is a proxy
 ;; that allows the hosts it lists and logs every attempt; see modules.acp.sandbox.
-;; Sandboxed agents also see the host read-only, and may write only to the session's
-;; project directory, /tmp, and their XDG data directory; see modules.acp.sandbox.
+;; Sandboxed agents see the host read-only, but not $HOME: it is replaced with an
+;; allowlist of toolchain paths, so ~/.ssh and ~/.aws are absent rather than merely
+;; read-only. They may write only to the project, /tmp, the XDG data home and cache;
+;; the project's .git/hooks, .git/config and .gitattributes stay read-only; see
+;; modules.acp.sandbox.
 ;;   :sandbox false                     unsandboxed (the default)
 ;;   :sandbox true                      no host allowed
 ;;   :sandbox {:net false}              no network at all
 ;;   :sandbox {:net :proxy :allow ["api.anthropic.com:443"]}
+;;   :sandbox {:net :proxy :allow [...]
+;;             :read ["~/.config/gh"] :write ["~/.local/share/acme"]}
+;; :read and :write add $HOME paths to the allowlist; :mask hides more paths.
 ;; A profile's :sandbox is the policy and the default. :Acp sandbox turns it on for one
 ;; session (an agent with no policy gets no host allowed), :Acp nosandbox turns it off.
 ;;

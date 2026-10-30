@@ -117,7 +117,9 @@
     details))
 
 (fn parse-update [params]
-  ;; Normalises a session/update into {:type ...}, or nil for kinds v1 ignores.
+  ;; Normalises a session/update into {:type ...}. Kinds this client doesn't know come
+  ;; back as :unknown rather than nil, so the session can say so instead of dropping
+  ;; them: an agent's newer kinds are where sub-agent progress tends to hide.
   (let [u (or params.update {})]
     (case u.sessionUpdate
       :agent_message_chunk
@@ -147,7 +149,8 @@
        :kind u.kind
        :status u.status
        :details (tool-details u)}
-      _ nil)))
+      _ (when u.sessionUpdate
+          {:type :unknown :kind (tostring u.sessionUpdate)}))))
 
 (fn update-session-id [params]
   params.sessionId)
@@ -169,10 +172,11 @@
   {:outcome {:outcome :cancelled}})
 
 (fn choice-values [enum]
-  ;; enum entries may be plain values or {const, name, description} objects.
+  ;; The options come as enum or oneOf. Entries may be plain values or
+  ;; {const, name or title, description} objects.
   (icollect [_ v (ipairs (or enum []))]
     (if (and (= (type v) :table) v.const)
-      {:value v.const :name (or v.name (tostring v.const)) :description v.description}
+      {:value v.const :name (or v.name v.title (tostring v.const)) :description v.description}
       {:value v :name (tostring v)})))
 
 (fn field-kind [p]
@@ -181,7 +185,11 @@
     :boolean :boolean
     :number :number
     :integer :number
-    :string (if p.enum :choice :string)
+    :string (if (or p.enum p.oneOf) :choice :string)
+    ;; A multi-select: an array whose items are drawn from a fixed set.
+    :array (if (and (= (type p.items) :table) (or p.items.enum p.items.anyOf p.items.oneOf))
+             :multichoice
+             :unsupported)
     _ :unsupported))
 
 (fn parse-field [name p]
@@ -189,10 +197,14 @@
   (let [field {:name name
                :kind (field-kind p)
                :required? false
+               :title p.title
                :description p.description
                :default (?. p :default)}]
     (case field.kind
-      :choice (set field.values (choice-values p.enum))
+      :choice (set field.values (choice-values (or p.oneOf p.enum)))
+      :multichoice (do (set field.values (choice-values (or p.items.anyOf p.items.oneOf p.items.enum)))
+                       (set field.min-items p.minItems)
+                       (set field.max-items p.maxItems))
       :number (do (set field.minimum p.minimum)
                   (set field.maximum p.maximum))
       _ nil)

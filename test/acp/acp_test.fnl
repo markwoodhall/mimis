@@ -40,9 +40,10 @@
 (fn lines-of [buf]
   (vim.api.nvim_buf_get_lines buf 0 -1 false))
 
-(fn has-line [lines text]
+(fn has-line [lines text pattern?]
+  ;; text is literal unless pattern? is set, which passes it to string.find as a pattern.
   (accumulate [found false _ l (ipairs lines)]
-    (or found (= l text))))
+    (or found (not= nil (string.find l text 1 (not pattern?))))))
 
 (fn statusline-of [win]
   (. (vim.api.nvim_eval_statusline vim.o.statusline {:winid win}) :str))
@@ -403,6 +404,74 @@
   (check "cancel ends the turn" (has-line chat "> stop: cancelled")))
 (check "activity clears after cancel" (and (= nil s.activity) (= nil s.activity-timer)))
 
+;; Silence while a tool call is running -------------------------------------------------
+
+(set vim.g.acp-stall-seconds 1)
+(session.send-prompt s "stall")
+(check "a silent turn is noted in the chat"
+       (wait #(has-line (lines-of s.buf) "no update from 'Task explore: find the parser'") 5000)
+       (lines-of s.buf))
+(check "the activity label says how long it has been quiet"
+       (and s.activity (has-line [s.activity.label] "no update for"))
+       (?. s :activity))
+(vim.cmd "AcpCancel")
+(check "a silent turn can still be cancelled" (wait #(= s.turn.state :idle) 3000))
+(check "the note stays after the turn" (has-line (lines-of s.buf) "— it may be waiting"))
+(check "the stall timer is gone" (= nil s.stall-timer))
+(set vim.g.acp-stall-seconds nil)
+
+;; Updates the client doesn't understand ---------------------------------------------
+
+(session.send-prompt s "unknown updates")
+(wait #(= s.turn.state :idle))
+(let [chat (lines-of s.buf)]
+  (check "an update of an unknown kind is reported"
+         (has-line chat "ignored a 'subagent_progress' update") chat)
+  (check "an update for another session is reported"
+         (has-line chat "ignored updates for session other-session") chat)
+  (check "another session's text never reaches the chat"
+         (not (has-line chat "not this chat"))))
+(session.send-prompt s "unknown updates")
+(wait #(= s.turn.state :idle))
+(check "each unknown kind is only reported once"
+       (= 1 (length (vim.tbl_filter #(not= nil (string.find $1 "ignored a 'subagent_progress' update" 1 true)) (lines-of s.buf)))))
+
+;; A turn that ends with a tool call still open -----------------------------------------
+
+(session.send-prompt s "abandoned")
+(wait #(= s.turn.state :idle))
+(check "an unfinished tool call is named when the turn ends"
+       (has-line (lines-of s.buf) "1 tool call never finished: Task explore: look around")
+       (lines-of s.buf))
+
+;; Parallel work and the sandbox marker in the statusline -------------------------------
+
+(set vim.g.acp-stall-seconds 30)
+(session.send-prompt s "background")
+(wait #(has-line (lines-of s.buf) "> tool: Read notes.md — running"))
+(vim.api.nvim_set_current_win (chat-win))
+(let [status (statusline-of (chat-win))]
+  (check "the statusline counts the tool running in the background"
+         (not= nil (string.find status "1 bg" 1 true)) status)
+  (check "the activity names the foreground tool, not the background one"
+         (= "running Read notes.md" (?. s.activity :label))
+         (?. s :activity)))
+;; A background tool that stops reporting is caught while the foreground one is named.
+(set vim.g.acp-stall-seconds 1)
+(check "a quiet background tool is named, not just the newest one"
+       (wait #(has-line (lines-of s.buf) "no update from 'Task explore: check the parser'") 5000)
+       (lines-of s.buf))
+(set s.sandbox {})
+(check "the statusline says the session is sandboxed"
+       (not= nil (string.find (session.status-text) "sandbox" 1 true))
+       (session.status-text))
+(set s.sandbox nil)
+(check "an unsandboxed session has no sandbox marker"
+       (= nil (string.find (session.status-text) "sandbox" 1 true)))
+(vim.cmd "AcpCancel")
+(wait #(= s.turn.state :idle))
+(set vim.g.acp-stall-seconds nil)
+
 ;; Settings changed between turns and by the agent ------------------------------------
 
 (set auto-allow true)
@@ -443,7 +512,7 @@
 
 (session.send-prompt s "elicit")
 (wait #(not= nil s.elicitation))
-(local elic-row (last-row-of "> elicitation: Which strategy? — awaiting answer"))
+(local elic-row (last-row-of "> elicitation: Which strategy? — awaiting answer, <CR> to answer, :AcpDecline to decline"))
 (let [under (lines-after elic-row 10)]
   (check "the question is asked in the chat with its fields"
          (vim.deep_equal ["Which strategy?" "And anything to note."
@@ -497,7 +566,7 @@
 (wait #(not= nil s.elicitation))
 (set select-plan [1 3])
 (set input-plan [:default])
-(press-enter-on (last-row-of "> elicitation: Which strategy? — awaiting answer"))
+(press-enter-on (last-row-of "> elicitation: Which strategy? — awaiting answer, <CR> to answer, :AcpDecline to decline"))
 (wait #(= s.turn.state :idle))
 (check "<CR> on the question line opens the form"
        (has-line (lines-of s.buf) "> elicitation: Which strategy? — answered: strategy=conservative, notes=as-is")
@@ -539,6 +608,51 @@
               (has-line chat "> acp: the agent asked about 'things', a field type the client can't show — declined"))
          chat))
 
+(session.send-prompt s "elicit oneof")
+(wait #(not= nil s.elicitation))
+(let [under (lines-after (last-row-of "> elicitation: Questions — awaiting answer, <CR> to answer, :AcpDecline to decline") 12)]
+  (check "oneOf options are shown as a choice, with the field's title"
+         (vim.deep_equal ["Questions" ""
+                          "  q0 — Failure (choice · optional)" "    What should happen on failure?"
+                          "  1. Fail open — Let it through" "  2. Fail closed" ""
+                          "  q0_custom — Failure (other) (text · optional)" "    Type your own answer"]
+                         (vim.list_slice under 1 9))
+         under))
+(set ui-asks [])
+(set select-plan [2 3])
+(set input-plan [""])
+(vim.cmd "AcpAnswer")
+(wait #(= s.turn.state :idle))
+(let [chat (lines-of s.buf)]
+  (check "a oneOf choice is answered with its const, and the custom field left out"
+         (has-line chat "Answered {\"q0\": \"closed\"}.") chat)
+  (check "the prompts carry the question, and optional choices can be skipped"
+         (vim.deep_equal ["Failure — What should happen on failure?: "
+                          "Failure (other) — Type your own answer: " "Answers: "]
+                         ui-asks)
+         ui-asks))
+
+(session.send-prompt s "elicit multi")
+(wait #(not= nil s.elicitation))
+(let [under (lines-after (last-row-of "> elicitation: Pick several — awaiting answer, <CR> to answer, :AcpDecline to decline") 10)]
+  (check "an array of options is shown as a multiple choice"
+         (vim.deep_equal ["Pick several" ""
+                          "  q1 — Flavours (choice, several · required)" "    Which flavours?"
+                          "  1. Apple" "  2. Banana — Yellow" "  3. Cherry"]
+                         (vim.list_slice under 1 7))
+         under))
+(set ui-asks [])
+;; Done too early, tick three (one too many), Done, untick one, Done, then Submit.
+(set select-plan [4 1 3 2 4 2 4 2])
+(set input-plan [])
+(vim.cmd "AcpAnswer")
+(wait #(= s.turn.state :idle))
+(let [chat (lines-of s.buf)]
+  (check "a multiple choice is answered with an array, within its bounds"
+         (has-line chat "Answered {\"q1\": [\"a\", \"c\"]}.") chat)
+  (check "the chat shows the ticked options"
+         (has-line chat "> elicitation: Pick several — answered: q1=a, c") chat))
+
 (let [messages []]
   (let [original vim.notify]
     (set vim.notify (fn [msg] (table.insert messages msg)))
@@ -551,6 +665,54 @@
 
 (set vim.ui.select original-ui-select)
 (set vim.ui.input original-ui-input)
+
+;; Floating pickers -------------------------------------------------------------------
+;; With Neovim's own vim.ui in place the form's prompts open as floats.
+
+(local ui (require :modules.acp.ui))
+(fn float-count []
+  (length (vim.tbl_filter #(not= "" (. (vim.api.nvim_win_get_config $1) :relative))
+                          (vim.api.nvim_list_wins))))
+
+(var picked :none)
+(ui.select [{:name "a"} {:name "b"} {:name "c"}]
+           {:prompt "Which? " :format_item #$1.name}
+           (fn [item i] (set picked [(?. item :name) i])))
+(check "a select opens a float" (= 1 (float-count)) (float-count))
+(check "the float holds the question and the numbered choices"
+       (vim.deep_equal ["Which?" "" "1. a" "2. b" "3. c"]
+                       (vim.api.nvim_buf_get_lines 0 0 -1 false))
+       (vim.api.nvim_buf_get_lines 0 0 -1 false))
+(vim.api.nvim_feedkeys "2" :x false)
+(wait #(not= picked :none))
+(check "a number picks that choice and closes the float"
+       (and (vim.deep_equal ["b" 2] picked) (= 0 (float-count)))
+       [picked (float-count)])
+
+(set picked :none)
+(ui.select [{:name "a"} {:name "b"}] {:prompt "Which? " :format_item #$1.name}
+           (fn [item i] (set picked [(?. item :name) i])))
+(vim.api.nvim_feedkeys (vim.keycode "j<CR>") :x false)
+(wait #(not= picked :none))
+(check "<CR> picks the choice under the cursor" (vim.deep_equal ["b" 2] picked) picked)
+
+(set picked :none)
+(ui.select [{:name "a"} {:name "b"}] {:prompt "Which? " :format_item #$1.name}
+           (fn [item i] (set picked [(?. item :name) i])))
+(vim.api.nvim_feedkeys "q" :x false)
+(wait #(not= picked :none))
+(check "q cancels without a choice" (and (vim.deep_equal [nil nil] picked) (= 0 (float-count)))
+       [picked (float-count)])
+
+(var typed :none)
+(ui.input {:prompt "Name: " :default "ab"} (fn [text] (set typed [text])))
+(check "an input opens a float" (= 1 (float-count)) (float-count))
+;; startinsert only takes effect back in the main loop, which a headless script never reaches.
+(vim.api.nvim_feedkeys (.. (if (= :i (. (vim.api.nvim_get_mode) :mode)) "" "A")
+                           "cd" (vim.keycode "<CR>")) :x false)
+(wait #(not= typed :none))
+(check "an input continues from its default" (and (vim.deep_equal ["abcd"] typed) (= 0 (float-count)))
+       [typed (float-count)])
 
 ;; Commands ------------------------------------------------------------------------
 
@@ -758,13 +920,28 @@
 
 (local sandbox (require :modules.acp.sandbox))
 
+(fn argv-index [argv flag a b]
+  ;; Position of FLAG A B in ARGV, or nil. Later mounts win, so position matters.
+  (var found nil)
+  (each [i v (ipairs argv)]
+    (when (and (not found)
+               (= v flag)
+               (= (. argv (+ i 1)) a)
+               (or (= b nil) (= (. argv (+ i 2)) b)))
+      (set found i)))
+  found)
+
 (check "a :sandbox spec is off, deny-all, no network, or a host list"
        (and (= nil (sandbox.normalize nil))
             (= nil (sandbox.normalize false))
-            (vim.deep_equal {:net :proxy :allow []} (sandbox.normalize true))
-            (vim.deep_equal {:net false} (sandbox.normalize {:net false}))
-            (vim.deep_equal {:net :proxy :allow ["a:443"] :mask nil}
-                            (sandbox.normalize {:allow ["a:443"]}))))
+            (vim.deep_equal {:net :proxy :allow [] :read [] :write [] :mask nil}
+                            (sandbox.normalize true))
+            (vim.deep_equal {:net false :read [] :write [] :mask nil}
+                            (sandbox.normalize {:net false}))
+            (vim.deep_equal {:net :proxy :allow ["a:443"] :read [] :write [] :mask nil}
+                            (sandbox.normalize {:allow ["a:443"]}))
+            (vim.deep_equal {:net :proxy :allow [] :read ["~/.config/gh"] :write [] :mask nil}
+                            (sandbox.normalize {:read ["~/.config/gh"]}))))
 
 (check "a profile's :sandbox reaches agents.get"
        (do
@@ -772,6 +949,20 @@
          (let [a (agents.get :s)]
            (set vim.g.acp-agents {:opencode ["python3" (.. here "/fake_agent.py") "opencode"]})
            (vim.deep_equal {:allow ["api.anthropic.com:443"]} a.sandbox))))
+
+(let [(box problem) (sandbox.prepare {:net false} "")]
+  (check "a sandbox with no project directory is refused"
+         (and (= nil box) (not= nil problem))))
+
+(let [(box problem) (sandbox.prepare {:net false} ".")
+      cwd (vim.fs.normalize (vim.fn.getcwd))]
+  (check "a relative project is resolved, never bound as ."
+         (and box (not problem)
+              (accumulate [seen false i v (ipairs box.prefix)]
+                (or seen (and (= v "--bind-try")
+                              (= (. box.prefix (+ i 1)) cwd)
+                              (= (. box.prefix (+ i 2)) cwd)))))
+         (or problem box.prefix)))
 
 (let [project (vim.fn.tempname)
       _ (vim.fn.mkdir project "p")
@@ -807,20 +998,164 @@
                                             (.. "touch " (vim.fn.shellescape (.. project "/probe"))
                                                 " /tmp/acp-sandbox-probe"
                                                 " " (vim.fn.shellescape (.. (sandbox.data-dir) "/acp-sandbox-probe"))
-                                                " 2>/dev/null; if (echo > $HOME/.acp-probe) 2>/dev/null; then echo home-writable; else echo home-read-only; fi")])
+                                                " 2>/dev/null"
+                                                "; if [ -e \"$HOME/.ssh\" ] || [ -e \"$HOME/.aws\" ]; then"
+                                                " echo home-secrets-visible; else echo home-secrets-absent; fi"
+                                                "; if (echo probe > \"$HOME/.acp-probe\") 2>/dev/null; then"
+                                                " echo home-writable; else echo home-locked; fi")])
                           {:text true})
           out (res:wait)]
-      (check "the agent can write the project, /tmp and its data home, and nowhere else"
+      (check "the agent gets the project, /tmp and its data home, and an empty $HOME"
              (and (vim.uv.fs_stat (.. project "/probe"))
                   (vim.uv.fs_stat "/tmp/acp-sandbox-probe")
                   (vim.uv.fs_stat (.. (sandbox.data-dir) "/acp-sandbox-probe"))
-                  (string.match (tostring out.stdout) "home%-read%-only"))
+                  ;; ~/.ssh and ~/.aws are absent inside, not read-only.
+                  (string.match (tostring out.stdout) "home%-secrets%-absent")
+                  ;; $HOME itself is a private tmpfs, so a write lands there and
+                  ;; never on the host.
+                  (string.match (tostring out.stdout) "home%-writable")
+                  (not (vim.uv.fs_stat (.. vim.env.HOME "/.acp-probe"))))
              out)
       (vim.fn.delete (.. project "/probe"))
       (vim.fn.delete "/tmp/acp-sandbox-probe")
       (vim.fn.delete (.. (sandbox.data-dir) "/acp-sandbox-probe"))
       (vim.fn.delete project)))
   (sandbox.stop box))
+
+;; The allowlist is scoped to $HOME, so build a fake one with a secret in it and check
+;; the argv rather than what the real home happens to hold.
+(when (sandbox.available?)
+  (let [fake (vim.fn.tempname)
+        real vim.env.HOME
+        real-data vim.env.XDG_DATA_HOME]
+    (vim.fn.mkdir (.. fake "/.ssh") "p")
+    (vim.fn.mkdir (.. fake "/.config/git") "p")
+    (vim.fn.writefile ["[user]"] (.. fake "/.gitconfig"))
+    (vim.fn.writefile ["PRIVATE KEY"] (.. fake "/.ssh/id_ed25519"))
+    (set vim.env.HOME fake)
+    (set vim.env.XDG_DATA_HOME nil)
+    (let [(box problem) (sandbox.prepare {:net false :read ["~/.config/gh"]}
+                                         (vim.fn.tempname))
+          argv (or (?. box :prefix) [])
+          binds (fn [flag src dst]
+                  (accumulate [seen false i v (ipairs argv)]
+                    (or seen (and (= v flag)
+                                  (= (. argv (+ i 1)) src)
+                                  (or (= dst nil) (= (. argv (+ i 2)) dst))))))]
+      (check "the sandbox empties $HOME and binds back only the allowlist"
+             (and box (not problem)
+                  (binds "--tmpfs" fake nil)
+                  (binds "--ro-bind" (.. fake "/.gitconfig") (.. fake "/.gitconfig"))
+                  (binds "--ro-bind" (.. fake "/.config/git") (.. fake "/.config/git"))
+                  ;; A secret on the host never reaches the sandbox...
+                  (not (binds "--ro-bind" (.. fake "/.ssh") (.. fake "/.ssh")))
+                  (not (binds "--bind-try" (.. fake "/.ssh") (.. fake "/.ssh")))
+                  ;; ...and no whole-host or whole-home bind would bring it back.
+                  (not (binds "--ro-bind" "/" fake))
+                  (not (binds "--dev-bind" fake nil)))
+             argv)
+      (sandbox.stop box))
+    (vim.fn.delete fake :rf)
+    (set vim.env.HOME real)
+    (set vim.env.XDG_DATA_HOME real-data)))
+
+(check "a sandbox refuses a project that would put $HOME back"
+       (let [(box problem) (sandbox.prepare {:net false} vim.env.HOME)]
+         (and (= nil box)
+              (string.match (tostring problem) "undo the sandbox"))))
+
+(let [dir (vim.fn.tempname)
+      file (.. (vim.fn.tempname) ".txt")]
+  (vim.fn.mkdir dir "p")
+  (vim.fn.writefile ["x"] file)
+  (let [(box problem) (sandbox.prepare {:net false :mask [dir file]} (vim.fn.tempname))
+        argv (or (?. box :prefix) [])]
+    (check "a :mask directory is hidden with a tmpfs and a file with /dev/null"
+           (and box (not problem)
+                (accumulate [seen false i v (ipairs argv)]
+                  (or seen (and (= v "--tmpfs") (= (. argv (+ i 1)) dir))))
+                (accumulate [seen false i v (ipairs argv)]
+                  (or seen (and (= v "--ro-bind")
+                                (= (. argv (+ i 1)) "/dev/null")
+                                (= (. argv (+ i 2)) file)))))
+           argv)
+    (sandbox.stop box))
+  (vim.fn.delete dir :rf)
+  (vim.fn.delete file))
+
+;; A hook is the one thing in the writable project that runs on the host later.
+(let [project (vim.fn.tempname)]
+  (vim.fn.mkdir (.. project "/.git/hooks") "p")
+  (vim.fn.writefile ["#!/bin/sh" "echo host"] (.. project "/.git/hooks/pre-commit"))
+  (let [(box problem) (sandbox.prepare {:net false} project)
+        argv (or (?. box :prefix) [])
+        hooks (.. project "/.git/hooks")
+        project-at (argv-index argv "--bind-try" project project)
+        hooks-at (argv-index argv "--ro-bind" hooks hooks)]
+    (check "the project is writable but .git/hooks stays read-only, mounted after it"
+           (and box (not problem) project-at hooks-at (> hooks-at project-at))
+           argv)
+    (sandbox.stop box))
+  (vim.fn.delete project :rf))
+
+(let [project (vim.fn.tempname)]
+  (vim.fn.mkdir project "p")
+  (let [(box problem) (sandbox.prepare {:net false} project)
+        argv (or (?. box :prefix) [])
+        hooks (.. project "/.git/hooks")
+        found (accumulate [seen false i v (ipairs argv)]
+                (or seen (and (= v "--ro-bind") (= (. argv (+ i 1)) hooks))))]
+    (check "a project with no hooks directory gets no hooks mount"
+           (and box (not problem) (not found))
+           argv)
+    (sandbox.stop box))
+  (vim.fn.delete project :rf))
+
+;; Repo config and .gitattributes name commands git runs too, so they are immutable.
+(let [project (vim.fn.tempname)]
+  (vim.fn.mkdir (.. project "/.git") "p")
+  (vim.fn.writefile ["[core]"] (.. project "/.git/config"))
+  (vim.fn.writefile ["* text=auto"] (.. project "/.gitattributes"))
+  (let [(box problem) (sandbox.prepare {:net false} project)
+        argv (or (?. box :prefix) [])
+        config (.. project "/.git/config")
+        attributes (.. project "/.gitattributes")
+        project-at (argv-index argv "--bind-try" project project)
+        config-at (argv-index argv "--ro-bind" config config)
+        attributes-at (argv-index argv "--ro-bind" attributes attributes)]
+    (check "repo config and .gitattributes stay read-only, mounted after the project"
+           (and box (not problem)
+                project-at config-at attributes-at
+                (> config-at project-at)
+                (> attributes-at project-at))
+           argv)
+    (sandbox.stop box))
+  (vim.fn.delete project :rf))
+
+(let [project (vim.fn.tempname)]
+  (vim.fn.mkdir (.. project "/.git/modules/dep/hooks") "p")
+  (let [(box problem) (sandbox.prepare {:net false} project)
+        argv (or (?. box :prefix) [])
+        hooks (.. project "/.git/modules/dep/hooks")
+        at (argv-index argv "--ro-bind" hooks hooks)]
+    (check "a submodule's hooks under .git/modules stay read-only too"
+           (and box (not problem) at)
+           argv)
+    (sandbox.stop box))
+  (vim.fn.delete project :rf))
+
+(let [project (vim.fn.tempname)]
+  (vim.fn.mkdir project "p")
+  (vim.fn.writefile ["gitdir: /elsewhere"] (.. project "/.git"))
+  (let [(box problem) (sandbox.prepare {:net false} project)
+        argv (or (?. box :prefix) [])
+        dotgit (.. project "/.git")
+        at (argv-index argv "--ro-bind" dotgit dotgit)]
+    (check "a worktree's .git pointer file is frozen, not writable"
+           (and box (not problem) at)
+           argv)
+    (sandbox.stop box))
+  (vim.fn.delete project :rf))
 
 (when (sandbox.available?)
   ;; A local echo server stands in for the model's API, so the test needs no network.

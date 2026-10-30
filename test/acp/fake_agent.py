@@ -159,6 +159,37 @@ for line in sys.stdin:
             text("Plan done.")
             send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
             continue
+        if prompt == "stall":
+            # A sub-agent that never reports back: the tool call stays in progress and
+            # nothing else arrives. Only a cancel ends the turn.
+            update({"sessionUpdate": "tool_call", "toolCallId": "sub1", "kind": "other",
+                    "title": "Task explore: find the parser", "status": "in_progress"})
+            continue
+        if prompt == "unknown updates":
+            # An update kind the client has never heard of, and one for another session.
+            update({"sessionUpdate": "subagent_progress", "text": "step 2 of 7"})
+            send({"method": "session/update",
+                  "params": {"sessionId": "other-session",
+                             "update": {"sessionUpdate": "agent_message_chunk",
+                                        "content": {"type": "text", "text": "not this chat"}}}})
+            text("Carried on.")
+            send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
+            continue
+        if prompt == "abandoned":
+            # A turn that ends with a tool call still open.
+            update({"sessionUpdate": "tool_call", "toolCallId": "gone1", "kind": "other",
+                    "title": "Task explore: look around", "status": "in_progress"})
+            send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
+            continue
+        if prompt == "background":
+            # Two tool calls open at once: the parent moved on while one still runs,
+            # which is what a sub-agent left in the background looks like over ACP.
+            text("Carrying on while that runs.")
+            update({"sessionUpdate": "tool_call", "toolCallId": "bg1", "kind": "other",
+                    "title": "Task explore: check the parser", "status": "in_progress"})
+            update({"sessionUpdate": "tool_call", "toolCallId": "fg1", "kind": "read",
+                    "title": "Read notes.md", "status": "in_progress"})
+            continue
         if prompt == "elicit":
             text("Let me ask.")
             send({"id": 104, "method": "elicitation/create",
@@ -170,6 +201,36 @@ for line in sys.stdin:
                                                                   "enum": ["conservative", "balanced", "aggressive"]},
                                                      "notes": {"type": "string", "default": "as-is"}},
                                                  "required": ["strategy"]}}})
+            continue
+        if prompt == "elicit oneof":
+            # The shape opencode's question tool sends: choices as oneOf, with a free-text
+            # companion field, all optional.
+            send({"id": 107, "method": "elicitation/create",
+                  "params": {"sessionId": SID, "mode": "form", "message": "Questions",
+                             "requestedSchema": {"type": "object",
+                                                 "properties": {
+                                                     "q0": {"type": "string", "title": "Failure",
+                                                            "description": "What should happen on failure?",
+                                                            "oneOf": [{"const": "open", "title": "Fail open",
+                                                                       "description": "Let it through"},
+                                                                      {"const": "closed", "title": "Fail closed"}]},
+                                                     "q0_custom": {"type": "string", "title": "Failure (other)",
+                                                                   "description": "Type your own answer"}}}}})
+            continue
+        if prompt == "elicit multi":
+            # opencode's multiselect question: an array of anyOf options, with a bound.
+            send({"id": 108, "method": "elicitation/create",
+                  "params": {"sessionId": SID, "mode": "form", "message": "Pick several",
+                             "requestedSchema": {"type": "object",
+                                                 "properties": {
+                                                     "q1": {"type": "array", "title": "Flavours",
+                                                            "description": "Which flavours?",
+                                                            "items": {"anyOf": [{"const": "a", "title": "Apple"},
+                                                                                {"const": "b", "title": "Banana",
+                                                                                 "description": "Yellow"},
+                                                                                {"const": "c", "title": "Cherry"}]},
+                                                            "minItems": 1, "maxItems": 2}},
+                                                 "required": ["q1"]}}})
             continue
         if prompt == "elicit url":
             # A mode the client never advertised: invalid params must come back.
@@ -228,6 +289,10 @@ for line in sys.stdin:
                 text("Cancelled.")
         else:
             text("Error %s." % msg["error"]["code"])
+        send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
+    elif msg.get("id") in (107, 108):
+        content = msg["result"].get("content") or {}
+        text("Answered %s." % json.dumps(content, sort_keys=True))
         send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
     elif msg.get("id") == 105:
         text("Could not ask: %s." % msg["error"]["code"])

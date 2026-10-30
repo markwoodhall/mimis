@@ -27,6 +27,8 @@
         (set-hl :AcpStatusContextCritical {:fg c.red :bg acp-bg :bold true})
         (set-hl :AcpStatusCost {:fg c.teal :bg acp-bg})
         (set-hl :AcpStatusCredits {:fg c.sapphire :bg acp-bg})
+        (set-hl :AcpStatusSandbox {:fg c.maroon :bg acp-bg :bold true})
+        (set-hl :AcpStatusBackground {:fg c.flamingo :bg acp-bg})
         (set-hl :AcpStatusSeparator {:fg c.overlay1 :bg acp-bg})
         (set-hl :AcpStatusActivity {:fg c.pink :bg acp-bg :italic true})
         (set-hl :AcpStatusAlert {:fg c.red :bg acp-bg :bold true})

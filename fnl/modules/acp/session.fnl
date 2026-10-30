@@ -127,18 +127,37 @@
         (set label (.. "running " (short-title s tool.title activity-width))))))
   label)
 
+(fn running-tools [s]
+  ;; Tool calls still open in the running turn, oldest first.
+  (if (not (running? s))
+    []
+    (icollect [_ id (ipairs (or s.turn.tool-ids []))]
+      (let [tool (. s.tools id)]
+        (when (and tool (or (= tool.status :pending) (= tool.status :in_progress)))
+          tool)))))
+
+(fn background-count [s]
+  ;; Tool calls still running besides the one the activity label names: work the agent
+  ;; has moved past, which is what a sub-agent left running in the background looks
+  ;; like over ACP.
+  (math.max 0 (- (length (running-tools s)) 1)))
+
 (fn on-tool [s u]
-  (let [tool {:id u.id :title u.title :kind u.kind :status u.status :details (or u.details {})}
-        block {:type :line}]
-    (set block.line (tool-line s tool))
-    (set tool.block block)
-    (tset s.tools u.id tool)
-    (set s.last-tool-id u.id)
-    (when (turn-active? s)
-      (table.insert s.turn.tool-ids u.id)
-      (add-line-block s block))
-    (when (and (running? s) (or (= tool.status :pending) (= tool.status :in_progress)))
-      (busy s (.. "running " (short-title s tool.title activity-width))))))
+  (if (not u.id)
+    ;; A tool call with no id can't be updated or matched, so it would be invisible.
+    (render.status s "ignored a tool call with no id")
+    (let [tool {:id u.id :title u.title :kind u.kind :status u.status
+                :updated (os.time) :details (or u.details {})}
+          block {:type :line}]
+      (set block.line (tool-line s tool))
+      (set tool.block block)
+      (tset s.tools u.id tool)
+      (set s.last-tool-id u.id)
+      (when (turn-active? s)
+        (table.insert s.turn.tool-ids u.id)
+        (add-line-block s block))
+      (when (and (running? s) (or (= tool.status :pending) (= tool.status :in_progress)))
+        (busy s (.. "running " (short-title s tool.title activity-width)))))))
 
 (fn on-tool-update [s u]
   (let [tool (. s.tools u.id)]
@@ -150,6 +169,9 @@
         (when u.status (set tool.status u.status))
         (each [k v (pairs (or u.details {}))]
           (tset tool.details k v))
+        ;; It reported again: a later quiet spell is worth a fresh note.
+        (set tool.updated (os.time))
+        (set tool.stall-noted false)
         (set tool.block.line (tool-line s tool))
         (render.update-line s tool.block)
         (render.refresh-tool s tool)))
@@ -326,22 +348,35 @@
         (log.append-turn s turn)))))
 
 (fn on-update [s params]
-  (when (= (protocol.update-session-id params) s.session.id)
-    (let [u (protocol.parse-update params)]
-      (when (and s.replay u)
-        (replay-update s u))
-      (case (?. u :type)
-        :text (when (turn-active? s) (add-text s u.text))
-        :thought (when (turn-active? s)
-                   (if u.text
-                     (add-thought s u.text)
-                     (when (running? s) (busy s "thinking"))))
-        :tool (on-tool s u)
-        :tool-update (on-tool-update s u)
-        :config (apply-config s u.options (not s.replay))
-        :usage (do
-                 (set s.usage {:used u.used :size u.size :cost u.cost :currency u.currency})
-                 (vim.cmd "redrawstatus!"))))))
+  ;; Nothing here is dropped in silence: an update for another session, or of a kind
+  ;; this client doesn't know, leaves a note the first time it is seen.
+  (let [session-id (protocol.update-session-id params)
+        key (or session-id "no id")]
+    (if (not= session-id s.session.id)
+      (when (not (. s.ignored-sessions key))
+        (tset s.ignored-sessions key true)
+        (note s (.. "> acp: ignored updates for session " key)))
+      (let [u (protocol.parse-update params)]
+        (when u
+          (set s.last-event (os.time))
+          (when (and s.replay u)
+            (replay-update s u))
+          (case u.type
+            :text (when (turn-active? s) (add-text s u.text))
+            :thought (when (turn-active? s)
+                       (if u.text
+                         (add-thought s u.text)
+                         (when (running? s) (busy s "thinking"))))
+            :tool (on-tool s u)
+            :tool-update (on-tool-update s u)
+            :config (apply-config s u.options (not s.replay))
+            :usage (do
+                     (set s.usage {:used u.used :size u.size :cost u.cost :currency u.currency})
+                     (vim.cmd "redrawstatus!"))
+            :unknown (when (not (. s.unknown-kinds u.kind))
+                       (tset s.unknown-kinds u.kind true)
+                       (note s (.. "> acp: ignored a '" u.kind
+                                   "' update, which the client doesn't know")))))))))
 
 ;; Credits -----------------------------------------------------------------------------
 
@@ -457,6 +492,7 @@
   (let [text (case (type v)
                :boolean (if v "yes" "no")
                :string (pick-values 1 (string.gsub v "\n" "\\n"))
+               :table (table.concat (vim.tbl_map tostring v) ", ")
                _ (tostring v))]
     (if (> (vim.fn.strchars text) activity-width)
       (.. (vim.fn.strcharpart text 0 (- activity-width 1)) "…")
@@ -472,7 +508,7 @@
 
 (fn elicitation-line [s block]
   (.. "> elicitation: " (short-title s block.title)
-      " — " (or block.choice "awaiting answer")))
+      " — " (or block.choice "awaiting answer, <CR> to answer, :AcpDecline to decline")))
 
 (fn answer-elicitation [s action content]
   ;; action is :accept, :decline or :cancel; content carries the accepted answers.
@@ -528,7 +564,7 @@
               (when (not (render.visible? s.buf))
                 (vim.notify (.. "acp: agent asks: "
                                 (short-title s block.title activity-width)
-                                " (:Acp to answer)"))))))))))
+                                " (<CR> on it in the chat, or :AcpAnswer)"))))))))))
 
 (fn answer-open [s]
   ;; The form walk for the open elicitation (:AcpAnswer, or <CR> on its line).
@@ -569,6 +605,100 @@
   (when (= method protocol.methods.session-update)
     (on-update s params)))
 
+;; Stalls ---------------------------------------------------------------------------
+;; A sub-agent that stops reporting leaves a tool call running for ever: no update
+;; arrives, so the spinner keeps turning and the turn looks alive. After a while of
+;; silence the activity label says how long, and the chat gets one note about it.
+;; vim.g.acp-stall-seconds is how long that silence has to last (60 by default).
+
+(fn duration [secs]
+  ;; 45s, 2m, 1h 5m.
+  (if (< secs 60) (.. secs "s")
+      (< secs 3600) (.. (math.floor (/ secs 60)) "m")
+      (let [mins (% (math.floor (/ secs 60)) 60)]
+        (.. (math.floor (/ secs 3600)) "h" (if (> mins 0) (.. " " mins "m") "")))))
+
+(fn stall-seconds []
+  (let [n vim.g.acp-stall-seconds]
+    (if (and (= (type n) :number) (> n 0)) n 60)))
+
+(fn stalled-tool [s now limit]
+  ;; The running tool that has gone longest without an update, when it has been quiet
+  ;; long enough to matter: background work that stopped reporting shows up here even
+  ;; while the agent carries on with something else.
+  (accumulate [worst nil _ tool (ipairs (running-tools s))]
+    (let [silence (- now (or tool.updated now))]
+      (if (and (>= silence limit) (or (not worst) (> silence worst.silence)))
+        {: tool : silence}
+        worst))))
+
+(fn stall-note [s what silence]
+  (note s (.. "> acp: no update from " what " for " (duration silence)
+              " — it may be waiting on something that never reports back"))
+  (when (not (render.visible? s.buf))
+    (vim.notify (.. "acp: no update from " what " for " (duration silence)))))
+
+(fn check-stall [s]
+  ;; A permission or a question already explains the pause, so neither counts.
+  (when (and (running? s) (not s.permission) (not s.elicitation))
+    (let [now (os.time)
+          limit (stall-seconds)
+          stalled (stalled-tool s now limit)
+          open (running-tools s)
+          silence (- now (or s.last-event now))
+          thinking-stalled (and (= 0 (length open)) (>= silence limit))
+          was s.stalled]
+      (if stalled
+        (do
+          (busy s (.. "running " (short-title s stalled.tool.title activity-width)
+                      " — no update for " (duration stalled.silence)))
+          (when (not stalled.tool.stall-noted)
+            (set stalled.tool.stall-noted true)
+            (stall-note s (.. "'" (short-title s stalled.tool.title) "'") stalled.silence)))
+        thinking-stalled
+        (do
+          (busy s (.. "thinking — no update for " (duration silence)))
+          (when (not s.stall-noted)
+            (set s.stall-noted true)
+            (stall-note s "the agent" silence)))
+        was
+        (do
+          ;; Updates are arriving again: back to the ordinary label.
+          (set s.stall-noted false)
+          (busy s (still-running-label s))))
+      (set s.stalled (if (or stalled thinking-stalled) true nil)))))
+
+(fn stop-stall-timer [s]
+  (when s.stall-timer
+    (s.stall-timer:stop)
+    (s.stall-timer:close)
+    (set s.stall-timer nil))
+  (set s.stall-noted false)
+  (set s.stalled nil))
+
+(fn start-stall-timer [s]
+  ;; One tick a second while a turn runs; checking is cheap and the label only redraws
+  ;; when its text changes.
+  (stop-stall-timer s)
+  (set s.last-event (os.time))
+  (set s.stall-timer (vim.uv.new_timer))
+  (s.stall-timer:start 1000 1000 (vim.schedule_wrap #(check-stall s))))
+
+(fn note-unfinished [s turn]
+  ;; The turn is over but a tool call never reported back: say so, rather than leave it
+  ;; looking like it is still running.
+  (let [unfinished (icollect [_ id (ipairs (or turn.tool-ids []))]
+                     (let [tool (. s.tools id)]
+                       (when (and tool (or (= tool.status :pending)
+                                           (= tool.status :in_progress)))
+                         tool)))]
+    (when (> (length unfinished) 0)
+      (note s (.. "> acp: " (length unfinished) " tool call"
+                  (if (> (length unfinished) 1) "s" "") " never finished: "
+                  (table.concat (icollect [_ t (ipairs unfinished)]
+                                  (short-title s t.title activity-width))
+                                ", "))))))
+
 ;; Turns ---------------------------------------------------------------------------
 
 (fn end-turn [s err result]
@@ -576,8 +706,10 @@
         reason (if err
                  (.. "error: " (or err.message "unknown"))
                  (. (protocol.parse-prompt-result result) :stop-reason))]
+    (stop-stall-timer s)
     (when s.permission (answer-permission s nil))
     (when s.elicitation (answer-elicitation s :cancel))
+    (note-unfinished s turn)
     (add-line-block s {:type :line :line (.. "> stop: " reason)})
     (set s.turn {:state :idle})
     (idle s)
@@ -603,6 +735,7 @@
       (set s.turn turn)
       (render.begin-turn s turn)
       (busy s "thinking")
+      (start-stall-timer s)
       (rpc.request s.rpc protocol.methods.session-prompt
                    (protocol.prompt-params s.session.id text)
                    (fn [err result]
@@ -614,6 +747,7 @@
   (if (and s (= s.turn.state :running))
     (do
       (set s.turn.state :cancelling)
+      (stop-stall-timer s)
       (rpc.notify s.rpc protocol.methods.session-cancel (protocol.cancel-params s.session.id))
       (answer-permission s nil)
       (answer-elicitation s :cancel)
@@ -624,6 +758,7 @@
 
 (fn on-exit [s code]
   (set s.exited true)
+  (stop-stall-timer s)
   (sandbox.stop s.sandbox)
   (when (and (not s.ended) (= vim.v.exiting vim.NIL))
     (rpc.fail-all s.rpc (.. "agent exited with code " code))
@@ -818,6 +953,9 @@
            :credits nil
            :permission nil
            :elicitation nil
+           :ignored-sessions {}
+           :unknown-kinds {}
+           :last-event (os.time)
            :egress {}}]
     (log.init s)
     (render.create-buffers s)
@@ -855,6 +993,7 @@
   (when s
     (when (= s.turn.state :running) (cancel s))
     (set s.ended true)
+    (stop-stall-timer s)
     (when (and s.agent.proc (not s.exited))
       (transport.stop s.agent.proc (and s.sandbox true)))
     (sandbox.stop s.sandbox)
@@ -873,6 +1012,7 @@
   (let [s sessions.current]
     (when s
       (set s.ended true)
+      (stop-stall-timer s)
       (render.activity s nil)
       (when (and s.agent.proc (not s.exited))
         (transport.stop s.agent.proc (and s.sandbox true)))
@@ -897,6 +1037,8 @@
    :context-critical "AcpStatusContextCritical"
    :cost "AcpStatusCost"
    :credits "AcpStatusCredits"
+   :sandbox "AcpStatusSandbox"
+   :background "AcpStatusBackground"
    :separator "AcpStatusSeparator"
    :activity "AcpStatusActivity"
    :alert "AcpStatusAlert"})
@@ -915,26 +1057,29 @@
 (fn status-activity-group [s]
   (let [label (?. s :activity :label)
         asks? (and label (or (string.find label "permission" 1 true)
-                             (string.find label "answer" 1 true)))]
+                             (string.find label "answer" 1 true)
+                             (string.find label "no update" 1 true)))]
     (if asks?
       status-groups.alert
       status-groups.activity)))
 
 (fn status-text []
-  ;; Statusline segment. Agent, model, mode, context use, session cost and account credits
-  ;; show in the session's own windows; activity shows everywhere while the agent is working.
+  ;; Statusline segment. Agent, sandbox, model, mode, context use, session cost and
+  ;; account credits show in the session's own windows; activity shows everywhere
+  ;; while the agent is working, and the background count with it.
   (let [s sessions.current]
     (if (not s)
       ""
-      (let [details (when (session-buffer? s (vim.api.nvim_get_current_buf))
-                      (let [parts []
-                            model (config-by-category s :model)
-                            mode (config-by-category s :mode)]
+      (let [sep (status-highlight status-groups.separator " · ")
+            details (when (session-buffer? s (vim.api.nvim_get_current_buf))
+                      (let [parts []]
                         (table.insert parts (status-highlight status-groups.agent s.agent.name))
-                        (when model
-                          (table.insert parts (status-highlight status-groups.model model.display)))
-                        (when mode
-                          (table.insert parts (status-highlight status-groups.mode mode.display)))
+                        (let [model (config-by-category s :model)
+                              mode (config-by-category s :mode)]
+                          (when model
+                            (table.insert parts (status-highlight status-groups.model model.display)))
+                          (when mode
+                            (table.insert parts (status-highlight status-groups.mode mode.display))))
                         (when (and s.usage s.usage.size (> s.usage.size 0))
                           (let [pct (math.floor (/ (* 100 s.usage.used) s.usage.size))]
                             (table.insert parts
@@ -946,15 +1091,28 @@
                             (table.insert parts (status-highlight status-groups.cost cost))))
                         (when s.credits
                           (table.insert parts (status-highlight status-groups.credits s.credits)))
+                        ;; Last of the details, so a narrow window clips the model first.
+                        (when s.sandbox
+                          (table.insert parts (status-highlight status-groups.sandbox "sandbox")))
                         (when (> (length parts) 0)
-                          (table.concat parts
-                                        (status-highlight status-groups.separator " · ")))))
+                          (table.concat parts sep))))
             activity (render.activity-text s)
-            body (if (and details activity)
-                     (.. details (status-highlight status-groups.separator " | ")
-                         (status-highlight (status-activity-group s) activity))
-                     (or details activity))]
-        (if body
+            background (background-count s)
+            body (let [parts []
+                       add (fn [part separator]
+                             (when part
+                               (when (> (length parts) 0)
+                                 (table.insert parts
+                                               (status-highlight status-groups.separator separator)))
+                               (table.insert parts part)))]
+                   (add details " · ")
+                   (when activity
+                     (add (status-highlight (status-activity-group s) activity) " | "))
+                   (add (when (> background 0)
+                          (status-highlight status-groups.background (.. background " bg")))
+                        " · ")
+                   (table.concat parts ""))]
+        (if (> (length body) 0)
           (.. (status-highlight status-groups.frame "[")
               (status-highlight status-groups.name "acp") " "
               body

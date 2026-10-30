@@ -327,6 +327,7 @@
 (fn kind-hint [field]
   (case field.kind
     :choice "choice"
+    :multichoice "choice, several"
     :boolean "yes/no"
     :number "number"
     :string "text"
@@ -338,20 +339,24 @@
   (if (= nil (?. field :default)) ""
       (= field.kind :boolean)
       (if field.default "yes" "no")
+      (= (type field.default) :table)
+      (table.concat (vim.tbl_map tostring field.default) ", ")
       (tostring field.default)))
 
 (fn field-line [field]
-  ;; "  notes (text · optional · default: as-is)"
+  ;; "  notes — Notes (text · optional · default: as-is)"
   (let [parts [(kind-hint field)]]
     (table.insert parts (if field.required? "required" "optional"))
     (when (not= "" (default-text field))
       (table.insert parts (.. "default: " (default-text field))))
-    (.. "  " field.name " (" (table.concat parts " · ") ")")))
+    (.. "  " field.name (if field.title (.. " — " field.title) "")
+        " (" (table.concat parts " · ") ")")))
 
 (fn elicitation-lines [message fields]
   ;; What goes under an elicitation: the question in full, then each field's
   ;; prompt, with choice values numbered like permission choices. Answers are
-  ;; given through :AcpAnswer, so these lines are for reading, not pressing.
+  ;; given through the form <CR> or :AcpAnswer opens, so these lines are for
+  ;; reading, not pressing.
   (let [lines (vim.split message "\n" {:plain true})]
     (each [_ f (ipairs fields)]
       (table.insert lines "")
