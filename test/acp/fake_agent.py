@@ -80,6 +80,8 @@ for line in sys.stdin:
     m = msg.get("method")
     if m == "initialize":
         assert msg["params"]["protocolVersion"] == 1
+        caps = msg["params"]["clientCapabilities"]
+        assert "form" in (caps.get("elicitation") or {}), "form elicitation must be advertised"
         send({"id": msg["id"], "result": {"protocolVersion": 1, "agentCapabilities":
                                           dict({"loadSession": RESUMABLE},
                                                **({"sessionCapabilities": {"list": {}}} if RESUMABLE else {})),
@@ -157,6 +159,31 @@ for line in sys.stdin:
             text("Plan done.")
             send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
             continue
+        if prompt == "elicit":
+            text("Let me ask.")
+            send({"id": 104, "method": "elicitation/create",
+                  "params": {"sessionId": SID, "mode": "form",
+                             "message": "Which strategy?\nAnd anything to note.",
+                             "requestedSchema": {"type": "object",
+                                                 "properties": {
+                                                     "strategy": {"type": "string",
+                                                                  "enum": ["conservative", "balanced", "aggressive"]},
+                                                     "notes": {"type": "string", "default": "as-is"}},
+                                                 "required": ["strategy"]}}})
+            continue
+        if prompt == "elicit url":
+            # A mode the client never advertised: invalid params must come back.
+            send({"id": 105, "method": "elicitation/create",
+                  "params": {"sessionId": SID, "mode": "url", "elicitationId": "u1",
+                             "url": "https://example.invalid/connect", "message": "Authorize."}})
+            continue
+        if prompt == "elicit odd":
+            # An array field is outside the restricted form schema.
+            send({"id": 106, "method": "elicitation/create", "params": {"sessionId": SID, "mode": "form",
+                                                                        "message": "Odd.",
+                                                                        "requestedSchema": {"type": "object",
+                                                                                            "properties": {"things": {"type": "array"}}}}})
+            continue
         # default scenario: a JSON line split across writes, tools, an unknown request, a permission
         raw = json.dumps({"jsonrpc": "2.0", "method": "session/update",
                           "params": {"sessionId": SID, "update": {"sessionUpdate": "agent_message_chunk",
@@ -189,6 +216,26 @@ for line in sys.stdin:
         send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
     elif m == "session/cancel":
         send({"id": pending_prompt, "result": {"stopReason": "cancelled"}})
+    elif msg.get("id") == 104:
+        if "result" in msg:
+            action = msg["result"].get("action")
+            content = msg["result"].get("content") or {}
+            if action == "accept":
+                text("Answered strategy=%s notes=%s." % (content.get("strategy"), content.get("notes")))
+            elif action == "decline":
+                text("Declined.")
+            else:
+                text("Cancelled.")
+        else:
+            text("Error %s." % msg["error"]["code"])
+        send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
+    elif msg.get("id") == 105:
+        text("Could not ask: %s." % msg["error"]["code"])
+        send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
+    elif msg.get("id") == 106:
+        assert msg["result"]["action"] == "decline"
+        text("Declined.")
+        send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
     elif msg.get("id") == 101:
         allowed = msg["result"]["outcome"].get("optionId") == "allow"
         update({"sessionUpdate": "tool_call_update", "toolCallId": "t2", "status": "completed" if allowed else "failed",

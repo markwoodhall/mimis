@@ -12,12 +12,16 @@
    :session-cancel "session/cancel"
    :session-update "session/update"
    :set-config-option "session/set_config_option"
-   :request-permission "session/request_permission"})
+   :request-permission "session/request_permission"
+   :elicitation "elicitation/create"
+   :elicitation-complete "elicitation/complete"})
 
 (fn initialize-params []
   {:protocolVersion version
    :clientCapabilities {:fs {:readTextFile false :writeTextFile false}
-                        :terminal false}
+                        :terminal false
+                               ;; Form mode only: url mode needs consent prompts of its own.
+                               :elicitation {:form (vim.empty_dict)}}
    :clientInfo {:name "nvim-acp" :title "Neovim ACP client" :version "0.1.0"}})
 
 (fn parse-initialize [result]
@@ -164,6 +168,66 @@
 (fn permission-cancelled []
   {:outcome {:outcome :cancelled}})
 
+(fn choice-values [enum]
+  ;; enum entries may be plain values or {const, name, description} objects.
+  (icollect [_ v (ipairs (or enum []))]
+    (if (and (= (type v) :table) v.const)
+      {:value v.const :name (or v.name (tostring v.const)) :description v.description}
+      {:value v :name (tostring v)})))
+
+(fn field-kind [p]
+  ;; The kinds of answer the client can ask for; anything else is declined.
+  (case p.type
+    :boolean :boolean
+    :number :number
+    :integer :number
+    :string (if p.enum :choice :string)
+    _ :unsupported))
+
+(fn parse-field [name p]
+  ;; One property of a form-mode schema: flat, primitive types only.
+  (let [field {:name name
+               :kind (field-kind p)
+               :required? false
+               :description p.description
+               :default (?. p :default)}]
+    (case field.kind
+      :choice (set field.values (choice-values p.enum))
+      :number (do (set field.minimum p.minimum)
+                  (set field.maximum p.maximum))
+      _ nil)
+    field))
+
+(fn parse-elicitation [params]
+  ;; Form mode only. Every mode is parsed as-is so the caller can reject the
+  ;; ones it never advertised; url mode carries no schema at all.
+  (let [schema (or params.requestedSchema {})
+        fields (icollect [name p (pairs (or schema.properties {}))]
+                 (parse-field name p))]
+    (each [_ f (ipairs fields)]
+      (set f.required? (vim.tbl_contains (or schema.required []) f.name)))
+    ;; Fields arrive as a JSON object with no order of its own: required first,
+    ;; then by name, so the walk always asks the same way.
+    (table.sort fields (fn [a b]
+                         (if (not= a.required? b.required?)
+                           a.required?
+                           (< a.name b.name))))
+    {:mode (or params.mode :form)
+     :message (or params.message "")
+     :session-id params.sessionId
+     :tool-call-id params.toolCallId
+     :elicitation-id params.elicitationId
+     :fields fields}))
+
+(fn elicitation-accept [content]
+  {:action "accept" :content content})
+
+(fn elicitation-declined []
+  {:action "decline"})
+
+(fn elicitation-cancelled []
+  {:action "cancel"})
+
 {: version
  : methods
  : initialize-params
@@ -183,4 +247,8 @@
  : update-session-id
  : parse-permission
  : permission-selected
- : permission-cancelled}
+ : permission-cancelled
+ : parse-elicitation
+ : elicitation-accept
+ : elicitation-declined
+ : elicitation-cancelled}

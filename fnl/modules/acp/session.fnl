@@ -7,6 +7,8 @@
 (local log (require :modules.acp.log))
 (local history (require :modules.acp.history))
 (local credits (require :modules.acp.credits))
+(local form (require :modules.acp.form))
+(local sandbox (require :modules.acp.sandbox))
 
 (local sessions {:current nil})
 
@@ -444,11 +446,123 @@
       (vim.notify (.. "acp: the agent offered no " (. kinds 1) " choice") vim.log.levels.WARN)
       (answer-permission s choice))))
 
+;; Elicitations -------------------------------------------------------------------
+;; elicitation/create, form mode: the agent asks a question whose answers go
+;; back over the wire. Only form mode is advertised at initialize, so url mode
+;; and unknown modes are refused as invalid params, and a schema with fields
+;; the client can't show is declined with a note.
+
+(fn value-text [v]
+  ;; An answer as shown in the chat, on one line, cut like an activity label.
+  (let [text (case (type v)
+               :boolean (if v "yes" "no")
+               :string (pick-values 1 (string.gsub v "\n" "\\n"))
+               _ (tostring v))]
+    (if (> (vim.fn.strchars text) activity-width)
+      (.. (vim.fn.strcharpart text 0 (- activity-width 1)) "…")
+      text)))
+
+(fn answers-text [fields content]
+  ;; The accepted answers, in the fields' order: "strategy=aggressive, notes=…".
+  (table.concat (icollect [_ f (ipairs fields)]
+                  (let [v (?. content f.name)]
+                    (when (not= v nil)
+                      (.. f.name "=" (value-text v)))))
+                ", "))
+
+(fn elicitation-line [s block]
+  (.. "> elicitation: " (short-title s block.title)
+      " — " (or block.choice "awaiting answer")))
+
+(fn answer-elicitation [s action content]
+  ;; action is :accept, :decline or :cancel; content carries the accepted answers.
+  (let [e s.elicitation]
+    (when e
+      (set s.elicitation nil)
+      (render.detach-lines s e.block)
+      (set e.block.choice (case action
+                            :accept (.. "answered: " (answers-text e.fields content))
+                            :decline "declined"
+                            _ "cancelled"))
+      (set e.block.line (elicitation-line s e.block))
+      (render.update-line s e.block)
+      (when (running? s) (busy s (still-running-label s)))
+      (rpc.respond s.rpc e.id
+                   (case action
+                     :accept (protocol.elicitation-accept content)
+                     :decline (protocol.elicitation-declined)
+                     _ (protocol.elicitation-cancelled))))))
+
+(fn on-elicitation [s params id]
+  (let [e (protocol.parse-elicitation params)
+        unsupported (accumulate [found nil _ f (ipairs e.fields) &until found]
+                      (when (= f.kind :unsupported) f.name))]
+    (if (not= e.mode :form)
+      (do
+        (rpc.respond-error s.rpc id -32602 (.. "elicitation mode '" (tostring e.mode)
+                                               "' was not advertised"))
+        (note s (.. "> acp: the agent asked for a " (tostring e.mode)
+                    "-mode interaction, which the client can't show")))
+      unsupported
+      (do
+        (rpc.respond s.rpc id (protocol.elicitation-declined))
+        (note s (.. "> acp: the agent asked about '" unsupported "', a field type "
+                    "the client can't show — declined")))
+      (do
+        (when s.elicitation
+          ;; Only one question at a time; an older unanswered one is cancelled.
+          (answer-elicitation s :cancel))
+        (let [block {:type :line
+                     :title (or (. (vim.split e.message "\n" {:plain true}) 1) "a question")}]
+          (set block.line (elicitation-line s block))
+          (if (turn-active? s)
+            (add-line-block s block)
+            (render.add-line s block))
+          (set s.elicitation {: id : block :fields e.fields})
+          (if (= s.turn.state :cancelling)
+            (answer-elicitation s :cancel)
+            (do
+              (render.attach-lines s block (render.elicitation-lines e.message e.fields))
+              (when (turn-active? s)
+                (busy s "waiting for your answer"))
+              (when (not (render.visible? s.buf))
+                (vim.notify (.. "acp: agent asks: "
+                                (short-title s block.title activity-width)
+                                " (:Acp to answer)"))))))))))
+
+(fn answer-open [s]
+  ;; The form walk for the open elicitation (:AcpAnswer, or <CR> on its line).
+  (let [e s.elicitation]
+    (if (not e)
+      (vim.notify "acp: nothing is waiting for an answer" vim.log.levels.WARN)
+      (form.ask e.fields
+        (fn [action content]
+          ;; The question may have been cancelled or replaced meanwhile.
+          (when (= s.elicitation e)
+            (answer-elicitation s action content)))))))
+
+(fn decline-open [s]
+  (if s.elicitation
+    (answer-elicitation s :decline)
+    (vim.notify "acp: nothing is waiting for an answer" vim.log.levels.WARN)))
+
+(fn elicitation-at [s row]
+  ;; The open elicitation if row (1-based) is its line or its attached form.
+  (let [e s.elicitation]
+    (when (and e row (not= nil (render.attached-index s e.block row)))
+      e)))
+
+(fn first-elicitation-row [s]
+  ;; 1-based row of the waiting elicitation's line, if any.
+  (render.line-row s (?. s :elicitation :block)))
+
 ;; Requests from the agent ---------------------------------------------------------
 
 (fn on-request [s method params id]
   (if (= method protocol.methods.request-permission)
     (on-permission s params id)
+    (= method protocol.methods.elicitation)
+    (on-elicitation s params id)
     (rpc.method-not-found s.rpc id method)))
 
 (fn on-notification [s method params]
@@ -463,6 +577,7 @@
                  (.. "error: " (or err.message "unknown"))
                  (. (protocol.parse-prompt-result result) :stop-reason))]
     (when s.permission (answer-permission s nil))
+    (when s.elicitation (answer-elicitation s :cancel))
     (add-line-block s {:type :line :line (.. "> stop: " reason)})
     (set s.turn {:state :idle})
     (idle s)
@@ -501,6 +616,7 @@
       (set s.turn.state :cancelling)
       (rpc.notify s.rpc protocol.methods.session-cancel (protocol.cancel-params s.session.id))
       (answer-permission s nil)
+      (answer-elicitation s :cancel)
       (busy s "cancelling"))
     (vim.notify "acp: nothing to cancel")))
 
@@ -508,10 +624,12 @@
 
 (fn on-exit [s code]
   (set s.exited true)
+  (sandbox.stop s.sandbox)
   (when (and (not s.ended) (= vim.v.exiting vim.NIL))
     (rpc.fail-all s.rpc (.. "agent exited with code " code))
     (abandon-replay s)
     (set s.permission nil)
+    (set s.elicitation nil)
     (set s.turn {:state :idle})
     (idle s)
     (render.status s (.. "agent exited with code " code
@@ -669,6 +787,14 @@
             :pick (pick-session s info)
             _ (create-session s info)))))))
 
+(fn egress-line [s entry]
+  ;; The proxy logs every attempt; a denied one is worth saying out loud, but only
+  ;; once per host, or an agent retrying would bury the transcript.
+  (when (and (= entry.kind "DENY") entry.host (not (. s.egress entry.host)))
+    (tset s.egress entry.host true)
+    (render.status s (.. "egress blocked: " entry.host))
+    (log.append-note s (.. "> acp: egress blocked: " entry.host))))
+
 (fn start [agent requested intent]
   ;; agent: a profile from modules.acp.agents.
   ;; requested: {setting value} applied once the session exists, before it takes prompts.
@@ -676,7 +802,8 @@
   ;; once the agent is up, or {:kind :load :id :cwd :title} for one already chosen.
   (let [intent (or intent {:kind :new})
         cwd (or intent.cwd (project-root))
-        s {:agent {:name agent.name :cmd agent.cmd :credits-cmd agent.credits-cmd}
+        s {:agent {:name agent.name :cmd agent.cmd :credits-cmd agent.credits-cmd
+                   :sandbox agent.sandbox}
            : intent
            :session {:id nil
                      : cwd
@@ -689,26 +816,39 @@
            :ready false
            :usage nil
            :credits nil
-           :permission nil}]
+           :permission nil
+           :elicitation nil
+           :egress {}}]
     (log.init s)
     (render.create-buffers s)
     (set s.rpc (rpc.new {:send (fn [line] (transport.send s.agent.proc line))
                          :on-request (fn [method params id] (on-request s method params id))
                          :on-notification (fn [method params] (on-notification s method params))}))
-    (let [(proc err) (transport.start s.agent.cmd cwd
-                                      {:on-line (fn [line] (rpc.receive s.rpc line))
-                                       :on-exit (fn [code] (on-exit s code))}
-                                      agent.env-remove)]
-      (set s.agent.proc proc)
-      (set sessions.current s)
-      (if proc
+    (let [(box problem) (sandbox.prepare agent.sandbox cwd)]
+      (if problem
         (do
-          (render.status s (.. "starting " (table.concat s.agent.cmd " ") "…"))
-          (busy s "starting agent")
-          (handshake s))
-        (do
+          (set sessions.current s)
           (set s.exited true)
-          (render.status s (.. "could not start agent: " (tostring err))))))
+          (render.status s (.. "could not start agent: " problem)))
+        (let [(proc err) (transport.start s.agent.cmd cwd
+                                          {:on-line (fn [line] (rpc.receive s.rpc line))
+                                           :on-exit (fn [code] (on-exit s code))}
+                                          agent.env-remove box)]
+          (set s.agent.proc proc)
+          (set s.sandbox box)
+          (set sessions.current s)
+          (if proc
+            (do
+              (render.status s (.. "starting " (table.concat s.agent.cmd " ") "…"))
+              (when box
+                (render.status s (.. "sandbox: " (sandbox.describe agent.sandbox)))
+                (sandbox.watch box (fn [entry] (egress-line s entry))))
+              (busy s "starting agent")
+              (handshake s))
+            (do
+              (sandbox.stop box)
+              (set s.exited true)
+              (render.status s (.. "could not start agent: " (tostring err))))))))
     s))
 
 (fn stop [s]
@@ -716,7 +856,8 @@
     (when (= s.turn.state :running) (cancel s))
     (set s.ended true)
     (when (and s.agent.proc (not s.exited))
-      (transport.stop s.agent.proc))
+      (transport.stop s.agent.proc (and s.sandbox true)))
+    (sandbox.stop s.sandbox)
     (render.wipe s)
     (when (= sessions.current s)
       (set sessions.current nil))
@@ -734,7 +875,8 @@
       (set s.ended true)
       (render.activity s nil)
       (when (and s.agent.proc (not s.exited))
-        (transport.stop s.agent.proc)))))
+        (transport.stop s.agent.proc (and s.sandbox true)))
+      (sandbox.stop s.sandbox))))
 
 (fn session-buffer? [s buf]
   (= buf s.buf))
@@ -771,8 +913,10 @@
       status-groups.context))
 
 (fn status-activity-group [s]
-  (let [label (?. s :activity :label)]
-    (if (and label (string.find label "permission" 1 true))
+  (let [label (?. s :activity :label)
+        asks? (and label (or (string.find label "permission" 1 true)
+                             (string.find label "answer" 1 true)))]
+    (if asks?
       status-groups.alert
       status-groups.activity)))
 
@@ -856,7 +1000,11 @@
  : choice-at
  : choose-at
  : first-choice-row
+ : first-elicitation-row
  : choose-kind
+ : answer-open
+ : decline-open
+ : elicitation-at
  : toggle-tool
  : show-latest-tool
  : known-config

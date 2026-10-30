@@ -17,6 +17,17 @@
 ;; modules.acp.credits. The built-in opencode shows the last 30 days' spend.
 ;; :credits-cmd false turns it off for one agent.
 ;;
+;; :sandbox runs the agent in a network namespace where the only way out is a proxy
+;; that allows the hosts it lists and logs every attempt; see modules.acp.sandbox.
+;; Sandboxed agents also see the host read-only, and may write only to the session's
+;; project directory, /tmp, and their XDG data directory; see modules.acp.sandbox.
+;;   :sandbox false                     unsandboxed (the default)
+;;   :sandbox true                      no host allowed
+;;   :sandbox {:net false}              no network at all
+;;   :sandbox {:net :proxy :allow ["api.anthropic.com:443"]}
+;; A profile's :sandbox is the policy and the default. :Acp sandbox turns it on for one
+;; session (an agent with no policy gets no host allowed), :Acp nosandbox turns it off.
+;;
 ;; The default agent is the one :Acp starts when none is named: vim.g.acp-config's
 ;; :agent, else claude. vim.g.acp-agent-cmd, when set, replaces the command of the
 ;; default agent (keeping its other profile settings) and wins over its
@@ -43,6 +54,7 @@
   (if (and (= (type entry) :table) (not (vim.islist entry)))
     {:cmd (parse-cmd entry.cmd)
      :env-remove entry.env-remove
+     :sandbox entry.sandbox
      :credits-cmd (if (= entry.credits-cmd false) false (parse-cmd entry.credits-cmd))}
     {:cmd (parse-cmd entry)}))
 
@@ -57,6 +69,8 @@
           (set p.env-remove given.env-remove))
         (when (not= given.credits-cmd nil)
           (set p.credits-cmd given.credits-cmd))
+        (when (not= given.sandbox nil)
+          (set p.sandbox given.sandbox))
         (when (and p.cmd (> (length p.cmd) 0))
           (tset all name p))))
     all))
@@ -79,6 +93,7 @@
       {: name
        :cmd (if (and override (> (length override) 0)) override p.cmd)
        :env-remove (or p.env-remove default-env-remove)
+       :sandbox p.sandbox
        :credits-cmd (when (and p.credits-cmd (> (length p.credits-cmd) 0)) p.credits-cmd)})))
 
 {: names

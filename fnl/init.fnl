@@ -35,8 +35,20 @@
 (set vim.g.mimis-notes-path "/home/markwoodhall/notes")
 (set vim.g.mimis-notes-pandoc-opts "--data-dir=/home/markwoodhall/.pandoc --template default.html5 -c https://cdn.simplecss.org/simple.min.css")
 
-;;(let [ui2 (require "vim._core.ui2")]
-;;  (ui2.enable))
+;; ACP agents. :sandbox is the egress policy and the default for that agent; the
+;; command line (:Acp sandbox / :Acp nosandbox) overrides it for one session.
+;; This entry only adds the policy: the built-in command, :env-remove and credits
+;; command are kept.
+(set vim.g.acp-agents
+     {:opencode {:sandbox {:net :proxy
+                           :allow ["models.opencode.ai:443"
+                                   "opencode.ai:443"
+                                   "mcp.figma.com:443"
+                                   "mcp.shortcut.com:443"
+                                   "api.app.shortcut.com:443"]}}})
+
+(let [ui2 (require "vim._core.ui2")]
+  (ui2.enable))
 
 (package.setup
   {;; Keymaps

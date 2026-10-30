@@ -30,27 +30,38 @@
       (tset requested (. fargs i) (. fargs (+ i 1))))
     requested))
 
+(fn sandbox-flag [arg]
+  ;; :Acp's leading sandbox switch, if that's what this argument is. These two names
+  ;; are therefore reserved and can't be agent names.
+  (if (= arg "sandbox") true
+      (= arg "nosandbox") false))
+
 (fn setting-ids []
   ;; The settings the running session offers, or the last one did.
   (collect [_ o (ipairs (session.known-config))]
     (values o.id true)))
 
 (fn parse-args [fargs]
-  ;; ["opencode" "model" "x"] -> {:agent "opencode" :settings {:model "x"}}
-  ;; ["model" "x"]            -> {:settings {:model "x"}}
+  ;; ["sandbox" "opencode" "model" "x"] -> {:sandbox true :agent "opencode" :settings {:model "x"}}
+  ;; ["nosandbox"]                     -> {:sandbox false :settings {}}
+  ;; ["model" "x"]                     -> {:settings {:model "x"}}
+  ;; A leading sandbox/nosandbox switches the session's sandbox for this invocation;
+  ;; without one the agent's profile decides.
   ;; A first argument that names an agent (and isn't also a setting id) is the agent,
   ;; and what follows must be pairs. Otherwise all arguments are pairs, and an odd
   ;; count means the first one was meant as an agent that doesn't exist, or is also a
   ;; setting id (such an agent must be renamed: completion would be ambiguous).
-  (let [first (. fargs 1)
+  (let [flag (sandbox-flag (. fargs 1))
+        fargs (if (= flag nil) fargs (vim.list_slice fargs 2))
+        first (. fargs 1)
         agent? (and first (agents.get first) (not (. (setting-ids) first)))]
     (if agent?
       (if (= 0 (% (length fargs) 2))
         (values nil (.. "acp: settings come in pairs after the agent, e.g. :Acp "
                         first " model sonnet"))
-        {:agent first :settings (setting-pairs (vim.list_slice fargs 2))})
+        {:agent first :settings (setting-pairs (vim.list_slice fargs 2)) :sandbox flag})
       (= 0 (% (length fargs) 2))
-      {:settings (setting-pairs fargs)}
+      {:settings (setting-pairs fargs) :sandbox flag}
       (agents.get first)
       (values nil (.. "acp: '" first "' is both an agent and a setting of the agent, "
                       "rename the agent in vim.g.acp-agents"))
@@ -81,8 +92,9 @@
       (session.show-latest-tool s opts.mods))))
 
 (fn chat-keymaps [s]
-  ;; <CR> in the input area sends the prompt, on a permission choice answers it, on
-  ;; a tool line toggles its details, anywhere else does what <CR> normally does.
+  ;; <CR> in the input area sends the prompt, on a permission choice answers it,
+  ;; on a question opens its form, on a tool line toggles its details, anywhere
+  ;; else does what <CR> normally does.
   ;; Expr mappings can't change text, so the actions run just after.
   (vim.keymap.set :n "<CR>"
                   (fn []
@@ -91,15 +103,20 @@
                         (do (vim.schedule send) "")
                         (session.choice-at s row)
                         (do (vim.schedule #(session.choose-at s row)) "")
+                        (session.elicitation-at s row)
+                        (do (vim.schedule #(session.answer-open s)) "")
                         (session.tool-at s row)
                         "<Cmd>AcpTool<CR>"
                         "<CR>")))
-                  {:buffer s.buf :expr true :desc "ACP send, answer permission or toggle tool details"}))
+                  {:buffer s.buf :expr true
+                   :desc "ACP send, answer permission, answer a question or toggle tool details"}))
 
 (fn focus [s mods]
-  ;; Shows the chat with the cursor on a waiting permission choice, else in the input.
+  ;; Shows the chat with the cursor on a waiting permission choice or question,
+  ;; else in the input.
   (render.show s mods)
-  (render.cursor-to s (session.first-choice-row s)))
+  (render.cursor-to s (or (session.first-choice-row s)
+                          (session.first-elicitation-row s))))
 
 (fn allow [opts]
   (session.choose-kind (session.current)
@@ -108,13 +125,26 @@
 (fn reject []
   (session.choose-kind (session.current) [:reject_once :reject_always]))
 
-(fn start-new [s name requested mods intent]
+(fn answer []
+  (session.answer-open (session.current)))
+
+(fn decline []
+  (session.decline-open (session.current)))
+
+(fn sandbox-for [agent flag]
+  ;; flag is :Acp's switch: true (asked for), false (asked against), nil (the profile
+  ;; decides). Asking for one an agent has no policy for means no host is allowed.
+  (if (= flag false)
+    nil
+    (or agent.sandbox (and flag true))))
+
+(fn start-new [s name requested mods intent sandbox-flag]
   ;; Ends the current session, if any, and starts one with the named agent; with none
   ;; named, the current session's agent, else the default agent. intent says what the
   ;; session is for when it isn't just a new one, see session.start.
   (let [name (or name (and s s.agent.name) (agents.default-name))
-        agent (agents.get name)]
-    (if (not agent)
+        base (agents.get name)]
+    (if (not base)
       (vim.notify (.. "acp: unknown agent '" name "' in vim.g.acp-config (known: "
                       (table.concat (agents.names) ", ") ")")
                   vim.log.levels.WARN)
@@ -123,27 +153,31 @@
           (when (and (session.alive? s) (not= name s.agent.name))
             (vim.notify (.. "acp: switching agent from " s.agent.name " to " name)))
           (session.stop s))
-        (let [s (session.start agent (vim.tbl_extend :force (start-config) requested) intent)]
+        (let [agent (vim.deepcopy base)
+              _ (tset agent :sandbox (sandbox-for base sandbox-flag))
+              s (session.start agent (vim.tbl_extend :force (start-config) requested) intent)]
           (chat-keymaps s)
           (focus s mods))))))
 
 (fn open [opts]
-  ;; :Acp [agent] [setting value]...  open or focus the session, changing any settings
-  ;; given; naming a different agent than the running one starts a new session with it
-  ;; :Acp! [agent] [setting value]... end the current session and start a new one, with
-  ;; the same agent unless another is named
+  ;; :Acp [sandbox|nosandbox] [agent] [setting value]...
+  ;;   open or focus the session, changing any settings given; naming a different
+  ;;   agent, or flipping the sandbox, starts a new session.
+  ;; :Acp! ... end the current session and start a new one, with the same agent unless
+  ;;   another is named.
   ;; New sessions start from vim.g.acp-config, with the arguments on top.
   (let [s (session.current)
         (parsed problem) (parse-args opts.fargs)]
     (if (not parsed)
       (vim.notify problem vim.log.levels.WARN)
       (and (session.alive? s) (not opts.bang)
-           (or (not parsed.agent) (= parsed.agent s.agent.name)))
+           (or (not parsed.agent) (= parsed.agent s.agent.name))
+           (or (= parsed.sandbox nil) (= parsed.sandbox (and s.sandbox true))))
       (do
         (when (next parsed.settings)
           (session.configure s parsed.settings))
         (focus s opts.mods))
-      (start-new s parsed.agent parsed.settings opts.mods))))
+      (start-new s parsed.agent parsed.settings opts.mods nil parsed.sandbox))))
 
 (fn resume [opts]
   ;; :AcpResume [agent] [session-id]  choose an earlier session of this project to
@@ -203,14 +237,17 @@
 
 (fn complete-settings [max-pairs agents?]
   ;; Completes "setting value" pairs, from the running session or the last one seen.
-  ;; With agents?, the first argument may also be an agent name, which shifts the pairs by one.
+  ;; With agents?, the first argument may also be an agent name, which shifts the pairs
+  ;; by one, and with no argument at all the sandbox switches are offered too.
   (fn [arglead cmdline _]
     (let [known (session.known-config)
           ids (setting-ids)
           args (. (vim.api.nvim_parse_cmd cmdline {}) :args)
+          skip (if (sandbox-flag (. args 1)) 1 0)
           done (if (= arglead "") (length args) (- (length args) 1))
-          lead (when (and agents? (> done 0)) (. args 1))
-          offset (if (and lead (agents.get lead) (not (. ids lead))) 1 0)
+          left (- done skip)
+          lead (when (and agents? (> left 0)) (. args (+ skip 1)))
+          offset (+ skip (if (and lead (agents.get lead) (not (. ids lead))) 1 0))
           candidates (if (>= (- done offset) (* 2 max-pairs))
                        []
                        (= 0 (% (- done offset) 2))
@@ -219,9 +256,13 @@
                                        (values a true)))
                              settings (icollect [_ o (ipairs known)]
                                         (when (not (. given o.id)) o.id))]
-                         (if (and agents? (= done 0))
-                           (vim.list_extend settings (icollect [_ n (ipairs (agents.names))]
-                                                       (when (not (. ids n)) n)))
+                         (if (and agents? (= left 0))
+                           (vim.list_extend
+                             (vim.list_extend
+                               settings
+                               (icollect [_ n (ipairs (agents.names))]
+                                 (when (not (. ids n)) n)))
+                             (if (= skip 0) ["sandbox" "nosandbox"] []))
                            settings))
                        (let [id (. args done)]
                          (accumulate [choices [] _ o (ipairs known)]
@@ -263,7 +304,7 @@
 
   (vim.api.nvim_create_user_command "Acp" open
     {:nargs "*" :bang true :complete (complete-settings 10 true)
-     :desc "Open or focus the ACP session; ! starts a new one; args are an optional agent, then setting/value pairs"})
+     :desc "Open or focus the ACP session; ! starts a new one; args are sandbox|nosandbox, an optional agent, then setting/value pairs"})
   (vim.api.nvim_create_user_command "AcpResume" resume
     {:nargs "*" :bang true
      :complete (fn [arglead _ _]
@@ -284,6 +325,10 @@
     {:bang true :desc "Allow the agent's permission request once (! to always allow)"})
   (vim.api.nvim_create_user_command "AcpReject" reject
     {:desc "Reject the agent's permission request"})
+  (vim.api.nvim_create_user_command "AcpAnswer" answer
+    {:desc "Answer the agent's question (form elicitation); <CR> on its line does the same"})
+  (vim.api.nvim_create_user_command "AcpDecline" decline
+    {:desc "Decline the agent's question"})
   (vim.api.nvim_create_user_command "AcpTool" tool
     {:desc "Toggle the details of the tool call under the cursor, or show the latest one"})
   (vim.api.nvim_create_user_command "AcpOpenBlock" render.open-code-block

@@ -19,13 +19,13 @@
   (tset (. vim.bo buf) :filetype :markdown)
   (pcall vim.treesitter.stop buf)
   (tset (. vim.bo buf) :syntax :markdown)
-  ;; The tool, permission, stop and acp rows carry agent-supplied titles. Left to
+  ;; The tool, permission, elicitation, stop and acp rows carry agent-supplied titles. Left to
   ;; markdown, a stray backtick or fence in a title opens syntax that colours every
   ;; line below it, so keep those rows (and the folded >> thinking) out of markdown.
   (vim.api.nvim_buf_call buf
     (fn []
       (vim.cmd (.. "syntax region AcpUiLine matchgroup=AcpUiPrefix "
-                   "start=/^>\\%(>\\| \\%(tool\\|permission\\|stop\\|acp\\):\\)/ "
+                   "start=/^>\\%(>\\| \\%(tool\\|permission\\|elicitation\\|stop\\|acp\\):\\)/ "
                    "end=/$/ contains=NONE")))))
 
 (fn create-buffers [s]
@@ -324,6 +324,44 @@
       (table.insert shown (.. "… " hidden " more lines, <CR> on the tool line shows them all")))
     (fenced :diff (table.concat shown "\n"))))
 
+(fn kind-hint [field]
+  (case field.kind
+    :choice "choice"
+    :boolean "yes/no"
+    :number "number"
+    :string "text"
+    _ "?"))
+
+(fn default-text [field]
+  ;; A field's default as it would be answered. Booleans never have one shown
+  ;; unless the agent sent it: yes or no.
+  (if (= nil (?. field :default)) ""
+      (= field.kind :boolean)
+      (if field.default "yes" "no")
+      (tostring field.default)))
+
+(fn field-line [field]
+  ;; "  notes (text · optional · default: as-is)"
+  (let [parts [(kind-hint field)]]
+    (table.insert parts (if field.required? "required" "optional"))
+    (when (not= "" (default-text field))
+      (table.insert parts (.. "default: " (default-text field))))
+    (.. "  " field.name " (" (table.concat parts " · ") ")")))
+
+(fn elicitation-lines [message fields]
+  ;; What goes under an elicitation: the question in full, then each field's
+  ;; prompt, with choice values numbered like permission choices. Answers are
+  ;; given through :AcpAnswer, so these lines are for reading, not pressing.
+  (let [lines (vim.split message "\n" {:plain true})]
+    (each [_ f (ipairs fields)]
+      (table.insert lines "")
+      (table.insert lines (field-line f))
+      (when f.description (table.insert lines (.. "    " f.description)))
+      (each [i o (ipairs (or f.values []))]
+        (table.insert lines (.. "  " i ". " o.name
+                                (if o.description (.. " — " o.description) "")))))
+    lines))
+
 (fn permission-lines [s details full-title kind options]
   ;; What goes under a permission request: the diff being asked for (or the full
   ;; command when its line had to shorten it), then the numbered choices.
@@ -389,8 +427,8 @@
 ;; yanked, searched and gF'd. The session log is built from blocks, so it never sees them.
 
 ;; Attached lines: real text shown under a block's line (tool details, permission
-;; choices) that isn't part of the turn, so the log never sees it. block.attached is
-;; how many lines are attached.
+;; choices, elicitation questions) that isn't part of the turn, so the log never
+;; sees it. block.attached is how many lines are attached.
 ;;
 ;; They're inserted at the end of the block's line, not at the start of the next
 ;; line, so the next line's extmark (left gravity at column 0) moves down with them.
@@ -529,6 +567,7 @@
  : open-tool-details
  : diff-stats
  : permission-lines
+ : elicitation-lines
  : attach-lines
  : detach-lines
  : attached-index

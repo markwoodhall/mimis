@@ -14,6 +14,7 @@
 (set vim.g.acp-log-dir (vim.fn.tempname))
 ;; Keep test traffic out of the real debug log and settings cache, even if a run aborts.
 (set vim.g.acp-debug-log (vim.fn.tempname))
+(set vim.g.acp-egress-log-dir (vim.fn.tempname))
 (set vim.g.acp-config-cache (vim.fn.tempname))
 (local real-debug-log (.. (vim.fn.stdpath :log) "/acp-debug.log"))
 (local real-debug-size (vim.fn.getfsize real-debug-log))
@@ -414,6 +415,143 @@
   (check "a change between turns is logged" (has-line log "> acp: Mode → Plan") log)
   (check "a change during a turn is logged" (has-line log "> acp: Mode → Manual") log))
 
+;; Elicitation ------------------------------------------------------------------------
+
+(local protocol (require :modules.acp.protocol))
+(let [params (protocol.initialize-params)]
+  (check "form elicitation is advertised at initialize"
+         (not= nil (?. params :clientCapabilities :elicitation :form))
+         params))
+
+;; vim.ui prompts are stood in: each select or input takes the next planned answer.
+(local original-ui-select vim.ui.select)
+(local original-ui-input vim.ui.input)
+(var select-plan [])
+(var input-plan [])
+(var ui-asks [])
+(set vim.ui.select
+     (fn [items opts on-choice]
+       (table.insert ui-asks opts.prompt)
+       (on-choice (when (> (length select-plan) 0)
+                    (. items (table.remove select-plan 1))))))
+(set vim.ui.input
+     (fn [opts on-confirm]
+       (table.insert ui-asks opts.prompt)
+       (when (> (length input-plan) 0)
+         (let [answer (table.remove input-plan 1)]
+           (on-confirm (if (= answer :default) opts.default answer))))))
+
+(session.send-prompt s "elicit")
+(wait #(not= nil s.elicitation))
+(local elic-row (last-row-of "> elicitation: Which strategy? — awaiting answer"))
+(let [under (lines-after elic-row 10)]
+  (check "the question is asked in the chat with its fields"
+         (vim.deep_equal ["Which strategy?" "And anything to note."
+                          "" "  strategy (choice · required)"
+                          "  1. conservative" "  2. balanced" "  3. aggressive"
+                          "" "  notes (text · optional · default: as-is)" ""]
+                         (vim.list_slice under 1 10))
+         under))
+(check "the statusline shows a waiting question"
+       (not= nil (string.find (session.status-text) "waiting for your answer" 1 true))
+       (session.status-text))
+
+(set ui-asks [])
+(set select-plan [3 3])
+(set input-plan [:default])
+(vim.cmd "AcpAnswer")
+(wait #(= s.turn.state :idle))
+(let [chat (lines-of s.buf)]
+  (check "the agent receives the answers" (has-line chat "Answered strategy=aggressive notes=as-is.") chat)
+  (check "the answers are summarized on the block line"
+         (has-line chat "> elicitation: Which strategy? — answered: strategy=aggressive, notes=as-is")
+         chat)
+  (check "the form goes once answered" (not (has-line chat "  1. conservative")) chat)
+  (check "the input was prefilled with the default" (= "notes: " (. ui-asks 2)) ui-asks)
+  (check "the review asks through the ui"
+         (vim.deep_equal ["strategy: " "notes: " "Answers: "] ui-asks) ui-asks))
+
+(session.send-prompt s "elicit")
+(wait #(not= nil s.elicitation))
+(vim.cmd "AcpDecline")
+(wait #(= s.turn.state :idle))
+(let [chat (lines-of s.buf)]
+  (check ":AcpDecline declines without the walk"
+         (and (has-line chat "> elicitation: Which strategy? — declined")
+              (has-line chat "Declined."))
+         chat))
+
+(session.send-prompt s "elicit")
+(wait #(not= nil s.elicitation))
+(set select-plan [1 4])
+(set input-plan [""])
+(vim.cmd "AcpAnswer")
+(wait #(= s.turn.state :idle))
+(let [chat (lines-of s.buf)]
+  (check "an optional field left empty is left out, and review declines"
+         (and (has-line chat "> elicitation: Which strategy? — declined")
+              (has-line chat "Declined."))
+         chat))
+
+(session.send-prompt s "elicit")
+(wait #(not= nil s.elicitation))
+(set select-plan [1 3])
+(set input-plan [:default])
+(press-enter-on (last-row-of "> elicitation: Which strategy? — awaiting answer"))
+(wait #(= s.turn.state :idle))
+(check "<CR> on the question line opens the form"
+       (has-line (lines-of s.buf) "> elicitation: Which strategy? — answered: strategy=conservative, notes=as-is")
+       (lines-of s.buf))
+
+(session.send-prompt s "elicit")
+(wait #(not= nil s.elicitation))
+(set select-plan [])
+(set input-plan [])
+(vim.cmd "AcpAnswer")
+(wait #(= s.turn.state :idle))
+(let [chat (lines-of s.buf)]
+  (check "dismissing the form cancels the reply"
+         (and (has-line chat "> elicitation: Which strategy? — cancelled")
+              (has-line chat "Cancelled."))
+         chat))
+
+(session.send-prompt s "elicit")
+(wait #(not= nil s.elicitation))
+(vim.cmd "AcpCancel")
+(wait #(= s.turn.state :idle))
+(check "cancelling the turn answers the open question"
+       (has-line (lines-of s.buf) "> elicitation: Which strategy? — cancelled")
+       (lines-of s.buf))
+
+(session.send-prompt s "elicit url")
+(wait #(= s.turn.state :idle))
+(let [chat (lines-of s.buf)]
+  (check "a url-mode question is refused as invalid params"
+         (and (has-line chat "Could not ask: -32602.")
+              (has-line chat "> acp: the agent asked for a url-mode interaction, which the client can't show"))
+         chat))
+
+(session.send-prompt s "elicit odd")
+(wait #(= s.turn.state :idle))
+(let [chat (lines-of s.buf)]
+  (check "a field type the client can't show is declined"
+         (and (has-line chat "Declined.")
+              (has-line chat "> acp: the agent asked about 'things', a field type the client can't show — declined"))
+         chat))
+
+(let [messages []]
+  (let [original vim.notify]
+    (set vim.notify (fn [msg] (table.insert messages msg)))
+    (vim.cmd "AcpDecline")
+    (set vim.notify original))
+  (check "AcpDecline with nothing waiting says so"
+         (accumulate [found false _ m (ipairs messages)]
+           (or found (not= nil (string.find m "nothing is waiting for an answer" 1 true))))
+         messages))
+
+(set vim.ui.select original-ui-select)
+(set vim.ui.input original-ui-input)
+
 ;; Commands ------------------------------------------------------------------------
 
 (set-input ["draft"])
@@ -489,8 +627,13 @@
 (check "AcpStop removes the buffers" (not (vim.api.nvim_buf_is_valid chat-buf)))
 
 (check ":Acp completes settings and agents from the last session"
-       (vim.deep_equal ["mode" "model" "claude" "opencode"] (vim.fn.getcompletion "Acp " "cmdline"))
+       (vim.deep_equal ["mode" "model" "claude" "opencode" "sandbox" "nosandbox"]
+                       (vim.fn.getcompletion "Acp " "cmdline"))
        (vim.fn.getcompletion "Acp " "cmdline"))
+(check ":Acp completes agents and settings after a sandbox switch"
+       (vim.deep_equal ["mode" "model" "claude" "opencode"]
+                       (vim.fn.getcompletion "Acp sandbox " "cmdline"))
+       (vim.fn.getcompletion "Acp sandbox " "cmdline"))
 (check ":Acp completes values from the last session"
        (vim.deep_equal ["default" "sonnet"] (vim.fn.getcompletion "Acp mode plan model " "cmdline")))
 (check ":Acp doesn't offer settings already given"
@@ -520,6 +663,13 @@
     (or found (not= nil (string.find m text 1 true)))))
 
 ;; Argument parsing
+(check "a leading sandbox switch is neither an agent nor a setting"
+       (and (vim.deep_equal {:sandbox true :settings {}} (acp.parse-args ["sandbox"]))
+            (vim.deep_equal {:sandbox false :settings {}} (acp.parse-args ["nosandbox"]))
+            (vim.deep_equal {:sandbox true :agent "opencode" :settings {:model "x"}}
+                            (acp.parse-args ["sandbox" "opencode" "model" "x"]))
+            (= nil (. (acp.parse-args ["model" "x"]) :sandbox))))
+
 (check "no arguments: no agent, no settings"
        (vim.deep_equal {:settings {}} (acp.parse-args [])))
 (check "settings only are pairs, as before"
@@ -603,6 +753,222 @@
            (set vim.g.acp-config nil)
            (set vim.g.acp-agents {:opencode ["python3" (.. here "/fake_agent.py") "opencode"]})
            ok)))
+
+;; Sandbox: no route out except the proxy ------------------------------------------
+
+(local sandbox (require :modules.acp.sandbox))
+
+(check "a :sandbox spec is off, deny-all, no network, or a host list"
+       (and (= nil (sandbox.normalize nil))
+            (= nil (sandbox.normalize false))
+            (vim.deep_equal {:net :proxy :allow []} (sandbox.normalize true))
+            (vim.deep_equal {:net false} (sandbox.normalize {:net false}))
+            (vim.deep_equal {:net :proxy :allow ["a:443"] :mask nil}
+                            (sandbox.normalize {:allow ["a:443"]}))))
+
+(check "a profile's :sandbox reaches agents.get"
+       (do
+         (set vim.g.acp-agents {:s {:cmd ["x"] :sandbox {:allow ["api.anthropic.com:443"]}}})
+         (let [a (agents.get :s)]
+           (set vim.g.acp-agents {:opencode ["python3" (.. here "/fake_agent.py") "opencode"]})
+           (vim.deep_equal {:allow ["api.anthropic.com:443"]} a.sandbox))))
+
+(let [project (vim.fn.tempname)
+      _ (vim.fn.mkdir project "p")
+      (box problem) (sandbox.prepare {:net false} project)]
+  (check "a no-network sandbox starts no proxy"
+         (and box (not problem) (= nil box.proc) (= nil box.env.HTTPS_PROXY)
+              (vim.tbl_contains box.prefix "--unshare-net")
+              (= "--" (. box.prefix (length box.prefix))))
+         (or problem box.prefix))
+  (when box
+    (check "the sandbox binds the host read-only with the project, /tmp and the data home writable"
+           (let [argv box.prefix
+                 data (sandbox.data-dir)]
+             (and
+               ;; No whole-host writable bind any more.
+               (accumulate [ok true i v (ipairs argv)]
+                 (and ok (not (and (= v "--dev-bind") (= "/" (. argv (+ i 1)))))))
+               (accumulate [seen false i v (ipairs argv)]
+                 (or seen (and (= v "--bind-try")
+                               (= (. argv (+ i 1)) project)
+                               (= (. argv (+ i 2)) project))))
+               (accumulate [seen false i v (ipairs argv)]
+                 (or seen (and (= v "--bind-try")
+                               (= (. argv (+ i 1)) data)
+                               (= (. argv (+ i 2)) data))))
+               (accumulate [seen false i v (ipairs argv)]
+                 (or seen (and (= v "--bind")
+                               (= (. argv (+ i 1)) "/tmp")
+                               (= (. argv (+ i 2)) "/tmp"))))))
+           box.prefix)
+    (let [res (vim.system (vim.list_extend (vim.deepcopy box.prefix)
+                                           ["/bin/sh" :-c
+                                            (.. "touch " (vim.fn.shellescape (.. project "/probe"))
+                                                " /tmp/acp-sandbox-probe"
+                                                " " (vim.fn.shellescape (.. (sandbox.data-dir) "/acp-sandbox-probe"))
+                                                " 2>/dev/null; if (echo > $HOME/.acp-probe) 2>/dev/null; then echo home-writable; else echo home-read-only; fi")])
+                          {:text true})
+          out (res:wait)]
+      (check "the agent can write the project, /tmp and its data home, and nowhere else"
+             (and (vim.uv.fs_stat (.. project "/probe"))
+                  (vim.uv.fs_stat "/tmp/acp-sandbox-probe")
+                  (vim.uv.fs_stat (.. (sandbox.data-dir) "/acp-sandbox-probe"))
+                  (string.match (tostring out.stdout) "home%-read%-only"))
+             out)
+      (vim.fn.delete (.. project "/probe"))
+      (vim.fn.delete "/tmp/acp-sandbox-probe")
+      (vim.fn.delete (.. (sandbox.data-dir) "/acp-sandbox-probe"))
+      (vim.fn.delete project)))
+  (sandbox.stop box))
+
+(when (sandbox.available?)
+  ;; A local echo server stands in for the model's API, so the test needs no network.
+  (let [server (vim.uv.new_tcp)]
+    (server:bind "127.0.0.1" 0)
+    (server:listen 8
+                   (fn []
+                     (let [client (vim.uv.new_tcp)]
+                       (server:accept client)
+                       (client:read_start (fn [_ chunk]
+                                            (when chunk (client:write chunk)))))))
+    (let [port (. (server:getsockname) :port)
+          script (.. vim.g.acp-log-dir "/egress_client.py")
+          body (.. "import os, socket, threading\n"
+                   "proxy = os.environ.get('HTTPS_PROXY', '')\n"
+                   "print('proxy', proxy)\n"
+                   "print('all_proxy', os.environ.get('ALL_PROXY', 'unset'))\n"
+                   "print('no_proxy', os.environ.get('NO_PROXY', ''))\n"
+                   "srv = socket.socket()\n"
+                   "srv.bind(('127.0.0.1', 0))\n"
+                   "srv.listen(1)\n"
+                   "def local():\n"
+                   "    c, _ = srv.accept()\n"
+                   "    c.sendall(b'local')\n"
+                   "    c.close()\n"
+                   "threading.Thread(target=local, daemon=True).start()\n"
+                   "c = socket.create_connection(('127.0.0.1', srv.getsockname()[1]), 3)\n"
+                   "print('loopback', c.recv(16).decode())\n"
+                   "c.close()\n"
+                   "def connect(hostport):\n"
+                   "    host, port = proxy.split('://')[1].split(':')\n"
+                   "    c = socket.create_connection((host, int(port)), 5)\n"
+                   "    c.sendall(f'CONNECT {hostport} HTTP/1.1\\r\\n\\r\\n'.encode())\n"
+                   "    head = b''\n"
+                   "    while b'\\r\\n\\r\\n' not in head:\n"
+                   "        chunk = c.recv(4096)\n"
+                   "        if not chunk: break\n"
+                   "        head += chunk\n"
+                   "    return c, head.split(b'\\r\\n', 1)[0].decode()\n"
+                   "c, line = connect('127.0.0.1:" (tostring port) "')\n"
+                   "print('allowed', line)\n"
+                   "c.sendall(b'ping\\n')\n"
+                   "print('echo', c.recv(64).decode().strip())\n"
+                   "c.close()\n"
+                   "c, line = connect('blocked.invalid:443')\n"
+                   "print('blocked', line)\n"
+                   "c.close()\n"
+                   "ph, pp = proxy.split('://')[1].split(':')\n"
+                   "c = socket.create_connection((ph, int(pp)), 5)\n"
+                   "c.sendall(b'GET http://127.0.0.1:" (tostring port) "/x HTTP/1.1\\r\\nHost: h\\r\\n\\r\\n')\n"
+                   "print('http', c.recv(200).decode().split('\\r\\n', 1)[0])\n"
+                   "c.close()\n"
+                   "try:\n"
+                   "    socket.create_connection(('1.1.1.1', 443), 2).close()\n"
+                   "    print('direct connected')\n"
+                   "except OSError as e:\n"
+                   "    print('direct', e.errno)\n")]
+      (vim.fn.writefile (vim.split body "\n" {:plain true}) script)
+      ;; An inherited proxy would be a way around the sandbox's own.
+      (set vim.env.ALL_PROXY "socks5://10.9.9.9:9")
+      (let [lines []
+            (box problem) (sandbox.prepare {:net :proxy :allow [(.. "127.0.0.1:" port)]}
+                                           vim.g.acp-log-dir)
+            sock (?. box :sock)
+            log (?. box :log)]
+        (check "the egress proxy starts on a socket" (and box (not problem)) problem)
+        (when box
+          (let [done []
+                (proc err) (transport.start ["python3" script] vim.g.acp-log-dir
+                                            {:on-line (fn [l] (table.insert lines l))
+                                             :on-exit (fn [_] (table.insert done true))}
+                                            [] box)]
+            (wait #(= 1 (length done)) 15000)
+            (check "the sandboxed agent gets the proxy environment"
+                   (and (has-line lines "proxy http://127.0.0.1:8899")
+                        (has-line lines "all_proxy unset")
+                        (has-line lines "no_proxy localhost,127.0.0.1,::1"))
+                   (and proc lines))
+            (check "loopback inside the sandbox is the sandbox's own"
+                   (has-line lines "loopback local") lines)
+            (check "an allow-listed host is reached through the proxy"
+                   (and (has-line lines "allowed HTTP/1.1 200 Connection established")
+                        (has-line lines "echo ping"))
+                   lines)
+            (check "plain HTTP goes through the same allowlist"
+                   (has-line lines "http GET /x HTTP/1.1") lines)
+            (check "a host not on the list is refused"
+                   (has-line lines "blocked HTTP/1.1 403 Forbidden") lines)
+            (check "nothing reaches the network except through the proxy"
+                   (and (not (has-line lines "direct connected"))
+                        (accumulate [found false _ l (ipairs lines)]
+                          (or found (string.match l "^direct %d+$"))))
+                   lines)
+            (let [written (vim.fn.readfile log)]
+              (check "the proxy logs what it allowed and what it refused"
+                     (and (accumulate [ok false _ l (ipairs written)]
+                            (or ok (string.find l (.. "ALLOW 127.0.0.1:" port) 1 true)))
+                          (accumulate [ok false _ l (ipairs written)]
+                            (or ok (string.find l "DENY blocked.invalid:443" 1 true))))
+                     written)))
+          (sandbox.stop box)
+          (check "stopping the session removes the socket" (= nil (vim.uv.fs_stat sock)) sock)))
+      (set vim.env.ALL_PROXY nil)
+      (server:close)
+      (vim.fn.delete script))))
+
+;; A whole session through the sandbox, agent included.
+(when (sandbox.available?)
+  (set vim.g.acp-agents {:sandboxed {:cmd ["python3" (.. here "/fake_agent.py") "sandboxed"]
+                                     :sandbox {:net :proxy :allow []}}})
+  (vim.cmd "Acp sandboxed")
+  (let [s (session.current)]
+    (wait #(?. s :ready) 15000)
+    (let [lines (lines-of s.buf)]
+      (check "a sandboxed agent still completes the handshake" (?. s :ready) lines)
+      (check "the chat says the session is sandboxed"
+             (has-line lines "> acp: sandbox: no host allowed") lines))
+    (let [box s.sandbox
+          sock (?. box :sock)]
+      ;; The proxy's log is the only channel; a denial written to it reaches the chat.
+      (vim.fn.writefile ["2026-01-01T00:00:00 DENY evil.example:443"] box.log "a")
+      (wait #(has-line (lines-of s.buf) "> acp: egress blocked: evil.example:443") 3000)
+      (check "a refused host is said in the chat, once"
+             (has-line (lines-of s.buf) "> acp: egress blocked: evil.example:443")
+             (lines-of s.buf))
+      (session.stop s)
+      (check "ending a sandboxed session stops the proxy and removes its socket"
+             (and box (= nil box.proc) (= nil (vim.uv.fs_stat sock)))
+             sock)))
+  (set vim.g.acp-agents {:opencode ["python3" (.. here "/fake_agent.py") "opencode"]}))
+
+;; :Acp sandbox and :Acp nosandbox switch it per invocation.
+(when (sandbox.available?)
+  (vim.cmd "Acp sandbox opencode")
+  (let [s (session.current)]
+    (wait #(?. s :ready) 15000)
+    (check ":Acp sandbox sandboxes an agent whose profile has no policy"
+           (and (?. s :sandbox)
+                (= "opencode" s.agent.name)
+                (has-line (lines-of s.buf) "> acp: sandbox: no host allowed"))
+           (lines-of s.buf))
+    (vim.cmd "Acp nosandbox")
+    (let [s2 (session.current)]
+      (wait #(?. s2 :ready) 15000)
+      (check ":Acp nosandbox restarts the session outside the sandbox"
+             (and (not= s s2) (= nil s2.sandbox) (?. s2 :ready))
+             s2.sandbox)
+      (session.stop s2))))
 
 ;; Starting, switching and focusing
 (let [messages (notified #(vim.cmd "Acp opencod model x"))]
@@ -699,7 +1065,8 @@
 ;; Completion
 (vim.cmd "AcpStop")
 (check ":Acp completes settings and agent names"
-       (vim.deep_equal ["mode" "model" "claude" "opencode"] (vim.fn.getcompletion "Acp " "cmdline")))
+       (vim.deep_equal ["mode" "model" "claude" "opencode" "sandbox" "nosandbox"]
+                       (vim.fn.getcompletion "Acp " "cmdline")))
 (check ":Acp completes an agent name's prefix"
        (vim.deep_equal ["opencode"] (vim.fn.getcompletion "Acp ope" "cmdline")))
 (check ":Acp completes settings after an agent"
@@ -1156,6 +1523,7 @@
 (vim.fn.delete vim.g.acp-debug-log)
 
 (vim.fn.delete vim.g.acp-log-dir "rf")
+(vim.fn.delete vim.g.acp-egress-log-dir "rf")
 (check "the real settings cache is left alone"
        (vim.deep_equal real-cache-before
                        (when (= 1 (vim.fn.filereadable real-cache)) (vim.fn.readfile real-cache))))
