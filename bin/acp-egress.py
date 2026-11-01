@@ -5,9 +5,17 @@ Two roles, run in two network namespaces:
 
   serve   the host side. A CONNECT proxy on a unix socket. Only the hosts on
           --allow may be reached; every attempt, allowed or denied, is logged.
+          With --ask N, a host not on the list is held for up to N seconds and
+          asked about on stdout ("ASK host:port"); Neovim answers on stdin with
+          "allow", "deny" or "block" and the host. Allow and block last as long
+          as the proxy. The sandbox can reach the socket but not these pipes, so
+          the agent can't answer for you.
   relay   the sandbox side. Bridges 127.0.0.1:<port> inside the sandbox to that
           unix socket, then execs the agent, so the agent's pid is bwrap's child
-          and the agent inherits the proxy's lifetime.
+          and the agent inherits the proxy's lifetime. Each --forward PORT also
+          listens on 127.0.0.1:PORT inside the sandbox and asks the proxy for
+          localhost:PORT on the host, so a client that knows nothing of proxies
+          (psql, redis-cli) reaches a host service once you allow it.
 
 The network namespace has no route out, so the proxy is the only way to reach
 anything: an agent that ignores HTTPS_PROXY does not leak, it fails.
@@ -41,7 +49,7 @@ def log(path, line):
 def split_hostport(text, default_port=443):
     text = text.strip()
     if text.startswith("["):
-        host, _, rest = text[1].partition("]")
+        host, _, rest = text[1:].partition("]")
         port = rest[1:] if rest.startswith(":") else ""
         return host, port or str(default_port)
     host, _, port = text.rpartition(":")
@@ -72,10 +80,49 @@ def pump(a, b):
 
 
 class Proxy:
-    def __init__(self, sock_path, allow, log_path):
+    def __init__(self, sock_path, allow, log_path, ask=0.0):
         self.sock_path = sock_path
         self.allow = {self.key(entry) for entry in allow}
         self.log_path = log_path
+        self.ask = ask
+        self.blocked = set()
+        # Hosts asked about and not yet answered: one question however many
+        # requests are waiting on it, and none again while it is still open.
+        self.asking = set()
+        self.cond = threading.Condition()
+
+    def permitted(self, key):
+        with self.cond:
+            if key in self.allow:
+                return True
+            if not self.ask or key in self.blocked:
+                return False
+            if key not in self.asking:
+                self.asking.add(key)
+                sys.stdout.write(f"ASK {key}\n")
+                sys.stdout.flush()
+            self.cond.wait_for(lambda: key in self.allow or key not in self.asking,
+                               self.ask)
+            return key in self.allow
+
+    def answers(self):
+        # Neovim's answers. A late one still counts: the request that asked has
+        # been refused by then, but the agent's next attempt gets the answer.
+        for line in sys.stdin:
+            parts = line.split()
+            if len(parts) != 2:
+                continue
+            verb, key = parts[0], self.key(parts[1])
+            with self.cond:
+                if verb == "allow":
+                    self.allow.add(key)
+                elif verb == "block":
+                    self.blocked.add(key)
+                elif verb != "deny":
+                    continue
+                self.asking.discard(key)
+                self.cond.notify_all()
+            log(self.log_path, f"ANSWER {key} {verb}")
 
     @staticmethod
     def key(entry):
@@ -107,7 +154,7 @@ class Proxy:
             method, target = parts[0], parts[1]
             if method == "CONNECT":
                 key = self.key(target)
-                if key not in self.allow:
+                if not self.permitted(key):
                     return self.deny(client, key, method)
                 host, port = split_hostport(target)
                 log(self.log_path, f"ALLOW {key} {method}")
@@ -124,7 +171,7 @@ class Proxy:
             hostport, _, path = rest.partition("/")
             host, port = split_hostport(hostport, 80)
             key = f"{host.lower()}:{port}"
-            if key not in self.allow:
+            if not self.permitted(key):
                 return self.deny(client, key, method, target)
             log(self.log_path, f"ALLOW {key} {method} {target}")
             upstream = socket.create_connection((host, int(port)), 15)
@@ -168,6 +215,8 @@ class Proxy:
         signal.signal(signal.SIGTERM, stop)
         signal.signal(signal.SIGINT, stop)
         log(self.log_path, f"proxy {self.sock_path} allow={sorted(self.allow)}")
+        if self.ask:
+            threading.Thread(target=self.answers, daemon=True).start()
         while True:
             try:
                 client, _ = server.accept()
@@ -176,18 +225,53 @@ class Proxy:
             threading.Thread(target=self.handle, args=(client,), daemon=True).start()
 
 
-def relay(sock_path, listen, cmd, log_path):
-    subprocess.run(["ip", "link", "set", "lo", "up"],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    host, port = split_hostport(listen, 8899)
+def listener(host, port):
     server = socket.socket()
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((host, int(port)))
     server.listen(64)
+    return server
+
+
+def tunnel(sock_path, client, port):
+    # A forwarded port: CONNECT localhost:PORT through the proxy, which asks about it
+    # like any other host, then carry the client's bytes. A refusal closes the client.
+    upstream = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    upstream.connect(sock_path)
+    upstream.sendall(f"CONNECT localhost:{port} HTTP/1.1\r\n\r\n".encode())
+    head = b""
+    while b"\r\n\r\n" not in head and len(head) < 16384:
+        chunk = upstream.recv(4096)
+        if not chunk:
+            break
+        head += chunk
+    status, _, rest = head.partition(b"\r\n\r\n")
+    if status.split(b" ", 2)[1:2] != [b"200"]:
+        upstream.close()
+        client.close()
+        return
+    if rest:
+        client.sendall(rest)
+    pump(client, upstream)
+
+
+def relay(sock_path, listen, forward, cmd, log_path):
+    subprocess.run(["ip", "link", "set", "lo", "up"],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    host, port = split_hostport(listen, 8899)
+    server = listener(host, port)
+    forwarded = []
+    for p in forward:
+        try:
+            forwarded.append((listener("127.0.0.1", p), p))
+        except OSError as e:
+            log(log_path, f"RELAY forward {p}: {e}")
 
     pid = os.fork()
     if pid:  # the agent: same pid bwrap started, so closing stdin and signals behave
         server.close()
+        for s, _ in forwarded:
+            s.close()
         try:
             os.execvp(cmd[0], cmd)
         except OSError as e:
@@ -214,6 +298,24 @@ def relay(sock_path, listen, cmd, log_path):
                     except OSError:
                         pass
 
+    def forwarding(srv, p):
+        def handle(client):
+            try:
+                tunnel(sock_path, client, p)
+            except OSError as e:
+                log(log_path, f"RELAY forward {p}: {e}")
+                client.close()
+
+        while True:
+            try:
+                client, _ = srv.accept()
+            except OSError:
+                return
+            threading.Thread(target=handle, args=(client,), daemon=True).start()
+
+    for srv, p in forwarded:
+        threading.Thread(target=forwarding, args=(srv, p), daemon=True).start()
+
     while True:
         try:
             client, _ = server.accept()
@@ -229,19 +331,21 @@ def main():
     serve.add_argument("--socket", required=True)
     serve.add_argument("--allow", action="append", default=[])
     serve.add_argument("--log")
+    serve.add_argument("--ask", type=float, default=0.0)
     relay_p = sub.add_parser("relay")
     relay_p.add_argument("--socket", required=True)
     relay_p.add_argument("--listen", default="127.0.0.1:8899")
     relay_p.add_argument("--log")
+    relay_p.add_argument("--forward", type=int, action="append", default=[])
     relay_p.add_argument("cmd", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.role == "serve":
-        Proxy(args.socket, args.allow, args.log).serve()
+        Proxy(args.socket, args.allow, args.log, args.ask).serve()
     else:
         cmd = args.cmd[1:] if args.cmd[:1] == ["--"] else args.cmd
         if not cmd:
             parser.error("relay needs a command after --")
-        relay(args.socket, args.listen, cmd, args.log)
+        relay(args.socket, args.listen, args.forward, cmd, args.log)
 
 
 if __name__ == "__main__":

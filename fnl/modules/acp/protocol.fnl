@@ -132,6 +132,13 @@
       {:type :thought :text (content-text u.content)}
       :config_option_update
       {:type :config :options (parse-config-options u.configOptions)}
+      ;; The older modes API, sent alongside config_option_update by some agents.
+      :current_mode_update
+      {:type :mode :id (or u.currentModeId u.modeId)}
+      :available_commands_update
+      {:type :commands
+       :commands (icollect [_ c (ipairs (or u.availableCommands []))]
+                   {:name c.name :description c.description :hint (?. c :input :hint)})}
       :usage_update
       {:type :usage :used u.used :size u.size
        :cost (?. u :cost :amount) :currency (?. u :cost :currency)}

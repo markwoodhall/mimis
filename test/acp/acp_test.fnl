@@ -15,6 +15,8 @@
 ;; Keep test traffic out of the real debug log and settings cache, even if a run aborts.
 (set vim.g.acp-debug-log (vim.fn.tempname))
 (set vim.g.acp-egress-log-dir (vim.fn.tempname))
+;; A refused host is refused at once; the tests of asking start the proxy themselves.
+(set vim.g.acp-egress-ask-seconds 0)
 (set vim.g.acp-config-cache (vim.fn.tempname))
 (local real-debug-log (.. (vim.fn.stdpath :log) "/acp-debug.log"))
 (local real-debug-size (vim.fn.getfsize real-debug-log))
@@ -480,6 +482,22 @@
 (session.send-prompt s "leave plan")
 (wait #(= s.turn.state :idle))
 (check "agent-initiated changes are applied" (= "Manual" (. (session.config-option s :mode) :display)))
+;; Scoped, so the checks' temporaries don't count against the chunk's 200 locals.
+(do
+  (session.send-prompt s "mode update")
+  (wait #(= s.turn.state :idle))
+  (check "current_mode_update moves the mode setting"
+         (= "Plan" (. (session.config-option s :mode) :display)))
+  (check "current_mode_update with a value the agent doesn't offer is ignored"
+         (= "plan" (. (session.config-option s :mode) :current)))
+  (check "neither the mode nor the commands update is reported as unknown"
+         (not (or (has-line (lines-of s.buf) "available_commands_update")
+                  (has-line (lines-of s.buf) "current_mode_update")))
+         (lines-of s.buf))
+  (check "available commands are kept"
+         (vim.deep_equal [{:name "compact" :description "Compact the conversation" :hint "instructions"}]
+                         s.commands)
+         s.commands))
 (let [log (vim.fn.readfile s.log.path)]
   (check "a change between turns is logged" (has-line log "> acp: Mode → Plan") log)
   (check "a change during a turn is logged" (has-line log "> acp: Mode → Manual") log))
@@ -934,14 +952,22 @@
 (check "a :sandbox spec is off, deny-all, no network, or a host list"
        (and (= nil (sandbox.normalize nil))
             (= nil (sandbox.normalize false))
-            (vim.deep_equal {:net :proxy :allow [] :read [] :write [] :mask nil}
+            (vim.deep_equal {:net :proxy :allow [] :local [5432 3306 6379]
+                             :read [] :write [] :mask nil}
                             (sandbox.normalize true))
             (vim.deep_equal {:net false :read [] :write [] :mask nil}
                             (sandbox.normalize {:net false}))
-            (vim.deep_equal {:net :proxy :allow ["a:443"] :read [] :write [] :mask nil}
+            (vim.deep_equal {:net :proxy :allow ["a:443"] :local [5432 3306 6379]
+                             :read [] :write [] :mask nil}
                             (sandbox.normalize {:allow ["a:443"]}))
-            (vim.deep_equal {:net :proxy :allow [] :read ["~/.config/gh"] :write [] :mask nil}
+            (vim.deep_equal {:net :proxy :allow [] :local [5432 3306 6379]
+                             :read ["~/.config/gh"] :write [] :mask nil}
                             (sandbox.normalize {:read ["~/.config/gh"]}))))
+
+(check "a :sandbox's :local replaces the forwarded ports, and false forwards none"
+       (and (vim.deep_equal [15432] (. (sandbox.normalize {:local [15432]}) :local))
+            (vim.deep_equal [] (. (sandbox.normalize {:local false}) :local))
+            (vim.deep_equal [] (. (sandbox.normalize {:local []}) :local))))
 
 (check "a profile's :sandbox reaches agents.get"
        (do
@@ -1032,6 +1058,9 @@
     (vim.fn.mkdir (.. fake "/.config/git") "p")
     (vim.fn.writefile ["[user]"] (.. fake "/.gitconfig"))
     (vim.fn.writefile ["PRIVATE KEY"] (.. fake "/.ssh/id_ed25519"))
+    (vim.fn.mkdir (.. fake "/.claude") "p")
+    (vim.fn.writefile ["{}"] (.. fake "/.claude/.credentials.json"))
+    (vim.fn.writefile ["{}"] (.. fake "/.claude/settings.json"))
     (set vim.env.HOME fake)
     (set vim.env.XDG_DATA_HOME nil)
     (let [(box problem) (sandbox.prepare {:net false :read ["~/.config/gh"]}
@@ -1053,6 +1082,17 @@
                   ;; ...and no whole-host or whole-home bind would bring it back.
                   (not (binds "--ro-bind" "/" fake))
                   (not (binds "--dev-bind" fake nil)))
+             argv)
+      ;; After the read-only .claude, so the writable bind wins.
+      (check "claude's credentials are writable so refreshed tokens are kept"
+             (> (or (argv-index argv "--bind-try" (.. fake "/.claude/.credentials.json")
+                                (.. fake "/.claude/.credentials.json"))
+                    0)
+                (or (argv-index argv "--ro-bind" (.. fake "/.claude") (.. fake "/.claude"))
+                    math.huge))
+             argv)
+      (check "the rest of .claude stays read-only"
+             (not (binds "--bind-try" (.. fake "/.claude/settings.json") nil))
              argv)
       (sandbox.stop box))
     (vim.fn.delete fake :rf)
@@ -1208,6 +1248,17 @@
                    "c.sendall(b'GET http://127.0.0.1:" (tostring port) "/x HTTP/1.1\\r\\nHost: h\\r\\n\\r\\n')\n"
                    "print('http', c.recv(200).decode().split('\\r\\n', 1)[0])\n"
                    "c.close()\n"
+                   "c = socket.create_connection(('127.0.0.1', " (tostring port) "), 5)\n"
+                   "c.sendall(b'fwd\\n')\n"
+                   "print('forwarded', c.recv(64).decode().strip())\n"
+                   "c.close()\n"
+                   "c = socket.create_connection(('127.0.0.1', " (tostring (+ port 1)) "), 5)\n"
+                   "c.sendall(b'fwd\\n')\n"
+                   "try:\n"
+                   "    print('unforwarded', 'closed' if c.recv(64) == b'' else 'open')\n"
+                   "except ConnectionResetError:\n"
+                   "    print('unforwarded closed')\n"
+                   "c.close()\n"
                    "try:\n"
                    "    socket.create_connection(('1.1.1.1', 443), 2).close()\n"
                    "    print('direct connected')\n"
@@ -1217,7 +1268,12 @@
       ;; An inherited proxy would be a way around the sandbox's own.
       (set vim.env.ALL_PROXY "socks5://10.9.9.9:9")
       (let [lines []
-            (box problem) (sandbox.prepare {:net :proxy :allow [(.. "127.0.0.1:" port)]}
+            ;; The echo server's port is forwarded and allowed as localhost; the one
+            ;; after it is forwarded but not allowed, so the proxy refuses it.
+            (box problem) (sandbox.prepare {:net :proxy
+                                            :allow [(.. "127.0.0.1:" port)
+                                                    (.. "localhost:" port)]
+                                            :local [port (+ port 1)]}
                                            vim.g.acp-log-dir)
             sock (?. box :sock)
             log (?. box :log)]
@@ -1244,6 +1300,10 @@
                    (has-line lines "http GET /x HTTP/1.1") lines)
             (check "a host not on the list is refused"
                    (has-line lines "blocked HTTP/1.1 403 Forbidden") lines)
+            (check "a forwarded local port reaches the host's service through the proxy"
+                   (has-line lines "forwarded fwd") lines)
+            (check "a forwarded port the proxy refuses is closed on the client"
+                   (has-line lines "unforwarded closed") lines)
             (check "nothing reaches the network except through the proxy"
                    (and (not (has-line lines "direct connected"))
                         (accumulate [found false _ l (ipairs lines)]
@@ -1261,6 +1321,89 @@
       (set vim.env.ALL_PROXY nil)
       (server:close)
       (vim.fn.delete script))))
+
+;; The proxy on its own: a host not on the list is held and asked about on stdout,
+;; and the answer on stdin decides it. Needs no bwrap, so it runs everywhere.
+(do
+  (fn asking-proxy [ask]
+    ;; {:proc :sock :asks [host:port ...]} for a proxy that holds requests ask seconds.
+    (let [p {:sock (.. (vim.fn.tempname) ".sock") :asks []}]
+      (set p.proc (vim.system ["python3" (sandbox.script) "serve" "--socket" p.sock "--ask" ask]
+                              {:stdin true
+                               :stdout (fn [_ data]
+                                         (when data
+                                           (each [key (string.gmatch data "ASK (%S+)")]
+                                             (table.insert p.asks key))))}))
+      (wait #(vim.uv.fs_stat p.sock) 3000)
+      p))
+
+  (fn proxy-connect [p target]
+    ;; The proxy's status line for one CONNECT, in .line once it comes.
+    (let [reply {}
+          pipe (vim.uv.new_pipe)]
+      (pipe:connect p.sock
+                    (fn []
+                      (pipe:write (.. "CONNECT " target " HTTP/1.1\r\n\r\n"))
+                      (pipe:read_start
+                        (fn [_ data]
+                          (when (and data (not reply.line))
+                            (set reply.line (string.match data "^[^\r]*"))
+                            (pipe:read_stop)
+                            (pipe:close))))))
+      reply))
+
+  (let [p (asking-proxy "3")
+        server (vim.uv.new_tcp)
+        _ (server:bind "127.0.0.1" 0)
+        _ (server:listen 8 #(server:accept (vim.uv.new_tcp)))
+        target (.. "127.0.0.1:" (. (server:getsockname) :port))]
+    (let [first (proxy-connect p target)
+          second (proxy-connect p target)]
+      (wait #(> (length p.asks) 0) 3000)
+      (vim.wait 300)
+      (check "a held host is asked about once, however many requests wait on it"
+             (and (vim.deep_equal [target] p.asks) (= nil first.line) (= nil second.line))
+             p.asks)
+      (p.proc:write (.. "allow " target "\n"))
+      (wait #(and first.line second.line) 3000)
+      (check "allowing it lets the waiting requests through"
+             (and (= first.line "HTTP/1.1 200 Connection established")
+                  (= second.line "HTTP/1.1 200 Connection established"))
+             [first.line second.line]))
+    (let [again (proxy-connect p target)]
+      (wait #again.line 3000)
+      (check "an allowed host stays allowed without asking again"
+             (and (= again.line "HTTP/1.1 200 Connection established") (= 1 (length p.asks)))
+             p.asks))
+    (p.proc:kill :sigterm)
+    (server:close))
+
+  (let [p (asking-proxy "1")]
+    (let [unanswered (proxy-connect p "nobody.example:443")]
+      (wait #unanswered.line 3000)
+      (check "an unanswered question is refused when the wait runs out"
+             (= unanswered.line "HTTP/1.1 403 Forbidden")
+             unanswered.line))
+    (let [blocked (proxy-connect p "blocked.example:443")]
+      (wait #(vim.tbl_contains p.asks "blocked.example:443") 3000)
+      (p.proc:write "block blocked.example:443\n")
+      (wait #blocked.line 3000)
+      (let [again (proxy-connect p "blocked.example:443")]
+        (wait #again.line 3000)
+        (check "a host denied for the session is refused without asking again"
+               (and (= blocked.line "HTTP/1.1 403 Forbidden")
+                    (= again.line "HTTP/1.1 403 Forbidden")
+                    (= 1 (length (vim.tbl_filter #(= $1 "blocked.example:443") p.asks))))
+               p.asks)))
+    (p.proc:kill :sigterm))
+
+  (let [p (asking-proxy "1")]
+    (let [v6 (proxy-connect p "[::1]:5432")]
+      (wait #v6.line 3000)
+      (check "a bracketed IPv6 target is asked about by its address and port"
+             (vim.deep_equal ["::1:5432"] p.asks)
+             p.asks))
+    (p.proc:kill :sigterm)))
 
 ;; A whole session through the sandbox, agent included.
 (when (sandbox.available?)
@@ -1286,6 +1429,85 @@
              (and box (= nil box.proc) (= nil (vim.uv.fs_stat sock)))
              sock)))
   (set vim.g.acp-agents {:opencode ["python3" (.. here "/fake_agent.py") "opencode"]}))
+
+;; Egress questions are asked in the chat and answered with <CR> on a choice. A
+;; stand-in for the sandbox's box, so this runs without bwrap: what would go to the
+;; proxy's stdin is recorded instead.
+(let [prepare sandbox.prepare
+      written []
+      box {:prefix [] :env {} :net :proxy :allow [] :log (vim.fn.tempname)
+           :partial "" :offset 0
+           :proc {:write (fn [_ text] (table.insert written text)) :kill (fn [])}}]
+  (vim.fn.writefile [] box.log)
+  (set sandbox.prepare (fn [] box))
+  (vim.cmd "Acp opencode")
+  (set sandbox.prepare prepare)
+  (let [s (session.current)
+        row-of (fn [line]
+                 (accumulate [at nil i l (ipairs (lines-of s.buf)) &until at]
+                   (when (= l line) i)))
+        count-of (fn [line]
+                   (accumulate [n 0 _ l (ipairs (lines-of s.buf))]
+                     (if (= l line) (+ n 1) n)))
+        press (fn [row]
+                (vim.api.nvim_set_current_win (. (vim.fn.win_findbuf s.buf) 1))
+                (vim.api.nvim_win_set_cursor 0 [row 0])
+                (vim.api.nvim_feedkeys (vim.keycode "<CR>") :x false))
+        one "> egress: one.example:443 — awaiting choice"
+        two "> egress: two.example:443 — awaiting choice"]
+    (wait #(?. s :ready) 15000)
+    (let [windows (length (vim.api.nvim_list_wins))
+          current (vim.api.nvim_get_current_win)]
+      (box.on-ask "one.example:443")
+      (box.on-ask "two.example:443")
+      (box.on-ask "one.example:443")
+      (vim.wait 100)
+      (check "each held host is asked about in the chat, once"
+             (and (= 1 (count-of one)) (= 1 (count-of two)))
+             (lines-of s.buf))
+      (check "an egress question opens nothing and leaves the cursor where it was"
+             (and (= windows (length (vim.api.nvim_list_wins)))
+                  (= current (vim.api.nvim_get_current_win)))
+             windows))
+    (check "the choices are listed under the question"
+           (vim.deep_equal ["  1. Allow for this session" "  2. Deny" "  3. Deny for this session"]
+                           (vim.api.nvim_buf_get_lines s.buf (row-of one) (+ (row-of one) 3) false))
+           (lines-of s.buf))
+    (check "the first choice is where the chat puts the cursor"
+           (= (session.first-choice-row s) (+ (row-of one) 1))
+           [(session.first-choice-row s) (row-of one)])
+    (press (+ (row-of one) 1))
+    (wait #(has-line (lines-of s.buf) "> egress: one.example:443 — allowed for this session") 3000)
+    (press (+ (row-of two) 3))
+    (wait #(has-line (lines-of s.buf) "> egress: two.example:443 — refused for this session") 3000)
+    (check "<CR> on a choice answers, in the chat and to the proxy"
+           (and (has-line (lines-of s.buf) "> egress: one.example:443 — allowed for this session")
+                (has-line (lines-of s.buf) "> egress: two.example:443 — refused for this session")
+                (not (has-line (lines-of s.buf) "  1. Allow for this session"))
+                (vim.deep_equal ["allow one.example:443\n" "block two.example:443\n"] written))
+           [written (lines-of s.buf)])
+    (check "an allowed host joins the session's allowlist"
+           (vim.tbl_contains box.allow "one.example:443")
+           box.allow)
+    ;; The proxy stops waiting before you answer: the question says so, and the
+    ;; answer still goes back, for the next attempt.
+    (box.on-ask "late.example:443")
+    (vim.fn.writefile ["2026-01-01T00:00:00 DENY late.example:443 CONNECT"] box.log "a")
+    (let [expired "> egress: late.example:443 — the request timed out; an answer applies to the agent's next attempt"]
+      (wait #(has-line (lines-of s.buf) expired) 3000)
+      (check "a question the proxy stopped waiting for says so"
+             (has-line (lines-of s.buf) expired)
+             (lines-of s.buf))
+      (press (+ (row-of expired) 1)))
+    (wait #(has-line (lines-of s.buf) "> egress: late.example:443 — allowed") 3000)
+    (check "a late answer is said to apply from the next attempt"
+           (and (has-line (lines-of s.buf)
+                          "> egress: late.example:443 — allowed for this session, from the agent's next attempt")
+                (not (has-line (lines-of s.buf) "> acp: egress blocked: late.example:443"))
+                (vim.tbl_contains box.allow "late.example:443"))
+           (lines-of s.buf))
+    (session.stop s)
+    (vim.fn.delete box.log)))
 
 ;; :Acp sandbox and :Acp nosandbox switch it per invocation.
 (when (sandbox.available?)

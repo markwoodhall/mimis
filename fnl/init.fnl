@@ -41,27 +41,27 @@
 ;; command are kept.
 (set vim.g.acp-agents
      {:claude {:sandbox {:net :proxy
-                           :allow ["api.anthropic.com:443"
-                                   "mcp-proxy.anthropic.com:443"
-                                   "http-intake.logs.us5.datadoghq.com:443"
-                                   "downloads.claude.ai:443"
-                                   "www.figma.com:443"
-                                   "api.figma.com:443"
-                                   "registry.npmjs.org:443"
-                                   "docs.aws.amazon.com:443"
-                                   "mcp.figma.com:443"
-                                   "mcp.shortcut.com:443"
-                                   "api.app.shortcut.com:443"]}}
+                         :allow ["api.anthropic.com:443"
+                                "mcp-proxy.anthropic.com:443"
+                                "http-intake.logs.us5.datadoghq.com:443"
+                                "downloads.claude.ai:443"
+                                "www.figma.com:443"
+                                "api.figma.com:443"
+                                "registry.npmjs.org:443"
+                                "docs.aws.amazon.com:443"
+                                "mcp.figma.com:443"
+                                "mcp.shortcut.com:443"
+                                "api.app.shortcut.com:443"]}}
      :opencode {:sandbox {:net :proxy
-                           :allow ["models.opencode.ai:443"
-                                   "opencode.ai:443"
-                                   "www.figma.com:443"
-                                   "api.figma.com:443"
-                                   "registry.npmjs.org:443"
-                                   "docs.aws.amazon.com:443"
-                                   "mcp.figma.com:443"
-                                   "mcp.shortcut.com:443"
-                                   "api.app.shortcut.com:443"]}}})
+                          :allow ["models.opencode.ai:443"
+                                 "opencode.ai:443"
+                                 "www.figma.com:443"
+                                 "api.figma.com:443"
+                                 "registry.npmjs.org:443"
+                                 "docs.aws.amazon.com:443"
+                                 "mcp.figma.com:443"
+                                 "mcp.shortcut.com:443"
+                                 "api.app.shortcut.com:443"]}}})
 
 ;;(let [ui2 (require "vim._core.ui2")]
 ;;  (ui2.enable))
@@ -87,7 +87,7 @@
    :modules.git []
    :modules.colors 
    {:theme :catppuccin
-    :colorscheme :catppuccin-mocha
+    :colorscheme :catppuccin-macchiato
     :background :dark
     :post-setup (fn [])}
    :modules.statusline []

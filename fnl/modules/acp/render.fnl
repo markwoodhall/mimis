@@ -19,13 +19,13 @@
   (tset (. vim.bo buf) :filetype :markdown)
   (pcall vim.treesitter.stop buf)
   (tset (. vim.bo buf) :syntax :markdown)
-  ;; The tool, permission, elicitation, stop and acp rows carry agent-supplied titles. Left to
+  ;; The tool, permission, elicitation, egress, stop and acp rows carry agent-supplied titles. Left to
   ;; markdown, a stray backtick or fence in a title opens syntax that colours every
   ;; line below it, so keep those rows (and the folded >> thinking) out of markdown.
   (vim.api.nvim_buf_call buf
     (fn []
       (vim.cmd (.. "syntax region AcpUiLine matchgroup=AcpUiPrefix "
-                   "start=/^>\\%(>\\| \\%(tool\\|permission\\|elicitation\\|stop\\|acp\\):\\)/ "
+                   "start=/^>\\%(>\\| \\%(tool\\|permission\\|elicitation\\|egress\\|stop\\|acp\\):\\)/ "
                    "end=/$/ contains=NONE")))))
 
 (fn create-buffers [s]

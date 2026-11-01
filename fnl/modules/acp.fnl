@@ -93,9 +93,9 @@
       (session.show-latest-tool s opts.mods))))
 
 (fn chat-keymaps [s]
-  ;; <CR> in the input area sends the prompt, on a permission choice answers it,
-  ;; on a question opens its form, on a tool line toggles its details, anywhere
-  ;; else does what <CR> normally does.
+  ;; <CR> in the input area sends the prompt, on a permission or egress choice
+  ;; answers it, on a question opens its form, on a tool line toggles its details,
+  ;; anywhere else does what <CR> normally does.
   ;; Expr mappings can't change text, so the actions run just after.
   (vim.keymap.set :n "<CR>"
                   (fn []
@@ -104,6 +104,8 @@
                         (do (vim.schedule send) "")
                         (session.choice-at s row)
                         (do (vim.schedule #(session.choose-at s row)) "")
+                        (session.egress-choice-at s row)
+                        (do (vim.schedule #(session.choose-egress-at s row)) "")
                         (session.elicitation-at s row)
                         (do (vim.schedule #(session.answer-open s)) "")
                         (session.tool-at s row)

@@ -1,3 +1,5 @@
 /doc/tags
 /mimis/*.pdf
 /mimis/*.md
+nvim.log
+/bin/__pycache__

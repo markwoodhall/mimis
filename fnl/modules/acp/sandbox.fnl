@@ -15,6 +15,13 @@
 ;; masked by default: without that the agent can ask a daemon outside the namespace
 ;; to make the request for it. :mask false leaves them alone.
 ;;
+;; :local is the host's loopback ports the agent may ask for, [5432 3306 6379] by
+;; default. Loopback inside the sandbox is its own, so each port is listened on there
+;; and a connection to it becomes a request for localhost:PORT on the host, asked
+;; about like any other host. That is what lets psql or redis-cli, which know nothing
+;; of proxies, reach a database you're running. A list replaces the defaults; [] or
+;; false forwards nothing, and frees the ports for the agent's own servers.
+;;
 ;; The filesystem is scoped too. The host is read-only, but $HOME is not the host's:
 ;; inside the namespace it is replaced with an empty directory, and then only an
 ;; allowlist of $HOME paths is bound back in — the toolchain state in home-readable
@@ -33,6 +40,11 @@
 ;;
 ;; The proxy writes what it allowed and refused to vim.g.acp-egress-log-dir
 ;; (stdpath("log") by default), and a refused host is also said once in the chat.
+;; A host that isn't allowed is held for vim.g.acp-egress-ask-seconds (30 by
+;; default; 0 refuses straight away, as before) while you're asked whether to let
+;; it through for the rest of the session. An answer after that still counts, for
+;; the agent's next attempt. The question and the answer go over the proxy's stdout
+;; and stdin, which the sandbox can't reach.
 ;; This stops IP traffic from the agent and everything it spawns. It does not stop a
 ;; unix socket, which is why the daemons above are masked. Needs bwrap and python3.
 ;;
@@ -41,6 +53,8 @@
 
 (local listen "127.0.0.1:8899")
 (local defaults ["/var/run/docker.sock" "/run/docker.sock"])
+;; Postgres, MySQL and Redis: the host services an agent is most often pointed at.
+(local local-ports [5432 3306 6379])
 (var counter 0)
 
 ;; The $HOME paths a sandboxed agent may still read. Everything else in $HOME is
@@ -64,9 +78,13 @@
 ;; Writable from the start: every tool writes them and none is a credential store.
 ;; .claude/projects is where Claude Code keeps its session transcripts, which
 ;; session/list and session/load read back; without it a sandboxed session can't be
-;; resumed. Only that subdirectory: the rest of .claude holds settings and hooks the
-;; host's claude would run, so it stays read-only.
-(local home-writable [".npm" ".cache" ".local/state" ".claude/projects"])
+;; resumed. .claude/.credentials.json is where it keeps OAuth tokens, its own and each
+;; MCP server's; a refreshed token that can't be written back is lost, and where the
+;; server rotates refresh tokens so is the login. Claude writes the file in place, so
+;; binding the one file works. Nothing else: the rest of .claude holds settings and
+;; hooks the host's claude would run, so it stays read-only.
+(local home-writable [".npm" ".cache" ".local/state" ".claude/projects"
+                      ".claude/.credentials.json"])
 
 ;; Project paths kept read-only even though the project itself is writable. A git
 ;; hook is the sharpest one: the agent could write one and it would run on the host,
@@ -81,11 +99,11 @@
 
 (fn normalize [spec]
   ;; A profile's :sandbox -> nil (off) or
-  ;; {:net :proxy :allow [...] :read [...] :write [...] :mask ...}.
+  ;; {:net :proxy :allow [...] :local [PORT ...] :read [...] :write [...] :mask ...}.
   (if (or (= spec nil) (= spec false))
     nil
     (= spec true)
-    {:net :proxy :allow [] :read [] :write [] :mask nil}
+    {:net :proxy :allow [] :local (vim.deepcopy local-ports) :read [] :write [] :mask nil}
     (= (type spec) :table)
     (let [read (vim.deepcopy (or spec.read []))
           write (vim.deepcopy (or spec.write []))]
@@ -93,6 +111,10 @@
         {:net false :read read :write write :mask spec.mask}
         {:net :proxy
          :allow (vim.deepcopy (or spec.allow []))
+         :local (let [ports (. spec :local)]
+                  (if (= ports false) []
+                      (= (type ports) :table) (vim.deepcopy ports)
+                      (vim.deepcopy local-ports)))
          :read read
          :write write
          :mask spec.mask}))))
@@ -279,10 +301,29 @@
    ;; Node's fetch only looks at the environment with this set.
    :NODE_USE_ENV_PROXY "1"})
 
+(fn ask-seconds []
+  ;; Long enough to notice the question and read it. Node's fetch waits on a held
+  ;; CONNECT for as long as the proxy takes (its 10s connect timeout covers only the
+  ;; socket to the proxy), and so do curl and psql.
+  (let [n (tonumber vim.g.acp-egress-ask-seconds)]
+    (if (= vim.g.acp-egress-ask-seconds false) 0
+        n (math.max n 0)
+        30)))
+
 (fn proxy-argv [sock log allow]
-  (let [argv [(python) (script) "serve" "--socket" sock "--log" log]]
+  (let [argv [(python) (script) "serve" "--socket" sock "--log" log
+              "--ask" (tostring (ask-seconds))]]
     (each [_ host (ipairs allow)]
       (vim.list_extend argv ["--allow" host]))
+    argv))
+
+(fn relay-argv [sock log ports]
+  ;; What bwrap runs after "--": the relay, which then execs the agent.
+  (let [argv ["--" (python) (script) "relay" "--socket" sock "--listen" listen
+              "--log" log]]
+    (each [_ port (ipairs ports)]
+      (vim.list_extend argv ["--forward" (tostring port)]))
+    (table.insert argv "--")
     argv))
 
 (fn log-path []
@@ -327,25 +368,39 @@
             ;; the proxy would fail to bind its socket.
             _mkdir-dir (vim.fn.mkdir dir "p")
             _mkdir (vim.fn.mkdir (vim.fn.fnamemodify log ":h") "p")
-            (ok proc) (pcall vim.system (proxy-argv sock log s.allow) {})]
+            box {}
+            ;; "ASK host:port" lines, to box.on-ask once watch has set it.
+            on-stdout (fn [_err data]
+                        (when data
+                          (let [parts (vim.split (.. (or box.ask-partial "") data) "\n"
+                                                 {:plain true})]
+                            (set box.ask-partial (table.remove parts))
+                            (each [_ line (ipairs parts)]
+                              (let [key (string.match line "^ASK (%S+)$")]
+                                (when key
+                                  (vim.schedule #(when box.on-ask (box.on-ask key)))))))))
+            (ok proc) (pcall vim.system (proxy-argv sock log s.allow)
+                             {:stdin true :stdout on-stdout})]
         (if (not ok)
           (values nil (.. "could not start the egress proxy: " (tostring proc)))
           (if (not (vim.wait 2000 #(= "socket" (?. (vim.uv.fs_stat sock) :type))))
             (do
               (pcall #(proc:kill :sigterm))
               (values nil (.. "the egress proxy did not start — see " log)))
-            {:prefix (vim.list_extend (bwrap-prefix s project)
-                                      ["--" (python) (script) "relay"
-                                       "--socket" sock "--listen" listen "--log" log "--"])
-             :env (proxy-env)
-             :net :proxy
-             :allow s.allow
-             :proc proc
-             :sock sock
-             :log log
-             :watch nil
-             :partial ""
-             :offset 0}))))))
+            ;; Filled in place: the stdout callback already holds box.
+            (do
+              (each [k v (pairs {:prefix (vim.list_extend (bwrap-prefix s project)
+                                                          (relay-argv sock log (. s :local)))
+                                 :env (proxy-env)
+                                 :net :proxy
+                                 :allow s.allow
+                                 :proc proc
+                                 :sock sock
+                                 :log log
+                                 :partial ""
+                                 :offset 0})]
+                (tset box k v))
+              box)))))))
 
 (fn read-new [box]
   ;; Timestamped log lines the proxy wrote since the last call.
@@ -370,8 +425,10 @@
                  :method (string.match rest "^%S+ (%S+)")
                  :what rest}))))))))
 
-(fn watch [box on-line]
-  ;; Report what the proxy logs while the session runs.
+(fn watch [box on-line on-ask]
+  ;; Report what the proxy logs while the session runs, and hand on-ask each host
+  ;; the proxy is holding a request for.
+  (when box (set box.on-ask on-ask))
   (when (and box box.log)
     (let [timer (vim.uv.new_timer)]
       (timer:start 0 1000
@@ -381,8 +438,16 @@
                          (pcall on-line entry)))))
       (set box.watch timer))))
 
+(fn answer [box key verb]
+  ;; verb: :allow or :block for the rest of the session, :deny for this time only.
+  (when (and box box.proc)
+    (when (and (= verb :allow) (not (vim.tbl_contains box.allow key)))
+      (table.insert box.allow key))
+    (pcall #(box.proc:write (.. verb " " key "\n")))))
+
 (fn stop [box]
   (when box
+    (set box.on-ask nil)
     (when box.watch
       (box.watch:stop)
       (box.watch:close)
@@ -399,6 +464,7 @@
  : describe
  : prepare
  : watch
+ : answer
  : stop
  : read-new
  : script

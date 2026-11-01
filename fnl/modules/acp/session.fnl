@@ -246,6 +246,19 @@
     (remember options)
     (vim.cmd "redrawstatus!")))
 
+(fn apply-mode [s id announce?]
+  ;; current_mode_update names the mode without the options around it: carry it over
+  ;; to the mode setting, when there is one and the agent offers that value.
+  (let [option (config-by-category s :mode)]
+    (when (and option id (not= option.current id)
+               (accumulate [ok false _ v (ipairs option.values)] (or ok (= v.value id))))
+      (apply-config s
+                    (icollect [_ o (ipairs s.config)]
+                      (if (= o option)
+                        (vim.tbl_extend :force o {:current id})
+                        o))
+                    announce?))))
+
 (fn validate [s id value]
   ;; nil if value can be set for id, else why not.
   (let [option (config-option s id)]
@@ -370,6 +383,8 @@
             :tool (on-tool s u)
             :tool-update (on-tool-update s u)
             :config (apply-config s u.options (not s.replay))
+            :mode (apply-mode s u.id (not s.replay))
+            :commands (set s.commands u.commands)
             :usage (do
                      (set s.usage {:used u.used :size u.size :cost u.cost :currency u.currency})
                      (vim.cmd "redrawstatus!"))
@@ -922,13 +937,96 @@
             :pick (pick-session s info)
             _ (create-session s info)))))))
 
+;; Egress questions are asked in the chat, like a permission request: a line with
+;; the choices under it, answered with <CR> on one. Nothing opens or takes the cursor,
+;; so a question that arrives while you're typing can't be answered by a stray key.
+;; Several can be open at once, one block per host.
+
+(local egress-choices
+  [{:verb :allow :name "Allow for this session" :said "allowed for this session"}
+   {:verb :deny :name "Deny" :said "refused"}
+   {:verb :block :name "Deny for this session" :said "refused for this session"}])
+
+(fn egress-question-line [q]
+  (.. "> egress: " q.key " — "
+      (or q.choice
+          (if q.expired
+            "the request timed out; an answer applies to the agent's next attempt"
+            "awaiting choice"))))
+
+(fn open-egress [s key]
+  (accumulate [found nil _ q (ipairs s.egress-open) &until found]
+    (when (= q.key key) q)))
+
+(fn waiting-on-you? [s]
+  (or s.permission s.elicitation (> (length s.egress-open) 0)))
+
+(fn answer-egress [s q choice]
+  (let [late q.expired]
+    (set s.egress-open (vim.tbl_filter #(not= $1 q) s.egress-open))
+    (render.detach-lines s q.block)
+    (set q.choice (.. choice.said
+                      (if (and late (not= choice.verb :deny))
+                        ", from the agent's next attempt"
+                        "")))
+    (set q.block.line (egress-question-line q))
+    (render.update-line s q.block)
+    (sandbox.answer s.sandbox q.key choice.verb)
+    (when (and (running? s) (not (waiting-on-you? s)))
+      (busy s (still-running-label s)))))
+
+(fn egress-choice-at [s row]
+  ;; {:question :choice} for the egress choice on chat row (1-based), if any.
+  (accumulate [found nil _ q (ipairs s.egress-open) &until found]
+    (let [i (when row (render.attached-index s q.block row))
+          choice (when i (. egress-choices i))]
+      (when choice {:question q : choice}))))
+
+(fn choose-egress-at [s row]
+  ;; Answers the egress question with the choice on row. Returns false if there
+  ;; isn't one there.
+  (let [hit (egress-choice-at s row)]
+    (if hit
+      (do (answer-egress s hit.question hit.choice) true)
+      false)))
+
 (fn egress-line [s entry]
   ;; The proxy logs every attempt; a denied one is worth saying out loud, but only
-  ;; once per host, or an agent retrying would bury the transcript.
-  (when (and (= entry.kind "DENY") entry.host (not (. s.egress entry.host)))
-    (tset s.egress entry.host true)
-    (render.status s (.. "egress blocked: " entry.host))
-    (log.append-note s (.. "> acp: egress blocked: " entry.host))))
+  ;; once per host, or an agent retrying would bury the transcript. A host you were
+  ;; asked about has its question in the chat already; a denial while it is still
+  ;; open means the proxy stopped waiting, so the question says the answer can only
+  ;; reach the next attempt.
+  (when (and (= entry.kind "DENY") entry.host)
+    (let [q (open-egress s entry.host)]
+      (if q
+        (when (not q.expired)
+          (set q.expired true)
+          (set q.block.line (egress-question-line q))
+          (render.update-line s q.block))
+        (and (not (. s.egress entry.host)) (not (. s.egress-asked entry.host)))
+        (do
+          (tset s.egress entry.host true)
+          (render.status s (.. "egress blocked: " entry.host))
+          (log.append-note s (.. "> acp: egress blocked: " entry.host)))))))
+
+(fn ask-egress [s key]
+  ;; The proxy is holding a request for key until it hears back or gives up. A host
+  ;; already waiting for an answer isn't asked about twice.
+  (when (and (not s.ended) (not (open-egress s key)))
+    (let [block {:type :line}
+          q {: key : block}]
+      (tset s.egress-asked key true)
+      (set block.line (egress-question-line q))
+      (if (turn-active? s)
+        (add-line-block s block)
+        (render.add-line s block))
+      (table.insert s.egress-open q)
+      (render.attach-lines s block (icollect [i c (ipairs egress-choices)]
+                                     (.. "  " i ". " c.name)))
+      (when (running? s) (busy s "waiting for your answer"))
+      (when (not (render.visible? s.buf))
+        (vim.notify (.. "acp: the agent wants to reach " key
+                        " (:Acp to choose, <CR> on a choice)"))))))
 
 (fn start [agent requested intent]
   ;; agent: a profile from modules.acp.agents.
@@ -955,8 +1053,11 @@
            :elicitation nil
            :ignored-sessions {}
            :unknown-kinds {}
+           :commands []
            :last-event (os.time)
-           :egress {}}]
+           :egress {}
+           :egress-asked {}
+           :egress-open []}]
     (log.init s)
     (render.create-buffers s)
     (set s.rpc (rpc.new {:send (fn [line] (transport.send s.agent.proc line))
@@ -980,7 +1081,9 @@
               (render.status s (.. "starting " (table.concat s.agent.cmd " ") "…"))
               (when box
                 (render.status s (.. "sandbox: " (sandbox.describe agent.sandbox)))
-                (sandbox.watch box (fn [entry] (egress-line s entry))))
+                (sandbox.watch box
+                               (fn [entry] (egress-line s entry))
+                               (fn [key] (ask-egress s key))))
               (busy s "starting agent")
               (handshake s))
             (do
@@ -1022,9 +1125,13 @@
   (= buf s.buf))
 
 (fn first-choice-row [s]
-  ;; 1-based row of the first choice of a waiting permission request, if any.
-  (let [row (when s.permission (render.line-row s s.permission.block))]
-    (when row (+ row s.permission.choice-offset 1))))
+  ;; 1-based row of the first choice of a waiting permission request, or else of
+  ;; the oldest open egress question, if any.
+  (let [row (when s.permission (render.line-row s s.permission.block))
+        egress (?. s.egress-open 1 :block)
+        egress-row (when egress (render.line-row s egress))]
+    (if row (+ row s.permission.choice-offset 1)
+        egress-row (+ egress-row 1))))
 
 (local status-groups
   {:frame "AcpStatus"
@@ -1157,6 +1264,8 @@
  : tool-at
  : choice-at
  : choose-at
+ : egress-choice-at
+ : choose-egress-at
  : first-choice-row
  : first-elicitation-row
  : choose-kind

@@ -89,7 +89,9 @@ for line in sys.stdin:
     elif m == "session/new":
         assert msg["params"]["mcpServers"] == []
         send({"id": msg["id"], "result": {"sessionId": SID, "configOptions": config_options()}})
-        update({"sessionUpdate": "available_commands_update", "availableCommands": []})
+        update({"sessionUpdate": "available_commands_update", "availableCommands": [
+            {"name": "compact", "description": "Compact the conversation",
+             "input": {"hint": "instructions"}}]})
     elif m == "session/list":
         p = msg["params"]
         found = [{"sessionId": i, "cwd": c, "title": t, "updatedAt": u}
@@ -157,6 +159,14 @@ for line in sys.stdin:
             config["mode"] = "default"
             update({"sessionUpdate": "config_option_update", "configOptions": config_options()})
             text("Plan done.")
+            send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
+            continue
+        if prompt == "mode update":
+            # The older modes API: a mode named on its own, then one the agent never offered.
+            config["mode"] = "plan"
+            update({"sessionUpdate": "current_mode_update", "currentModeId": "plan"})
+            update({"sessionUpdate": "current_mode_update", "currentModeId": "nonsense"})
+            text("Mode moved.")
             send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
             continue
         if prompt == "stall":
