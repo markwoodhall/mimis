@@ -41,7 +41,10 @@
 ;; command are kept.
 (set vim.g.acp-agents
      {:claude {:sandbox {:net :proxy
+                         ;; platform.claude.com is the OAuth token endpoint: without
+                         ;; it an expired login can't be refreshed in the sandbox.
                          :allow ["api.anthropic.com:443"
+                                "platform.claude.com:443"
                                 "mcp-proxy.anthropic.com:443"
                                 "http-intake.logs.us5.datadoghq.com:443"
                                 "downloads.claude.ai:443"
