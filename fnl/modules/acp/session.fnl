@@ -360,6 +360,16 @@
       (each [_ turn (ipairs turns)]
         (log.append-turn s turn)))))
 
+(fn on-title [s title]
+  ;; The agent's title for the session, which it may revise as the work becomes clear.
+  ;; Each change is noted, so the log keeps every name the session went by. A replay
+  ;; only restores the title: its changes were noted when they happened.
+  (let [title (when title (vim.trim (. (vim.split title "\n" {:plain true}) 1)))]
+    (when (and title (not= title "") (not= title s.session.title))
+      (set s.session.title title)
+      (when (not s.replay)
+        (note s (.. "> acp: title: " title))))))
+
 (fn on-update [s params]
   ;; Nothing here is dropped in silence: an update for another session, or of a kind
   ;; this client doesn't know, leaves a note the first time it is seen.
@@ -388,6 +398,7 @@
             :usage (do
                      (set s.usage {:used u.used :size u.size :cost u.cost :currency u.currency})
                      (vim.cmd "redrawstatus!"))
+            :info (on-title s u.title)
             :unknown (when (not (. s.unknown-kinds u.kind))
                        (tset s.unknown-kinds u.kind true)
                        (note s (.. "> acp: ignored a '" u.kind

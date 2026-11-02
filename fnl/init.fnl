@@ -90,8 +90,8 @@
    :modules.git []
    :modules.colors 
    {:theme :catppuccin
-    :colorscheme :catppuccin-macchiato
-    :background :dark
+    :colorscheme :catppuccin-latte
+    :background :light
     :post-setup (fn [])}
    :modules.statusline []
    :modules.quickfix [] 

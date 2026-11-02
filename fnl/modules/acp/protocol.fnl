@@ -142,6 +142,10 @@
       :usage_update
       {:type :usage :used u.used :size u.size
        :cost (?. u :cost :amount) :currency (?. u :cost :currency)}
+      ;; claude-agent-acp also sends it with only _meta, for its own client; that
+      ;; comes back with no title. A null title, which clears it, decodes as nil too.
+      :session_info_update
+      {:type :info :title (when (= (type u.title) :string) u.title)}
       :tool_call
       {:type :tool
        :id u.toolCallId

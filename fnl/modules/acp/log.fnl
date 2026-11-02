@@ -38,6 +38,9 @@
       (table.insert lines (.. o.id ": " o.display)))
     (when s.log.resumed
       (table.insert lines "resumed: true"))
+    ;; The title when the log was started; later changes are notes in the body.
+    (when s.session.title
+      (table.insert lines (.. "title: " s.session.title)))
     (vim.list_extend lines [(.. "session: " (or s.session.id ""))
                             (.. "git: " s.log.git)
                             "---"

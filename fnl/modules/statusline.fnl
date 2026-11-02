@@ -13,6 +13,7 @@
       (let [set-hl (fn [group spec] (vim.api.nvim_set_hl 0 group spec))
             bg c.mantle
             acp-bg c.surface0]
+        (set-hl :StatusLineBranch {:fg c.mauve :bg bg :bold true})
         (set-hl :StatusLineFile {:fg c.blue :bg bg})
         (set-hl :StatusLineFlags {:fg c.peach :bg bg})
         (set-hl :StatusLineLsp {:fg c.teal :bg bg})
@@ -56,9 +57,17 @@
     (let [acp (. package.loaded :modules.acp.session)]
       (if acp (acp.status-text) "")))
 
+  ;; Branch from gitsigns, which caches it per buffer; % escaped for the parser.
+  (fn git-branch []
+    (let [head vim.b.gitsigns_head]
+      (if (and head (not= head ""))
+          (.. "%#StatusLineBranch# " (head:gsub "%%" "%%%%") "%*")
+          "")))
+
   (fn _G.statusline []
     (highlight)
-    (table.concat ["%#StatusLineFile#%f%*"
+    (table.concat [(git-branch)
+                   "%#StatusLineFile#%f%*"
                    "%#StatusLineFlags#%h%w%m%r%*"
                    "%="
                    (acp-status)

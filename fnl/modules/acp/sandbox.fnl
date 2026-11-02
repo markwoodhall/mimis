@@ -73,18 +73,17 @@
    ".config/git"
    ;; Agents keep their own configuration and credentials under $HOME; hiding them
    ;; would only stop the agent from authenticating, which isn't what this is for.
-   ".config/opencode" ".claude" ".claude.json"])
+   ".config/opencode" ".claude.json"])
 
-;; Writable from the start: every tool writes them and none is a credential store.
-;; .claude/projects is where Claude Code keeps its session transcripts, which
-;; session/list and session/load read back; without it a sandboxed session can't be
-;; resumed. .claude/.credentials.json is where it keeps OAuth tokens, its own and each
-;; MCP server's; a refreshed token that can't be written back is lost, and where the
-;; server rotates refresh tokens so is the login. Claude writes the file in place, so
-;; binding the one file works. Nothing else: the rest of .claude holds settings and
-;; hooks the host's claude would run, so it stays read-only.
-(local home-writable [".npm" ".cache" ".local/state" ".claude/projects"
-                      ".claude/.credentials.json"])
+;; Writable from the start: every tool writes them.
+;; .claude is writable whole. It holds the session transcripts session/list and
+;; session/load read back, and .credentials.json, the OAuth tokens: a refreshed token
+;; that can't be written back is lost, and where the server rotates refresh tokens so
+;; is the login. Binding just that file is not enough, as Claude takes a lock before
+;; writing it by creating .claude/.storage-write.lock beside it. The cost is that the
+;; settings, hooks, plugins and CLAUDE.md in .claude are writable too, and an
+;; unsandboxed claude would run what was written there; Claude is only run sandboxed.
+(local home-writable [".npm" ".cache" ".local/state" ".claude"])
 
 ;; Project paths kept read-only even though the project itself is writable. A git
 ;; hook is the sharpest one: the agent could write one and it would run on the host,
