@@ -17,6 +17,10 @@
 ;; modules.acp.credits. The built-in opencode shows the last 30 days' spend.
 ;; :credits-cmd false turns it off for one agent.
 ;;
+;; :usage-cmd and :limits-cmd are commands for :AcpUsage, the account's usage in full:
+;; tokens, spend by model, activity, tools, and limits with when they reset; see
+;; modules.acp.usage. The built-in opencode has both. false turns either off.
+;;
 ;; :sandbox runs the agent in a network namespace where the only way out is a proxy
 ;; that allows the hosts it lists and logs every attempt; see modules.acp.sandbox.
 ;; Sandboxed agents see the host read-only, but not $HOME: it is replaced with an
@@ -46,7 +50,11 @@
   {:claude {:cmd ["claude-agent-acp"]}
    :opencode {:cmd ["opencode" "acp"]
               :env-remove []
-              :credits-cmd ["opencode" "stats" "--days" "30" "--json"]}})
+              :credits-cmd ["opencode" "stats" "--days" "30" "--json"]
+              :usage-cmd ["opencode" "stats" "--json" "{range}" "{project}"]
+              :limits-cmd ["opencode" "api" "GET" "/api/experimental/usage/limits"]}})
+
+(local commands [:credits-cmd :usage-cmd :limits-cmd])
 
 (fn parse-cmd [cmd]
   ;; A string is split on spaces, as vim.g.acp-agent-cmd always allowed.
@@ -61,7 +69,9 @@
     {:cmd (parse-cmd entry.cmd)
      :env-remove entry.env-remove
      :sandbox entry.sandbox
-     :credits-cmd (if (= entry.credits-cmd false) false (parse-cmd entry.credits-cmd))}
+     :credits-cmd (if (= entry.credits-cmd false) false (parse-cmd entry.credits-cmd))
+     :usage-cmd (if (= entry.usage-cmd false) false (parse-cmd entry.usage-cmd))
+     :limits-cmd (if (= entry.limits-cmd false) false (parse-cmd entry.limits-cmd))}
     {:cmd (parse-cmd entry)}))
 
 (fn profiles []
@@ -73,8 +83,9 @@
           (set p.cmd given.cmd))
         (when (= (type given.env-remove) :table)
           (set p.env-remove given.env-remove))
-        (when (not= given.credits-cmd nil)
-          (set p.credits-cmd given.credits-cmd))
+        (each [_ key (ipairs commands)]
+          (when (not= (. given key) nil)
+            (tset p key (. given key))))
         (when (not= given.sandbox nil)
           (set p.sandbox given.sandbox))
         (when (and p.cmd (> (length p.cmd) 0))
@@ -91,16 +102,20 @@
     (if (= (type name) :string) name "claude")))
 
 (fn get [name]
-  ;; {:name :cmd :env-remove [VAR ...] :credits-cmd}, or nil if name isn't a configured
-  ;; agent. :credits-cmd is nil when the agent has none.
+  ;; {:name :cmd :env-remove [VAR ...] :credits-cmd :usage-cmd :limits-cmd}, or nil if
+  ;; name isn't a configured agent. A command is nil when the agent has none.
   (let [p (. (profiles) name)
         override (when (= name (default-name)) (parse-cmd vim.g.acp-agent-cmd))]
     (when p
-      {: name
-       :cmd (if (and override (> (length override) 0)) override p.cmd)
-       :env-remove (or p.env-remove default-env-remove)
-       :sandbox p.sandbox
-       :credits-cmd (when (and p.credits-cmd (> (length p.credits-cmd) 0)) p.credits-cmd)})))
+      (let [agent {: name
+                   :cmd (if (and override (> (length override) 0)) override p.cmd)
+                   :env-remove (or p.env-remove default-env-remove)
+                   :sandbox p.sandbox}]
+        (each [_ key (ipairs commands)]
+          (let [cmd (. p key)]
+            (when (and cmd (> (length cmd) 0))
+              (tset agent key cmd))))
+        agent))))
 
 {: names
  : default-name

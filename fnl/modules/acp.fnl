@@ -6,6 +6,7 @@
 (local log (require :modules.acp.log))
 (local summary (require :modules.acp.summary))
 (local ui (require :modules.acp.ui))
+(local usage (require :modules.acp.usage))
 
 (fn send [opts]
   (let [s (session.current)
@@ -287,7 +288,8 @@
     (vim.api.nvim_set_hl 0 group {:link target :default false}))
   ;; Rows protected from markdown in render.markdown; keep their old blockquote look.
   (vim.api.nvim_set_hl 0 :AcpUiLine {:link :Normal :default false})
-  (vim.api.nvim_set_hl 0 :AcpUiPrefix {:link :Comment :default false}))
+  (vim.api.nvim_set_hl 0 :AcpUiPrefix {:link :Comment :default false})
+  (usage.highlights))
 
 (fn setup []
   (highlights)
@@ -317,6 +319,9 @@
   (vim.api.nvim_create_user_command "AcpSummary" show-summary
     {:bang true
      :desc "Show a markdown summary of this project's ACP session logs; ! includes every project"})
+  (vim.api.nvim_create_user_command "AcpUsage" usage.open
+    {:nargs "*" :complete usage.complete
+     :desc "Show the account's usage: spend, tokens, models, activity, tools and limits; args are an optional agent, today|N|all and project"})
   (vim.api.nvim_create_user_command "AcpConfig" configure
     {:nargs "*" :complete (complete-settings 1)
      :desc "Show or change ACP session settings (model, mode, effort...)"})

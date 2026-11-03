@@ -2005,6 +2005,149 @@
   (set vim.g.acp-credits false)
   (set vim.g.acp-agents {:opencode ["python3" (.. here "/fake_agent.py") "opencode"]}))
 
+;; Usage ------------------------------------------------------------------------------
+;; In a do block: the file is near Lua's 200 locals in one function.
+(do
+  (local usage (require :modules.acp.usage))
+  (local day-ms 86400000)
+  (local now-ms (* 1000 (os.time)))
+
+  (fn usage-doc [usage-result limits-result range]
+    (. (usage.document {:agent "oc" :range (or range 30) :project? false :cwd "/tmp/proj"}
+                       {:usage usage-result :limits limits-result})
+       :lines))
+
+  (fn stats-result [stats]
+    {:ok true :text (vim.json.encode stats) :decoded stats})
+
+  (local sample-stats
+    {:range {:from (- now-ms (* 29 day-ms)) :to now-ms}
+     :sessions 63 :subagents 38 :prompts 520 :steps 4687 :activeDays 14 :streak 12
+     :tokens {:input 9684527 :output 1545376 :reasoning 2026550
+              :cache {:read 411995415 :write 21257467}}
+     :cost 154.9146
+     :tools {:totals {:calls 100 :succeeded 90 :failed 10 :unfinished 0}
+             :usage [{:name "read" :calls 20 :succeeded 20 :failed 0 :durationP50 15}
+                     {:name "shell" :calls 80 :succeeded 70 :failed 10 :durationP50 6809}]}
+     :activity [{:date (os.date "%Y-%m-%d") :steps 300}]
+     :models [{:model {:id "cheap" :providerID "go"} :steps 10 :cost 1}
+              {:model {:id "big" :providerID "zen" :variant "medium"} :steps 5 :cost 99}]})
+
+  (check "usage numbers are grouped and compacted"
+         (and (= "4,687" (usage.grouped 4687)) (= "1,234,567" (usage.grouped 1234567))
+              (= "999" (usage.grouped 999)) (= "9.7M" (usage.compact 9684527))
+              (= "15ms" (usage.duration 15)) (= "6.8s" (usage.duration 6809))
+              (= "15m54s" (usage.duration 954793))))
+  (check "usage bars fill in eighths and show a sliver for anything above nothing"
+         (and (vim.deep_equal ["████" ""] (usage.bar 1 4))
+              (vim.deep_equal ["██▌" "░"] (usage.bar 0.625 4))
+              (vim.deep_equal ["▏" "░░░"] (usage.bar 0.0001 4))
+              (vim.deep_equal ["" "░░░░"] (usage.bar 0 4))))
+  (check "usage ranges step through the presets and stop at the ends"
+         (and (= 90 (usage.step-range 30 1)) (= 7 (usage.step-range 30 -1))
+              (= 30 (usage.step-range 14 1)) (= 7 (usage.step-range 14 -1))
+              (= :all (usage.step-range 365 1)) (= nil (usage.step-range :all 1))
+              (= nil (usage.step-range 0 -1)) (= 365 (usage.step-range :all -1))))
+  (check "usage commands get their range, project and directory"
+         (and (vim.deep_equal ["s" "--days" "7" "--project" "." "/a%b"]
+                              (usage.expand ["s" "{range}" "{project}" "{cwd}"]
+                                            {:range 7 :project? true :cwd "/a%b"}))
+              (vim.deep_equal ["s" "--all"]
+                              (usage.expand ["s" "{range}" "{project}"]
+                                            {:range :all :project? false :cwd "/"}))))
+  (check "usage arguments are an agent, a range and project in any order"
+         (and (vim.deep_equal {:agent "opencode" :range 7 :project? true}
+                              (usage.parse-args ["7" "project" "opencode"]))
+              (vim.deep_equal {:range :all} (usage.parse-args ["all"]))
+              (vim.deep_equal {:range 0} (usage.parse-args ["today"]))
+              (= nil (usage.parse-args ["nonsense"]))))
+  (let [lines (usage-doc (stats-result sample-stats) nil)]
+    (check "usage shows the spend, sessions and steps" (and (has-line lines "Spent        $154.91")
+                                                            (has-line lines "63 + 38 subagents")
+                                                            (has-line lines "4,687"))
+           lines)
+    (check "usage shows the share of tokens read from cache"
+           (has-line lines "93.0% of prompt tokens read from cache") lines)
+    (check "usage lists the dearest model first, with its variant"
+           (let [big (accumulate [r nil i l (ipairs lines) &until r] (when (string.find l "big (medium)" 1 true) i))
+                 cheap (accumulate [r nil i l (ipairs lines) &until r] (when (string.find l "cheap" 1 true) i))]
+             (and big cheap (< big cheap) (not= nil (string.find (. lines big) "99.0%" 1 true))))
+           lines)
+    (check "usage charts each day's steps and names the busiest"
+           (and (has-line lines "Activity · steps per day") (has-line lines "Busiest: 300 steps on"))
+           lines)
+    (check "usage shows tool failure rates, busiest tool first"
+           (and (has-line lines "100 calls · 90.0% succeeded · 10 failed")
+                (has-line lines "shell +80 [░█▏-▉ ]+ +10 +12.5%% +6.8s" true))
+           lines)
+    (check "usage lines carry no trailing blanks"
+           (accumulate [ok true _ l (ipairs lines)] (and ok (= nil (string.find l "%s$")))))
+    (check "usage leaves out limits when the agent has no limits command"
+           (not (has-line lines "Limits"))))
+  (check "a long usage range folds days into columns"
+         (has-line (usage-doc (stats-result (vim.tbl_extend :force sample-stats
+                                                            {:range {:from (- now-ms (* 89 day-ms)) :to now-ms}}))
+                              nil 90)
+                   "Activity · steps per 3 days"))
+  (let [resets (+ (os.time) (* 2 86400) 3600 30)
+        lines (usage-doc (stats-result sample-stats)
+                         {:ok true
+                          :decoded {:data {:workspace {:usageURL "https://example.test/usage"}
+                                           :go {:rolling {:percent 42.6 :limited false :resetsAt (* 1000 resets)}
+                                                :weekly {:percent 100 :limited true :resetsAt resets}}
+                                           :budgets [{:limit 50 :spent 12.5 :picked true}]}}})]
+    (check "usage shows each Go window and when it resets"
+           (and (has-line lines "Go rolling .* 43%%  resets in 2d 1h" true)
+                (has-line lines "Go weekly .* limited" true))
+           lines)
+    (check "usage shows budgets and the dashboard"
+           (and (has-line lines "25.0%  $12.50 of $50.00 · in use")
+                (has-line lines "https://example.test/usage"))
+           lines))
+  (check "usage says when limits aren't available"
+         (has-line (usage-doc (stats-result sample-stats) {:failed true}) "Not available yet"))
+  (check "usage shows other output as it is"
+         (has-line (usage-doc {:ok true :text "£4.20 left\nrenews 1 Dec"} nil) "  renews 1 Dec"))
+  (check "usage says when its command failed"
+         (has-line (usage-doc {:ok false :text "exited 1: boom"} nil) "The usage command failed: exited 1: boom"))
+  (check "profiles may set or turn off the usage commands"
+         (do
+           (set vim.g.acp-agents {:opencode {:usage-cmd false} :mine {:cmd "m" :limits-cmd "l --x"}})
+           (let [ok (and (= nil (. (agents.get :opencode) :usage-cmd))
+                         (= "opencode" (. (agents.get :opencode) :limits-cmd 1))
+                         (vim.deep_equal ["l" "--x"] (. (agents.get :mine) :limits-cmd))
+                         (= nil (. (agents.get :claude) :usage-cmd)))]
+             (set vim.g.acp-agents {:opencode ["python3" (.. here "/fake_agent.py") "opencode"]})
+             ok)))
+
+  (let [script (vim.fn.tempname)]
+    (vim.fn.writefile ["#!/bin/sh" "echo \"range $1 $2 project $3\""] script)
+    (set vim.g.acp-agents {:mine {:cmd "m" :usage-cmd ["sh" script "{range}" "{project}"]}})
+    (vim.cmd "AcpUsage mine 7")
+    (local buf (vim.fn.bufnr "acp://usage/mine"))
+    (wait #(has-line (lines-of buf) "range --days 7 project"))
+    (check ":AcpUsage runs the agent's usage command over the range" (has-line (lines-of buf) "range --days 7 project")
+           (lines-of buf))
+    (vim.api.nvim_feedkeys ">p" "x" false)
+    (wait #(has-line (lines-of buf) "range --days 30 project --project"))
+    (check "> lengthens the range and p switches to this project"
+           (and (has-line (lines-of buf) "last 30 days")
+                (has-line (lines-of buf) "range --days 30 project --project"))
+           (lines-of buf))
+    (vim.cmd "AcpUsage mine")
+    (vim.wait 200)
+    (check ":AcpUsage again without arguments keeps the range and scope"
+           (has-line (lines-of buf) "last 30 days · ") (lines-of buf))
+    (vim.cmd "AcpUsage mine 7")
+    (wait #(has-line (lines-of buf) "range --days 7 project"))
+    (check "and with arguments starts afresh" (has-line (lines-of buf) "range --days 7 project")
+           (lines-of buf))
+    (vim.api.nvim_feedkeys "q" "x" false)
+    (check "q closes the usage window" (= -1 (vim.fn.bufwinid buf)))
+    (vim.api.nvim_buf_delete buf {:force true})
+    (vim.fn.delete script)
+    (set vim.g.acp-agents {:opencode ["python3" (.. here "/fake_agent.py") "opencode"]})))
+
 ;; Agent-supplied rows don't leak markdown syntax into the lines below ----------------
 
 (let [buf (vim.api.nvim_create_buf false true)]
