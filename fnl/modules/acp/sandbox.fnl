@@ -118,6 +118,15 @@
          :write write
          :mask spec.mask}))))
 
+(fn forward [spec port]
+  ;; A sandbox spec that also reaches a service of this Neovim's on the host's loopback,
+  ;; without asking about it. Off stays off; a spec with no network is left as it is.
+  (let [s (normalize spec)]
+    (when (and s (= s.net :proxy))
+      (table.insert (. s :local) port)
+      (table.insert s.allow (.. "localhost:" port)))
+    s))
+
 (fn home []
   ;; $HOME as an absolute path, or nil when there is none worth masking.
   (let [path vim.env.HOME]
@@ -460,6 +469,7 @@
 
 {: available?
  : normalize
+ : forward
  : describe
  : prepare
  : watch

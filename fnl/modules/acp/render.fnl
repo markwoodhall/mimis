@@ -28,9 +28,13 @@
                    "start=/^>\\%(>\\| \\%(tool\\|permission\\|elicitation\\|egress\\|stop\\|acp\\):\\)/ "
                    "end=/$/ contains=NONE")))))
 
+(fn chat-name [s]
+  ;; A delegated session shares its project with its parent, so it needs its label too.
+  (.. "acp://chat/" s.session.project (if s.label (.. "/" s.label) "")))
+
 (fn create-buffers [s]
   (let [buf (vim.api.nvim_create_buf false true)]
-    (vim.api.nvim_buf_set_name buf (.. "acp://chat/" s.session.project))
+    (vim.api.nvim_buf_set_name buf (chat-name s))
     (tset (. vim.bo buf) :swapfile false)
     (tset (. vim.bo buf) :bufhidden :hide)
     (markdown buf)
@@ -44,7 +48,7 @@
 (fn retitle [s]
   ;; The session moved to another project.
   (when (vim.api.nvim_buf_is_valid s.buf)
-    (pcall vim.api.nvim_buf_set_name s.buf (.. "acp://chat/" s.session.project))))
+    (pcall vim.api.nvim_buf_set_name s.buf (chat-name s))))
 
 (fn visible? [buf]
   (not= -1 (vim.fn.bufwinid buf)))

@@ -7,7 +7,10 @@
   (vim.fn.expand (or vim.g.acp-debug-log (.. (vim.fn.stdpath :log) "/acp-debug.log"))))
 
 (fn debug [direction text]
+  ;; The log sits where a sandboxed agent can read it, so bearer tokens stay out of it,
+  ;; whichever way they were going.
   (let [stamp (os.date "%H:%M:%S")
+        text (pick-values 1 (string.gsub text "Bearer [%w%-%._~%+/]+=*" "Bearer [redacted]"))
         lines (icollect [_ l (ipairs (vim.split text "\n" {:plain true}))]
                 (.. stamp " [" pid "] " direction " " l))]
     (vim.fn.writefile lines (debug-path) "a")))

@@ -2,6 +2,7 @@
 
 (local session (require :modules.acp.session))
 (local agents (require :modules.acp.agents))
+(local broker (require :modules.acp.broker))
 (local render (require :modules.acp.render))
 (local log (require :modules.acp.log))
 (local summary (require :modules.acp.summary))
@@ -9,7 +10,7 @@
 (local usage (require :modules.acp.usage))
 
 (fn send [opts]
-  (let [s (session.current)
+  (let [s (session.here)
         from-args? (and opts (not= opts.args ""))]
     (if (not s)
       (vim.notify "acp: no session, run :Acp first" vim.log.levels.WARN)
@@ -20,10 +21,10 @@
           (render.clear-prompt s))))))
 
 (fn cancel []
-  (session.cancel (session.current)))
+  (session.cancel (session.here)))
 
 (fn quit []
-  (session.stop (session.current)))
+  (session.stop (session.here)))
 
 (fn setting-pairs [fargs]
   ;; ["model" "sonnet" "mode" "plan"] -> {:model "sonnet" :mode "plan"}
@@ -84,7 +85,7 @@
 (fn tool [opts]
   ;; In the chat, toggles the details of the tool call under the cursor.
   ;; Anywhere else, opens the latest tool call in a split.
-  (let [s (session.current)
+  (let [s (session.here)
         row (chat-row s)]
     (if (not s)
       (vim.notify "acp: no session, run :Acp first" vim.log.levels.WARN)
@@ -123,17 +124,18 @@
                           (session.first-elicitation-row s))))
 
 (fn allow [opts]
-  (session.choose-kind (session.current)
+  ;; These answer the session whose chat you're in, never a delegated agent you can't see.
+  (session.choose-kind (session.here)
                        (if opts.bang [:allow_always :allow_once] [:allow_once :allow_always])))
 
 (fn reject []
-  (session.choose-kind (session.current) [:reject_once :reject_always]))
+  (session.choose-kind (session.here) [:reject_once :reject_always]))
 
 (fn answer []
-  (session.answer-open (session.current)))
+  (session.answer-open (session.here)))
 
 (fn decline []
-  (session.decline-open (session.current)))
+  (session.decline-open (session.here)))
 
 (fn sandbox-for [agent flag]
   ;; flag is :Acp's switch: true (asked for), false (asked against), nil (the profile
@@ -159,7 +161,11 @@
           (session.stop s))
         (let [agent (vim.deepcopy base)
               _ (tset agent :sandbox (sandbox-for base sandbox-flag))
-              s (session.start agent (vim.tbl_extend :force (start-config) requested) intent)]
+              (delegation problem) (broker.open agent chat-keymaps)
+              s (session.start agent (vim.tbl_extend :force (start-config) requested) intent
+                               (when delegation (broker.session-options delegation)))]
+          (when delegation (broker.attach delegation s))
+          (when problem (vim.notify (.. "acp: " problem) vim.log.levels.WARN))
           (chat-keymaps s)
           (focus s mods))))))
 
@@ -204,6 +210,26 @@
           (start-new s name {} opts.mods
                      {:kind :load :id chosen.id :cwd chosen.cwd :title chosen.title})))
       (start-new s name {} opts.mods intent))))
+
+(fn show-agents [opts]
+  ;; :AcpAgents  choose between a session and the agents it delegated to, and jump there.
+  (let [s (session.here)
+        root (when s (or s.parent s))
+        family (when root (vim.list_extend [root] (session.children root)))]
+    (if (or (not root) (= 1 (length family)))
+      (vim.notify "acp: no delegated agents" vim.log.levels.WARN)
+      (ui.select family
+                 {:prompt "Agent: "
+                  :format_item (fn [a]
+                                 (let [waiting (session.waiting-for a)]
+                                   (.. (or a.label a.agent.name) " — " (session.state a)
+                                       (if (> (length waiting) 0)
+                                         (.. " — " (. waiting 1))
+                                         (?. a :activity :label)
+                                         (.. " — " a.activity.label)
+                                         ""))))}
+                 (fn [a]
+                   (when a (focus a opts.mods)))))))
 
 (fn show-summary [opts]
   ;; :AcpSummary  a markdown buffer of this project's logged sessions.
@@ -316,6 +342,8 @@
                  (icollect [_ n (ipairs (agents.names))]
                    (when (vim.startswith n arglead) n)))
      :desc "Resume an earlier ACP session of this project; ! lists every project's; args are an optional agent and session id"})
+  (vim.api.nvim_create_user_command "AcpAgents" show-agents
+    {:desc "Choose between the ACP session and the agents it delegated to, and jump there"})
   (vim.api.nvim_create_user_command "AcpSummary" show-summary
     {:bang true
      :desc "Show a markdown summary of this project's ACP session logs; ! includes every project"})

@@ -10,7 +10,7 @@
 (local form (require :modules.acp.form))
 (local sandbox (require :modules.acp.sandbox))
 
-(local sessions {:current nil})
+(local sessions {:current nil :all []})
 
 (fn project-root []
   (let [root (when (= 1 (vim.fn.exists "*FindRootDirectory"))
@@ -21,6 +21,14 @@
 
 (fn alive? [s]
   (and s s.agent.proc (not s.ended) (not s.exited)))
+
+(fn tag [s]
+  ;; How a message to you names the session: a delegated one needs telling apart.
+  (if s.label (.. "acp[" s.label "]: ") "acp: "))
+
+(fn find-it [s how]
+  ;; How to get to a session's question: :AcpAgents for a delegated one.
+  (if s.parent " (:AcpAgents to find it)" how))
 
 ;; Summary lines -------------------------------------------------------------
 
@@ -243,7 +251,9 @@
         (when (and announce? previous (not= previous.current o.current))
           (note s (.. "> acp: " o.name " → " o.display)))))
     (set s.config options)
-    (remember options)
+    ;; A delegated agent's settings aren't what :Acp should complete.
+    (when (not s.parent)
+      (remember options))
     (vim.cmd "redrawstatus!")))
 
 (fn apply-mode [s id announce?]
@@ -475,8 +485,8 @@
         (render.attach-lines s block lines)
         (when (running? s) (busy s "waiting for your permission"))
         (when (not (render.visible? s.buf))
-          (vim.notify (.. "acp: agent wants to: " (pick-values 1 (short-title s title))
-                          " (:Acp to choose, or :AcpAllow / :AcpReject)")))))))
+          (vim.notify (.. (tag s) "agent wants to: " (pick-values 1 (short-title s title))
+                          (find-it s " (:Acp to choose, or :AcpAllow / :AcpReject)"))))))))
 
 (fn choice-at [s row]
   ;; The permission choice on chat row (1-based), if any.
@@ -588,9 +598,9 @@
               (when (turn-active? s)
                 (busy s "waiting for your answer"))
               (when (not (render.visible? s.buf))
-                (vim.notify (.. "acp: agent asks: "
+                (vim.notify (.. (tag s) "agent asks: "
                                 (short-title s block.title activity-width)
-                                " (<CR> on it in the chat, or :AcpAnswer)"))))))))))
+                                (find-it s " (<CR> on it in the chat, or :AcpAnswer)")))))))))))
 
 (fn answer-open [s]
   ;; The form walk for the open elicitation (:AcpAnswer, or <CR> on its line).
@@ -662,7 +672,7 @@
   (note s (.. "> acp: no update from " what " for " (duration silence)
               " — it may be waiting on something that never reports back"))
   (when (not (render.visible? s.buf))
-    (vim.notify (.. "acp: no update from " what " for " (duration silence)))))
+    (vim.notify (.. (tag s) "no update from " what " for " (duration silence)))))
 
 (fn check-stall [s]
   ;; A permission or a question already explains the pause, so neither counts.
@@ -737,11 +747,19 @@
     (when s.elicitation (answer-elicitation s :cancel))
     (note-unfinished s turn)
     (add-line-block s {:type :line :line (.. "> stop: " reason)})
+    (set s.last-turn {:stop-reason reason
+                      :reply (vim.trim (table.concat (icollect [_ b (ipairs turn.blocks)]
+                                                       (when (= b.type :text) b.text))
+                                                     ""))
+                      :tools (icollect [_ id (ipairs (or turn.tool-ids []))]
+                               (let [tool (. s.tools id)]
+                                 (when tool {:title tool.title :status tool.status})))})
+    (set s.turns-finished (+ (or s.turns-finished 0) 1))
     (set s.turn {:state :idle})
     (idle s)
     (refresh-credits s)
     (when (not (render.visible? s.buf))
-      (vim.notify (.. "acp: agent finished (" reason ")")))
+      (vim.notify (.. (tag s) "agent finished (" reason ")")))
     (let [(ok e) (pcall log.append-turn s turn)]
       (when (not ok)
         (vim.notify (.. "acp: could not write session log: " (tostring e)) vim.log.levels.ERROR)))))
@@ -784,6 +802,7 @@
 
 (fn on-exit [s code]
   (set s.exited true)
+  (set s.exit-code code)
   (stop-stall-timer s)
   (sandbox.stop s.sandbox)
   (when (and (not s.ended) (= vim.v.exiting vim.NIL))
@@ -859,16 +878,30 @@
                                   " · protocol v" (tostring info.protocol-version)
                                   " · " s.session.cwd))
              (when (> (length s.config) 0)
-               (render.status s (config-summary s))))}))
+               (render.status s (config-summary s)))
+             (when s.on-ready
+               (s.on-ready s)))}))
+
+(fn mcp-servers [s info]
+  ;; The tools the session was given, if the agent can take them over HTTP.
+  (if (= 0 (length s.mcp-servers))
+    []
+    info.mcp-http
+    s.mcp-servers
+    (do
+      (render.status s (.. (or info.name "this agent") " takes no MCP servers over HTTP, "
+                           "so it can't delegate"))
+      [])))
 
 (fn create-session [s info]
   (busy s "creating session")
   (rpc.request s.rpc protocol.methods.session-new
-               (protocol.new-session-params s.session.cwd)
+               (protocol.new-session-params s.session.cwd (mcp-servers s info))
     (fn [err result]
       (if err
         (do
           (idle s)
+          (set s.failed (.. "session/new failed: " (or err.message "unknown")))
           (render.status s (.. "session/new failed: " (or err.message "unknown")
                                (if (> (length info.auth-methods) 0)
                                  (.. " (agent auth methods: "
@@ -896,7 +929,7 @@
         (set s.replay {:turns []})
         (busy s "loading session")
         (rpc.request s.rpc protocol.methods.session-load
-                     (protocol.load-params chosen.id s.session.cwd)
+                     (protocol.load-params chosen.id s.session.cwd (mcp-servers s info))
           (fn [err result]
             (if err
               (do
@@ -940,6 +973,7 @@
       (if err
         (do
           (idle s)
+          (set s.failed (.. "initialize failed: " (or err.message "unknown")))
           (render.status s (.. "initialize failed: " (or err.message "unknown"))))
         (let [info (protocol.parse-initialize result)]
           (set s.agent.info info)
@@ -971,6 +1005,26 @@
 
 (fn waiting-on-you? [s]
   (or s.permission s.elicitation (> (length s.egress-open) 0)))
+
+(fn waiting-for [s]
+  ;; What the session is waiting for you to answer, as text.
+  (let [waiting []]
+    (when s.permission
+      (table.insert waiting (.. "permission: " s.permission.block.title)))
+    (when s.elicitation
+      (table.insert waiting (.. "question: " s.elicitation.block.title)))
+    (each [_ q (ipairs s.egress-open)]
+      (table.insert waiting (.. "network access: " q.key)))
+    waiting))
+
+(fn state [s]
+  (if s.ended :stopped
+      s.failed :failed
+      s.exited :exited
+      (not s.ready) :starting
+      (waiting-on-you? s) :waiting_for_user
+      (turn-active? s) :running
+      :idle))
 
 (fn answer-egress [s q choice]
   (let [late q.expired]
@@ -1036,19 +1090,29 @@
                                      (.. "  " i ". " c.name)))
       (when (running? s) (busy s "waiting for your answer"))
       (when (not (render.visible? s.buf))
-        (vim.notify (.. "acp: the agent wants to reach " key
-                        " (:Acp to choose, <CR> on a choice)"))))))
+        (vim.notify (.. (tag s) "the agent wants to reach " key
+                        (find-it s " (:Acp to choose, <CR> on a choice)")))))))
 
-(fn start [agent requested intent]
+(fn start [agent requested intent opts]
   ;; agent: a profile from modules.acp.agents.
   ;; requested: {setting value} applied once the session exists, before it takes prompts.
   ;; intent: {:kind :new} (the default), {:kind :pick :all? :id} to choose an earlier session
   ;; once the agent is up, or {:kind :load :id :cwd :title} for one already chosen.
-  (let [intent (or intent {:kind :new})
+  ;; opts, all optional: :mcp-servers to give the agent, :on-stop to call as the session
+  ;; ends, and for a delegated session (see modules.acp.broker) its :parent, its :label
+  ;; and :on-ready to call once it takes prompts. A delegated session never becomes
+  ;; the current one.
+  (let [opts (or opts {})
+        intent (or intent {:kind :new})
         cwd (or intent.cwd (project-root))
         s {:agent {:name agent.name :cmd agent.cmd :credits-cmd agent.credits-cmd
                    :sandbox agent.sandbox}
            : intent
+           :parent opts.parent
+           :label opts.label
+           :mcp-servers (or opts.mcp-servers [])
+           :on-stop opts.on-stop
+           :on-ready opts.on-ready
            :session {:id nil
                      : cwd
                      :project (vim.fn.fnamemodify cwd ":t")
@@ -1069,6 +1133,7 @@
            :egress {}
            :egress-asked {}
            :egress-open []}]
+    (table.insert sessions.all s)
     (log.init s)
     (render.create-buffers s)
     (set s.rpc (rpc.new {:send (fn [line] (transport.send s.agent.proc line))
@@ -1077,8 +1142,10 @@
     (let [(box problem) (sandbox.prepare agent.sandbox cwd)]
       (if problem
         (do
-          (set sessions.current s)
+          (when (not s.parent)
+            (set sessions.current s))
           (set s.exited true)
+          (set s.failed (.. "could not start agent: " problem))
           (render.status s (.. "could not start agent: " problem)))
         (let [(proc err) (transport.start s.agent.cmd cwd
                                           {:on-line (fn [line] (rpc.receive s.rpc line))
@@ -1086,7 +1153,8 @@
                                           agent.env-remove box)]
           (set s.agent.proc proc)
           (set s.sandbox box)
-          (set sessions.current s)
+          (when (not s.parent)
+            (set sessions.current s))
           (if proc
             (do
               (render.status s (.. "starting " (table.concat s.agent.cmd " ") "…"))
@@ -1100,11 +1168,17 @@
             (do
               (sandbox.stop box)
               (set s.exited true)
+              (set s.failed (.. "could not start agent: " (tostring err)))
               (render.status s (.. "could not start agent: " (tostring err))))))))
     s))
 
 (fn stop [s]
   (when s
+    ;; First, so a parent's delegated sessions go before it does.
+    (when s.on-stop
+      (let [on-stop s.on-stop]
+        (set s.on-stop nil)
+        (on-stop s)))
     (when (= s.turn.state :running) (cancel s))
     (set s.ended true)
     (stop-stall-timer s)
@@ -1112,6 +1186,7 @@
       (transport.stop s.agent.proc (and s.sandbox true)))
     (sandbox.stop s.sandbox)
     (render.wipe s)
+    (set sessions.all (vim.tbl_filter #(not= $1 s) sessions.all))
     (when (= sessions.current s)
       (set sessions.current nil))
     (if s.log.path
@@ -1121,16 +1196,26 @@
 (fn current []
   sessions.current)
 
+(fn here []
+  ;; The session whose chat is the current buffer, else the current session.
+  (let [buf (vim.api.nvim_get_current_buf)]
+    (or (accumulate [found nil _ s (ipairs sessions.all) &until found]
+          (when (= s.buf buf) s))
+        sessions.current)))
+
+(fn children [s]
+  ;; The sessions delegated from s, oldest first.
+  (vim.tbl_filter #(= $1.parent s) sessions.all))
+
 (fn shutdown []
-  ;; Neovim is exiting: stop the agent without touching buffers or notifying.
-  (let [s sessions.current]
-    (when s
-      (set s.ended true)
-      (stop-stall-timer s)
-      (render.activity s nil)
-      (when (and s.agent.proc (not s.exited))
-        (transport.stop s.agent.proc (and s.sandbox true)))
-      (sandbox.stop s.sandbox))))
+  ;; Neovim is exiting: stop the agents without touching buffers or notifying.
+  (each [_ s (ipairs sessions.all)]
+    (set s.ended true)
+    (stop-stall-timer s)
+    (render.activity s nil)
+    (when (and s.agent.proc (not s.exited))
+      (transport.stop s.agent.proc (and s.sandbox true)))
+    (sandbox.stop s.sandbox)))
 
 (fn session-buffer? [s buf]
   (= buf s.buf))
@@ -1184,14 +1269,17 @@
 (fn status-text []
   ;; Statusline segment. Agent, sandbox, model, mode, context use, session cost and
   ;; account credits show in the session's own windows; activity shows everywhere
-  ;; while the agent is working, and the background count with it.
-  (let [s sessions.current]
+  ;; while the agent is working, and the background count with it. In a delegated
+  ;; agent's chat it shows that agent; a parent shows how many of its agents are at work,
+  ;; or how many need you.
+  (let [s (here)]
     (if (not s)
       ""
       (let [sep (status-highlight status-groups.separator " · ")
             details (when (session-buffer? s (vim.api.nvim_get_current_buf))
                       (let [parts []]
-                        (table.insert parts (status-highlight status-groups.agent s.agent.name))
+                        (table.insert parts (status-highlight status-groups.agent
+                                                              (or s.label s.agent.name)))
                         (let [model (config-by-category s :model)
                               mode (config-by-category s :mode)]
                           (when model
@@ -1216,6 +1304,9 @@
                           (table.concat parts sep))))
             activity (render.activity-text s)
             background (background-count s)
+            delegated (vim.tbl_map state (children s))
+            needing-you (length (vim.tbl_filter #(= $1 :waiting_for_user) delegated))
+            at-work (length (vim.tbl_filter #(or (= $1 :running) (= $1 :starting)) delegated))
             body (let [parts []
                        add (fn [part separator]
                              (when part
@@ -1228,6 +1319,13 @@
                      (add (status-highlight (status-activity-group s) activity) " | "))
                    (add (when (> background 0)
                           (status-highlight status-groups.background (.. background " bg")))
+                        " · ")
+                   (add (when (> at-work 0)
+                          (status-highlight status-groups.background
+                                            (.. at-work (if (= at-work 1) " agent" " agents"))))
+                        " · ")
+                   (add (when (> needing-you 0)
+                          (status-highlight status-groups.alert (.. needing-you " waiting")))
                         " · ")
                    (table.concat parts ""))]
         (if (> (length body) 0)
@@ -1265,6 +1363,12 @@
       (vim.notify "acp: no tool calls in this session" vim.log.levels.WARN))))
 
 {: start
+ : here
+ : children
+ : state
+ : waiting-for
+ : running-tools
+ : note
  : project-root
  : list-sessions
  : pick-live

@@ -40,7 +40,8 @@
 ;; This entry only adds the policy: the built-in command, :env-remove and credits
 ;; command are kept.
 (set vim.g.acp-agents
-     {:claude {:sandbox {:net :proxy
+     {:claude {:delegate ["opencode"]
+               :sandbox {:net :proxy
                          ;; platform.claude.com is the OAuth token endpoint: without
                          ;; it an expired login can't be refreshed in the sandbox.
                          :allow ["api.anthropic.com:443"
@@ -90,8 +91,8 @@
    :modules.git []
    :modules.colors 
    {:theme :catppuccin
-    :colorscheme :catppuccin-latte
-    :background :light
+    :colorscheme :catppuccin-macchiato
+    :background :dark
     :post-setup (fn [])}
    :modules.statusline []
    :modules.quickfix [] 

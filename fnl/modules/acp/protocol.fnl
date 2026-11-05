@@ -30,16 +30,21 @@
     {:protocol-version result.protocolVersion
      :load-session (= caps.loadSession true)
      :list-sessions (not= nil (?. caps :sessionCapabilities :list))
+     :mcp-http (= true (?. caps :mcpCapabilities :http))
      :auth-methods (icollect [_ m (ipairs (or result.authMethods []))]
                      (or m.name m.id))
      :name (or info.title info.name)
      :version info.version}))
 
-(fn new-session-params [cwd]
-  {: cwd :mcpServers []})
+(fn http-mcp-server [name url token]
+  {:type :http : name : url
+   :headers [{:name "Authorization" :value (.. "Bearer " token)}]})
 
-(fn load-params [session-id cwd]
-  {:sessionId session-id : cwd :mcpServers []})
+(fn new-session-params [cwd mcp-servers]
+  {: cwd :mcpServers (or mcp-servers [])})
+
+(fn load-params [session-id cwd mcp-servers]
+  {:sessionId session-id : cwd :mcpServers (or mcp-servers [])})
 
 (fn list-params [cwd cursor]
   ;; Both optional: no cwd lists every project's sessions.
@@ -255,6 +260,7 @@
  : methods
  : initialize-params
  : parse-initialize
+ : http-mcp-server
  : new-session-params
  : parse-new-session
  : load-params

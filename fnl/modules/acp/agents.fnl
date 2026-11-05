@@ -38,6 +38,11 @@
 ;; A profile's :sandbox is the policy and the default. :Acp sandbox turns it on for one
 ;; session (an agent with no policy gets no host allowed), :Acp nosandbox turns it off.
 ;;
+;; :delegate lets the agent start and track other agents, as tools it is given over
+;; MCP; see modules.acp.broker. Off unless a profile asks for it.
+;;   :delegate ["opencode"]             the agents it may start
+;;   :delegate true                     any configured agent
+;;
 ;; The default agent is the one :Acp starts when none is named: vim.g.acp-config's
 ;; :agent, else claude. vim.g.acp-agent-cmd, when set, replaces the command of the
 ;; default agent (keeping its other profile settings) and wins over its
@@ -69,6 +74,7 @@
     {:cmd (parse-cmd entry.cmd)
      :env-remove entry.env-remove
      :sandbox entry.sandbox
+     :delegate entry.delegate
      :credits-cmd (if (= entry.credits-cmd false) false (parse-cmd entry.credits-cmd))
      :usage-cmd (if (= entry.usage-cmd false) false (parse-cmd entry.usage-cmd))
      :limits-cmd (if (= entry.limits-cmd false) false (parse-cmd entry.limits-cmd))}
@@ -88,6 +94,8 @@
             (tset p key (. given key))))
         (when (not= given.sandbox nil)
           (set p.sandbox given.sandbox))
+        (when (not= given.delegate nil)
+          (set p.delegate given.delegate))
         (when (and p.cmd (> (length p.cmd) 0))
           (tset all name p))))
     all))
@@ -110,7 +118,8 @@
       (let [agent {: name
                    :cmd (if (and override (> (length override) 0)) override p.cmd)
                    :env-remove (or p.env-remove default-env-remove)
-                   :sandbox p.sandbox}]
+                   :sandbox p.sandbox
+                   :delegate p.delegate}]
         (each [_ key (ipairs commands)]
           (let [cmd (. p key)]
             (when (and cmd (> (length cmd) 0))

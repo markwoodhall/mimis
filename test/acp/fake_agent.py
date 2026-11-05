@@ -71,10 +71,12 @@ def config_options():
                                   {"value": "sonnet", "name": "Sonnet 5.5"}]}]},
         # boolean options need a client capability the client doesn't declare: must be ignored
         {"id": "brave", "name": "Brave", "type": "boolean", "currentValue": True},
-    ]
+    ] + ([{"id": "speed", "name": "Speed", "type": "select", "currentValue": "fast",
+           "options": [{"value": "fast", "name": "Fast"}]}] if "extra" in sys.argv else [])
 
 
 pending_prompt = None
+mcp_servers = []
 for line in sys.stdin:
     msg = json.loads(line)
     m = msg.get("method")
@@ -84,10 +86,12 @@ for line in sys.stdin:
         assert "form" in (caps.get("elicitation") or {}), "form elicitation must be advertised"
         send({"id": msg["id"], "result": {"protocolVersion": 1, "agentCapabilities":
                                           dict({"loadSession": RESUMABLE},
+                                               mcpCapabilities={"http": "nomcp" not in sys.argv},
                                                **({"sessionCapabilities": {"list": {}}} if RESUMABLE else {})),
                                           "authMethods": [], "agentInfo": {"name": NAME, "version": VERSION}}})
     elif m == "session/new":
-        assert msg["params"]["mcpServers"] == []
+        assert isinstance(msg["params"]["mcpServers"], list)
+        mcp_servers = msg["params"]["mcpServers"]
         send({"id": msg["id"], "result": {"sessionId": SID, "configOptions": config_options()}})
         update({"sessionUpdate": "available_commands_update", "availableCommands": [
             {"name": "compact", "description": "Compact the conversation",
@@ -104,7 +108,8 @@ for line in sys.stdin:
         send({"id": msg["id"], "result": result})
     elif m == "session/load":
         p = msg["params"]
-        assert p["mcpServers"] == []
+        assert isinstance(p["mcpServers"], list)
+        mcp_servers = p["mcpServers"]
         if p["sessionId"] not in OLD:
             send({"id": msg["id"], "error": {"code": -32602, "message": "session not found"}})
             continue
@@ -128,6 +133,12 @@ for line in sys.stdin:
                   "params": {"sessionId": SID, "toolCall": {"toolCallId": "t9", "title": "Run `rm -rf build`"},
                              "options": [{"optionId": "allow", "name": "Allow once", "kind": "allow_once"}]}})
             continue
+        if prompt == "mcp servers":
+            text(json.dumps(mcp_servers))
+            send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
+            continue
+        if prompt == "die":
+            os._exit(3)
         if prompt == "plain":
             text("Plain reply.")
             send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})

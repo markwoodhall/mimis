@@ -34,6 +34,9 @@
                (.. "cwd: " s.session.cwd)
                (.. "agent: " (table.concat s.agent.cmd " "))
                (.. "agent-name: " s.agent.name)]]
+    (when s.parent
+      (vim.list_extend lines [(.. "parent: " (or s.parent.session.id ""))
+                              (.. "label: " s.label)]))
     (each [_ o (ipairs (or s.config []))]
       (table.insert lines (.. o.id ": " o.display)))
     (when s.log.resumed
