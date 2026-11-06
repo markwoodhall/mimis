@@ -1,11 +1,5 @@
-;; The pickers and prompts the ACP client asks through. Neovim's own vim.ui.select and
-;; vim.ui.input draw in the command line, which 'cmdheight' 0 hides, so while they are
-;; still Neovim's own these open floating windows instead. Anything else that replaced
-;; them (a picker plugin, a test) is used as it is.
-
-(fn stock? [f]
-  (let [source (. (debug.getinfo f :S) :source)]
-    (and source (not= nil (string.find source "vim/ui.lua" 1 true)))))
+;; Floating windows for vim.ui.select and vim.ui.input. Neovim's own draw in the command
+;; line, which 'cmdheight' 0 hides.
 
 (fn one-line [text]
   (pick-values 1 (string.gsub (tostring text) "%s*\n%s*" " ")))
@@ -45,8 +39,6 @@
                :col (math.floor (/ (- vim.o.columns width) 2))
                :style :minimal
                :border :rounded
-               :title " ACP "
-               :title_pos :center
                : footer
                :footer_pos :center})]
     (tset vim.wo win :wrap true)
@@ -128,15 +120,11 @@
       (vim.api.nvim_win_set_cursor win [(length lines) (length (. lines (length lines)))])
       (vim.cmd "startinsert!"))))
 
-(fn select [items opts on-choice]
-  (if (stock? vim.ui.select)
-    (float-select items opts on-choice)
-    (vim.ui.select items opts on-choice)))
+(fn enable [])
 
-(fn input [opts on-confirm]
-  (if (stock? vim.ui.input)
-    (float-input opts on-confirm)
-    (vim.ui.input opts on-confirm)))
+(fn setup []
+  (set vim.ui.select float-select)
+  (set vim.ui.input float-input))
 
-{: select
- : input}
+{: enable
+ : setup}

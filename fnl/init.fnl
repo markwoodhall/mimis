@@ -29,6 +29,7 @@
    :modules.statusline []
    :modules.quickfix []
    :modules.colors []
+   :modules.ui []
    :modules.acp []}
   :stable)
 
@@ -97,6 +98,7 @@
     :post-setup (fn [])}
    :modules.statusline []
    :modules.quickfix [] 
+   :modules.ui []
    :modules.acp []
 
    ;; Structure and syntax

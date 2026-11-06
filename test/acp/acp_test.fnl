@@ -687,17 +687,16 @@
 (set vim.ui.input original-ui-input)
 
 ;; Floating pickers -------------------------------------------------------------------
-;; With Neovim's own vim.ui in place the form's prompts open as floats.
+;; modules.ui, loaded with the config, makes vim.ui.select and vim.ui.input open floats.
 
-(local ui (require :modules.acp.ui))
 (fn float-count []
   (length (vim.tbl_filter #(not= "" (. (vim.api.nvim_win_get_config $1) :relative))
                           (vim.api.nvim_list_wins))))
 
 (var picked :none)
-(ui.select [{:name "a"} {:name "b"} {:name "c"}]
-           {:prompt "Which? " :format_item #$1.name}
-           (fn [item i] (set picked [(?. item :name) i])))
+(vim.ui.select [{:name "a"} {:name "b"} {:name "c"}]
+               {:prompt "Which? " :format_item #$1.name}
+               (fn [item i] (set picked [(?. item :name) i])))
 (check "a select opens a float" (= 1 (float-count)) (float-count))
 (check "the float holds the question and the numbered choices"
        (vim.deep_equal ["Which?" "" "1. a" "2. b" "3. c"]
@@ -710,22 +709,36 @@
        [picked (float-count)])
 
 (set picked :none)
-(ui.select [{:name "a"} {:name "b"}] {:prompt "Which? " :format_item #$1.name}
-           (fn [item i] (set picked [(?. item :name) i])))
+(vim.ui.select [{:name "a"} {:name "b"}] {:prompt "Which? " :format_item #$1.name}
+               (fn [item i] (set picked [(?. item :name) i])))
 (vim.api.nvim_feedkeys (vim.keycode "j<CR>") :x false)
 (wait #(not= picked :none))
 (check "<CR> picks the choice under the cursor" (vim.deep_equal ["b" 2] picked) picked)
 
 (set picked :none)
-(ui.select [{:name "a"} {:name "b"}] {:prompt "Which? " :format_item #$1.name}
-           (fn [item i] (set picked [(?. item :name) i])))
+(vim.ui.select [{:name "a"} {:name "b"}] {:prompt "Which? " :format_item #$1.name}
+               (fn [item i] (set picked [(?. item :name) i])))
 (vim.api.nvim_feedkeys "q" :x false)
 (wait #(not= picked :none))
 (check "q cancels without a choice" (and (vim.deep_equal [nil nil] picked) (= 0 (float-count)))
        [picked (float-count)])
 
+(do
+  (set picked :none)
+  (vim.ui.select [{:title "Extract"} {:title "Inline"}]
+                 {:prompt "Code actions:" :kind :codeaction :format_item #$1.title}
+                 (fn [item i] (set picked [(?. item :title) i])))
+  (check "a code action select opens a float"
+         (and (= 1 (float-count))
+              (vim.deep_equal ["Code actions" "" "1. Extract" "2. Inline"]
+                              (vim.api.nvim_buf_get_lines 0 0 -1 false)))
+         [(float-count) (vim.api.nvim_buf_get_lines 0 0 -1 false)])
+  (vim.api.nvim_feedkeys "2" :x false)
+  (wait #(not= picked :none))
+  (check "a code action is chosen from the float" (vim.deep_equal ["Inline" 2] picked) picked))
+
 (var typed :none)
-(ui.input {:prompt "Name: " :default "ab"} (fn [text] (set typed [text])))
+(vim.ui.input {:prompt "Name: " :default "ab"} (fn [text] (set typed [text])))
 (check "an input opens a float" (= 1 (float-count)) (float-count))
 ;; startinsert only takes effect back in the main loop, which a headless script never reaches.
 (vim.api.nvim_feedkeys (.. (if (= :i (. (vim.api.nvim_get_mode) :mode)) "" "A")

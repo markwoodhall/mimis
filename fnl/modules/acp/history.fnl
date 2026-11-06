@@ -1,6 +1,5 @@
 ;; Choosing a past session to resume: ordering, labels and the picker.
 
-(local ui (require :modules.acp.ui))
 
 (fn parse-time [stamp]
   ;; Seconds since the epoch for an ISO 8601 timestamp, read as UTC (what agents send).
@@ -55,11 +54,11 @@
     (= 0 (length sessions))
     (done nil (if opts.all? "no sessions to resume" "no sessions to resume in this project"))
     (let [now (os.time)]
-      (ui.select (sort-recent sessions)
-                 {:prompt "Resume session: "
-                  :format_item (fn [session] (label session now opts.all?))}
-                 (fn [chosen]
-                   (if chosen (done chosen) (done nil "no session chosen")))))))
+      (vim.ui.select (sort-recent sessions)
+                     {:prompt "Resume session: "
+                      :format_item (fn [session] (label session now opts.all?))}
+                     (fn [chosen]
+                       (if chosen (done chosen) (done nil "no session chosen")))))))
 
 {: parse-time
  : age
