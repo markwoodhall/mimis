@@ -7,6 +7,7 @@
 ;;
 ;; A tool is {:name :description :inputSchema :run (fn [args done fail])}, and calls
 ;; (done value) with what to return as JSON, or (fail message). It may do so later.
+;; A server's instructions, if any, are what its client is told about it as it connects.
 
 (local protocol-versions ["2025-11-25" "2025-06-18" "2025-03-26"])
 (local max-head (* 16 1024))
@@ -97,6 +98,7 @@
         :initialize
         (send {:result {:protocolVersion (negotiate (?. msg :params :protocolVersion))
                         :capabilities {:tools (vim.empty_dict)}
+                        :instructions server.instructions
                         :serverInfo {:name server.name :version "0.1.0"}}})
         :ping
         (send {:result (vim.empty_dict)})
@@ -147,10 +149,10 @@
   (each [client (pairs server.clients)]
     (close server client)))
 
-(fn start [name tools]
+(fn start [name tools instructions]
   ;; A running server, {:port :url :token ...}, or nil and why not.
   (let [listener (vim.uv.new_tcp)
-        server {: name : tools : listener
+        server {: name : tools : instructions : listener
                 :clients {}
                 :token (pick-values 1 (string.gsub (vim.uv.random 32) "."
                                                    #(string.format "%02x" (string.byte $1))))}

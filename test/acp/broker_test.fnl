@@ -16,12 +16,14 @@
       ;; An agent that can't take MCP servers over HTTP, and one that may delegate.
       :nomcp {:cmd (vim.list_extend (vim.deepcopy fake) ["nomcp" "nomcp"]) :delegate true}
       :boxless {:cmd fake :delegate true :sandbox {:net false}}
-      :nothing {:cmd fake :delegate ["no-such-agent"]}})
+      :nothing {:cmd fake :delegate ["no-such-agent"]}
+      :watched {:cmd fake :sandbox {:net :proxy :allow ["a.example:443"]}}})
 (set vim.g.acp-credits false)
 (set vim.g.acp-log-dir (vim.fn.tempname))
 (set vim.g.acp-debug-log (vim.fn.tempname))
 (set vim.g.acp-config-cache (vim.fn.tempname))
 (set vim.g.acp-egress-log-dir (vim.fn.tempname))
+(set vim.g.acp-egress-notify false)
 
 (local session (require :modules.acp.session))
 (local mcp (require :modules.acp.mcp))
@@ -464,6 +466,89 @@ print(reply.decode())
 (check "an agent that can't take the tools says so, and still starts"
        (has-line (lines-of without.buf) "takes no MCP servers over HTTP"))
 (vim.cmd "AcpStop")
+
+;; egress_status --------------------------------------------------------------------
+;; A sandboxed session with no :delegate: the proxy is left out, as its answers are
+;; covered in acp_test, and the question comes in as the proxy's would.
+
+(let [box {:prefix [] :env {} :net :proxy :allow [] :log (vim.fn.tempname)
+           :partial "" :offset 0
+           :proc {:write (fn []) :kill (fn [])}}
+      prepare sandbox.prepare]
+  (vim.fn.writefile [] box.log)
+  (set sandbox.prepare (fn [] box))
+  (vim.cmd "Acp! watched")
+  (set sandbox.prepare prepare)
+  (let [s (session.current)
+        egress-tool #(call-tool "egress_status" $1)
+        answer (fn [host choice]
+                 (let [row (accumulate [at nil i l (ipairs (lines-of s.buf)) &until at]
+                             (when (string.find l (.. "> egress: " host) 1 true) i))]
+                   (session.choose-egress-at s (+ row choice))))
+        host-of (fn [reply host]
+                  (accumulate [found nil _ h (ipairs reply.hosts) &until found]
+                    (when (= h.host host) h)))]
+    (wait #s.ready)
+    (let [server (. s.mcp-servers 1)]
+      (set server-url server.url)
+      (set server-token (string.match (. server :headers 1 :value) "Bearer (.+)")))
+    (let [init (rpc "initialize" {:protocolVersion "2025-06-18"})
+          names (vim.tbl_map #$1.name (. (rpc "tools/list") :result :tools))]
+      (check "a sandboxed session without :delegate gets egress_status and nothing else"
+             (vim.deep_equal ["egress_status"] names) names)
+      (check "and is told about held requests as it connects"
+             (not= nil (string.find (or init.result.instructions "") "egress_status" 1 true))
+             init))
+    (check "a port of Neovim's own doesn't count as a host the sandbox lets out to"
+           (and (= "egress to a.example:443" (sandbox.describe s.agent.sandbox))
+                (= "no host allowed"
+                   (sandbox.describe (sandbox.forward {:net :proxy} 4242))))
+           (sandbox.describe s.agent.sandbox))
+    (let [reply (egress-tool)]
+      (check "with nothing held it answers at once, and says the cause is elsewhere"
+             (and (= 0 (length reply.hosts)) reply.note (= false reply.timed_out))
+             reply))
+    (box.on-ask "held.example:443")
+    (let [reply (egress-tool {:timeout 1})
+          host (host-of reply "held.example:443")]
+      (check "a pending host holds the call until the time is up, and says to wait again"
+             (and reply.timed_out (= "pending" host.state)
+                  (not= nil (string.find host.next "keep waiting" 1 true)))
+             reply))
+    (vim.defer_fn #(answer "held.example:443" 1) 300)
+    (let [started (vim.uv.now)
+          reply (egress-tool {:timeout 20})
+          host (host-of reply "held.example:443")]
+      (check "the answer ends the wait early, and says to retry"
+             (and (= false reply.timed_out) (= "allowed" host.state)
+                  (< (- (vim.uv.now) started) 10000)
+                  (not= nil (string.find host.next "Retry" 1 true)))
+             reply))
+    (box.on-ask "no.example:443")
+    (vim.defer_fn #(answer "no.example:443" 2) 300)
+    (let [host (host-of (egress-tool {:timeout 20}) "no.example:443")]
+      (check "a refusal says not to go round it"
+             (and (= "denied" host.state)
+                  (not= nil (string.find host.next "another way" 1 true)))
+             host))
+    (box.on-ask "away.example:443")
+    (set vim.g.acp-egress-wait-seconds 1)
+    (vim.wait 1100)
+    (let [started (vim.uv.now)
+          reply (egress-tool {:timeout 20})
+          host (host-of reply "away.example:443")]
+      (check "a host waiting too long doesn't hold the call, and says to stop waiting"
+             (and (= false reply.timed_out) (= "pending" host.state)
+                  (< (- (vim.uv.now) started) 5000)
+                  (not= nil (string.find host.next "Stop waiting" 1 true)))
+             reply))
+    (set vim.g.acp-egress-wait-seconds nil)
+    (let [reply (call-tool "egress_status" {:timeout 1})]
+      (check "no tool answers: the question is still open after all this"
+             (= "pending" (. (host-of reply "away.example:443") :state))
+             reply))
+    (vim.cmd "AcpStop")
+    (vim.fn.delete box.log)))
 
 (check "protocol.http-mcp-server carries the token as a header"
        (= "Bearer t" (. (protocol.http-mcp-server "n" "u" "t") :headers 1 :value)))

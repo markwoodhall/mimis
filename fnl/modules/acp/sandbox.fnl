@@ -58,6 +58,11 @@
 ;; it through for the rest of the session. An answer after that still counts, for
 ;; the agent's next attempt. The question and the answer go over the proxy's stdout
 ;; and stdin, which the sandbox can't reach.
+;; A held request usually looks like a timeout to the agent, and you may be elsewhere,
+;; so a question is also a desktop notification (vim.g.acp-egress-notify, gone again once
+;; it's answered, vim.g.acp-egress-dismiss) and the agent
+;; can see where its hosts stand and wait for you with egress_status, see
+;; modules.acp.broker. It can't answer one.
 ;; This stops IP traffic from the agent and everything it spawns. It does not stop a
 ;; unix socket, which is why the places above are emptied and the daemons masked.
 ;; Needs bwrap and python3.
@@ -139,7 +144,8 @@
                       (vim.deepcopy local-ports)))
          :read read
          :write write
-         :mask spec.mask}))))
+         :mask spec.mask
+         :service-ports (when spec.service-ports (vim.deepcopy spec.service-ports))}))))
 
 (fn forward [spec port]
   ;; A sandbox spec that also reaches a service of this Neovim's on the host's loopback,
@@ -147,7 +153,9 @@
   (let [s (normalize spec)]
     (when (and s (= s.net :proxy))
       (table.insert (. s :local) port)
-      (table.insert s.allow (.. "localhost:" port)))
+      (table.insert s.allow (.. "localhost:" port))
+      (tset s :service-ports (or s.service-ports []))
+      (table.insert s.service-ports port))
     s))
 
 (fn home []
@@ -185,8 +193,13 @@
   (let [s (normalize spec)]
     (if (not s) "unsandboxed"
         (= s.net false) "no network"
-        (= 0 (length s.allow)) "no host allowed"
-        (.. "egress to " (table.concat s.allow ", ")))))
+        ;; A port of Neovim's own is plumbing, not a host the policy lets out to.
+        (let [plumbing (collect [_ port (ipairs (or s.service-ports []))]
+                         (values (.. "localhost:" port) true))
+              hosts (vim.tbl_filter #(not (. plumbing $1)) s.allow)]
+          (if (= 0 (length hosts))
+            "no host allowed"
+            (.. "egress to " (table.concat hosts ", ")))))))
 
 (fn script []
   (.. (vim.fn.stdpath :config) "/bin/acp-egress.py"))

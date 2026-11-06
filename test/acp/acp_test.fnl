@@ -17,6 +17,8 @@
 (set vim.g.acp-egress-log-dir (vim.fn.tempname))
 ;; A refused host is refused at once; the tests of asking start the proxy themselves.
 (set vim.g.acp-egress-ask-seconds 0)
+;; Tests of asking mustn't pop up on the desktop of whoever runs them.
+(set vim.g.acp-egress-notify false)
 (set vim.g.acp-config-cache (vim.fn.tempname))
 (local real-debug-log (.. (vim.fn.stdpath :log) "/acp-debug.log"))
 (local real-debug-size (vim.fn.getfsize real-debug-log))
@@ -1514,6 +1516,9 @@
 ;; stand-in for the sandbox's box, so this runs without bwrap: what would go to the
 ;; proxy's stdin is recorded instead.
 (let [prepare sandbox.prepare
+      open-question (fn [s key]
+                      (accumulate [found nil _ q (ipairs s.egress-open) &until found]
+                        (when (= q.key key) q)))
       written []
       box {:prefix [] :env {} :net :proxy :allow [] :log (vim.fn.tempname)
            :partial "" :offset 0
@@ -1586,7 +1591,97 @@
                 (not (has-line (lines-of s.buf) "> acp: egress blocked: late.example:443"))
                 (vim.tbl_contains box.allow "late.example:443"))
            (lines-of s.buf))
-    (session.stop s)
+    ;; Telling you when you may be elsewhere, and telling the agent what you said.
+    (let [seen (vim.fn.tempname)
+          rpc (require :modules.acp.rpc)
+          request rpc.request
+          sent []
+          state-of (fn [host]
+                     (accumulate [found nil _ h (ipairs (session.egress-report s)) &until found]
+                       (when (= h.host host) h.state)))]
+      (set vim.g.acp-egress-notify ["sh" "-c" "printf '%s\n' \"$1\" >> \"$0\"" seen])
+      (box.on-ask "bell<b>.example:443")
+      (wait #(= 1 (vim.fn.filereadable seen)) 3000)
+      (check "a question is also a desktop notification, with the host made safe"
+             (= "acp: the agent wants to reach bell?b?.example:443"
+                (?. (vim.fn.readfile seen) 1))
+             seen)
+      (set vim.g.acp-egress-notify false)
+      (check "egress-report says a held host is pending, and for how long"
+             (= :pending (state-of "bell<b>.example:443"))
+             (session.egress-report s))
+      (set rpc.request (fn [r method params cb]
+                         (when (= method "session/prompt")
+                           (table.insert sent (. params :prompt 1 :text)))
+                         (request r method params cb)))
+      (press (+ (row-of "> egress: bell<b>.example:443 — awaiting choice") 1))
+      (wait #(has-line (lines-of s.buf) "bell<b>.example:443 — allowed") 3000)
+      (check "egress-report says what you answered, for each verb"
+             (and (= :allowed (state-of "one.example:443"))
+                  (= :blocked (state-of "two.example:443"))
+                  (= :allowed (state-of "bell<b>.example:443")))
+             (session.egress-report s))
+      ;; Reported above, so all of those are off the list for the next prompt.
+      (box.on-ask "news.example:443")
+      (press (+ (row-of "> egress: news.example:443 — awaiting choice") 2))
+      (wait #(has-line (lines-of s.buf) "news.example:443 — refused") 3000)
+      (session.send-prompt s "plain")
+      (wait #(= 1 (length sent)) 3000)
+      (check "the next prompt carries only the answers the agent hasn't heard"
+             (and (= 1 (length sent))
+                  (not= nil (string.find (. sent 1) "news.example:443 refused" 1 true))
+                  (= nil (string.find (. sent 1) "bell" 1 true))
+                  (vim.endswith (. sent 1) "\n\nplain"))
+             sent)
+      (check "the chat shows what the agent was told, and not as your prompt"
+             (and (has-line (lines-of s.buf) "> acp: told the agent about egress: news.example:443 refused")
+                  (not (has-line (lines-of s.buf) "[Neovim: the user answered")))
+             (lines-of s.buf))
+      (wait #(= :idle (session.state s)) 5000)
+      (session.send-prompt s "plain")
+      (wait #(= 2 (length sent)) 3000)
+      (check "and says it once" (= "plain" (. sent 2)) sent)
+      (wait #(= :idle (session.state s)) 5000)
+      (set rpc.request request)
+      (vim.fn.delete seen))
+    ;; A notification goes when its question does, however that happens.
+    (let [closed (vim.fn.tempname)
+          closed-ids #(if (= 1 (vim.fn.filereadable closed)) (vim.fn.readfile closed) [])
+          press-allow (fn [host]
+                        (press (+ (row-of (.. "> egress: " host " — awaiting choice")) 1)))]
+      (set vim.g.acp-egress-dismiss ["sh" "-c" "printf '%s\n' \"$1\" >> \"$0\"" closed])
+      (set vim.g.acp-egress-notify ["sh" "-c" "echo 71"])
+      (box.on-ask "answered.example:443")
+      (wait #(?. (open-question s "answered.example:443") :alert-id) 3000)
+      (check "an open question's notification stays up" (= 0 (length (closed-ids))) (closed-ids))
+      (press-allow "answered.example:443")
+      (wait #(= 1 (length (closed-ids))) 3000)
+      (check "answering takes the notification down" (vim.deep_equal ["71"] (closed-ids)) (closed-ids))
+      (vim.fn.delete closed)
+      (set vim.g.acp-egress-notify ["sh" "-c" "sleep 0.3; echo 72"])
+      (box.on-ask "quick.example:443")
+      (press-allow "quick.example:443")
+      (wait #(= 1 (length (closed-ids))) 3000)
+      (check "an answer that beats the notification's id still takes it down"
+             (vim.deep_equal ["72"] (closed-ids)) (closed-ids))
+      (vim.fn.delete closed)
+      (set vim.g.acp-egress-notify ["true"])
+      (box.on-ask "noid.example:443")
+      (vim.wait 200)
+      (press-allow "noid.example:443")
+      (vim.wait 200)
+      (check "a notification command that prints no id is left alone"
+             (= 0 (length (closed-ids))) (closed-ids))
+      (set vim.g.acp-egress-notify ["sh" "-c" "echo 73"])
+      (box.on-ask "open.example:443")
+      (wait #(?. (open-question s "open.example:443") :alert-id) 3000)
+      (session.stop s)
+      (wait #(= 1 (length (closed-ids))) 3000)
+      (check "ending the session takes down what's still open"
+             (vim.deep_equal ["73"] (closed-ids)) (closed-ids))
+      (set vim.g.acp-egress-notify false)
+      (set vim.g.acp-egress-dismiss nil)
+      (vim.fn.delete closed))
     (vim.fn.delete box.log)))
 
 ;; :Acp sandbox and :Acp nosandbox switch it per invocation.

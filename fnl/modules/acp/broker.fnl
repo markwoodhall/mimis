@@ -13,6 +13,12 @@
 ;;     another agent.
 ;;   - agent_start takes a model but not a mode, as a mode can turn off those prompts.
 ;; vim.g.acp-delegate-max is how many children may run at once (4 by default).
+;;
+;; The same server gives every session behind the egress proxy the egress_status tool,
+;; :delegate or not: a request held for your answer looks like an unrelated failure to
+;; the agent, so this is how it finds out, and waits instead of guessing. It only reads:
+;; the answer stays yours, over the proxy's stdin. vim.g.acp-egress-wait-seconds is how
+;; long a host can wait on you before the tool says to stop waiting (300 by default).
 
 (local agents (require :modules.acp.agents))
 (local mcp (require :modules.acp.mcp))
@@ -128,32 +134,35 @@
         (session.note parent (.. "> acp: started " id " (:AcpAgents to watch it)"))
         (done (status child))))))
 
-(fn wait-for [b child args done]
-  ;; Holds the call until the agent stops working or needs you, or the time is up. An
-  ;; MCP client gives up on a call that takes too long, so this one ends in good time
-  ;; and says it can be asked again.
+(fn hold [b args settled? finish]
+  ;; Holds a call until settled? or the time is up, then (finish timed-out?). An MCP
+  ;; client gives up on a call that takes too long, so this one ends in good time and
+  ;; says it can be asked again.
   (let [seconds (math.min wait-limit (math.max 1 (or (tonumber args.timeout) wait-default)))
         deadline (+ (vim.uv.now) (* seconds 1000))
         timer (vim.uv.new_timer)
-        finish (fn [timed-out?]
-                 (timer:stop)
-                 (timer:close)
-                 (done (vim.tbl_extend :force (result child)
-                                       {:timed_out (and timed-out? true)})))
-        settled? (fn []
-                   (vim.tbl_contains [:idle :waiting_for_user :failed :exited :stopped]
-                                     (session.state child.session)))]
+        end (fn [timed-out?]
+              (timer:stop)
+              (timer:close)
+              (finish timed-out?))]
     (if (settled?)
       (do (timer:close)
-          (done (vim.tbl_extend :force (result child) {:timed_out false})))
+          (finish false))
       (timer:start poll-ms poll-ms
                    (vim.schedule_wrap
                      (fn []
                        (when (not (timer:is_closing))
                          (if (or (settled?) b.closed)
-                           (finish false)
+                           (end false)
                            (>= (vim.uv.now) deadline)
-                           (finish true)))))))))
+                           (end true)))))))))
+
+(fn wait-for [b child args done]
+  ;; Until the agent stops working or needs you.
+  (hold b args
+        #(vim.tbl_contains [:idle :waiting_for_user :failed :exited :stopped]
+                           (session.state child.session))
+        #(done (vim.tbl_extend :force (result child) {:timed_out $1}))))
 
 (fn send-to-child [child args done fail]
   (let [s child.session
@@ -181,7 +190,7 @@
 
 (local id-property {:type :string :description "The id agent_start returned."})
 
-(fn tools [b]
+(fn agent-tools [b]
   [{:name "agent_list"
     :description "List the agents that can be started, and the ones started so far."
     :inputSchema (schema (vim.empty_dict))
@@ -236,6 +245,75 @@
     :run (fn [args done fail]
            (with-child b args fail #(stop-child $1 done)))}])
 
+;; Egress ---------------------------------------------------------------------------
+
+(fn egress-wait-limit []
+  (let [n vim.g.acp-egress-wait-seconds]
+    (if (and (= (type n) :number) (> n 0)) n 300)))
+
+(fn overdue? [entry]
+  (>= entry.waited_seconds (egress-wait-limit)))
+
+(local egress-advice
+  {:allowed "The user allowed this host for the session. Retry the request."
+   :denied (.. "The user refused this attempt. Don't look for another way to reach it: tell "
+               "them what needed it. Trying again asks them again.")
+   :blocked (.. "The user refused this host for the session. Don't look for another way to "
+                "reach it: tell them what needed it.")
+   :refused (.. "This host isn't on the sandbox's allowlist. Don't look for another way to "
+                "reach it: tell the user, who can allow it.")})
+
+(fn advice [entry]
+  (if (not= entry.state :pending)
+    (. egress-advice entry.state)
+    (overdue? entry)
+    (.. "The user hasn't answered. Stop waiting: tell them this host is blocking you, and "
+        "finish what you can without it.")
+    "The user hasn't answered yet. Call this again to keep waiting."))
+
+(fn egress-status [b timed-out?]
+  (let [hosts (icollect [_ entry (ipairs (session.egress-report b.parent))]
+                (vim.tbl_extend :force entry {:next (advice entry)}))]
+    {: hosts
+     :timed_out timed-out?
+     :note (when (= 0 (length hosts))
+             "No host has been held or refused, so a network failure has some other cause.")}))
+
+(fn egress-wait [b args done]
+  ;; Until you answer about one of the hosts still worth waiting for. One you've been
+  ;; asked about for too long doesn't hold the call, or nothing would end the wait.
+  (let [waited-on (icollect [_ entry (ipairs (session.egress-pending b.parent))]
+                    (when (not (overdue? entry)) entry.host))
+        pending? (fn [host]
+                   (accumulate [found false _ entry (ipairs (session.egress-pending b.parent))]
+                     (or found (= entry.host host))))]
+    (hold b args
+          #(or (= 0 (length waited-on))
+               (accumulate [answered false _ host (ipairs waited-on)]
+                 (or answered (not (pending? host)))))
+          #(done (egress-status b $1)))))
+
+(fn egress-tools [b]
+  [{:name "egress_status"
+    :description (.. "Where this sandbox's network requests stand: each host held for the user's "
+                     "answer or refused, with what to do next. Call it after any failure that "
+                     "could be the network, as a held request can look like a timeout or an "
+                     "unrelated error. While a host is pending this waits for the user's answer, "
+                     "and timed_out true means they haven't answered yet. It can't approve "
+                     "anything: only the user can.")
+    :inputSchema (schema {:timeout {:type :number
+                                    :description (.. "Seconds to wait for an answer, at most "
+                                                     wait-limit ", " wait-default " by default.")}})
+    :run (fn [args done] (egress-wait b args done))}])
+
+(local egress-instructions
+  (.. "This agent's network goes through a proxy that allows only listed hosts. A request to "
+      "any other host is held while the user is asked, which often outlasts the client's own "
+      "timeout, so it can look like a timeout or an unrelated error from whatever made it. "
+      "After a failure that could be the network, call egress_status before drawing any "
+      "conclusion about the cause. Only the user can approve a host: don't try to reach one "
+      "another way."))
+
 ;; Lifecycle ------------------------------------------------------------------------
 
 (fn close [b]
@@ -247,23 +325,29 @@
     (mcp.stop b.server)))
 
 (fn open [agent on-child]
-  ;; The broker for a session of agent, or nil if its profile doesn't ask for one, and
-  ;; why not if it asked. A sandboxed agent's port is forwarded and allowed up front,
-  ;; so agent.sandbox changes here. Call before session.start.
-  (let [names (allowed agent.delegate)]
-    (if (= 0 (length names))
-      (when agent.delegate
-        (values nil "delegation is off: :delegate names no known agent"))
-      (= false (?. (sandbox.normalize agent.sandbox) :net))
-      (values nil "delegation is off: this sandbox has no network to reach Neovim through")
+  ;; The broker for a session of agent, or nil if it has no use for one, and anything
+  ;; about :delegate worth saying. A sandboxed agent's port is forwarded and allowed up
+  ;; front, so agent.sandbox changes here. Call before session.start.
+  (let [names (allowed agent.delegate)
+        net (?. (sandbox.normalize agent.sandbox) :net)
+        delegates? (and (> (length names) 0) (not= net false))
+        proxied? (= net :proxy)
+        said (if (and agent.delegate (= 0 (length names)))
+               "delegation is off: :delegate names no known agent"
+               (and (> (length names) 0) (= net false))
+               "delegation is off: this sandbox has no network to reach Neovim through")]
+    (if (not (or delegates? proxied?))
+      (values nil said)
       (let [b {:allowed names : on-child :children [] :started 0}
-            (server problem) (mcp.start "nvim-acp" (tools b))]
+            listed (vim.list_extend (if delegates? (agent-tools b) [])
+                                    (if proxied? (egress-tools b) []))
+            (server problem) (mcp.start "nvim-acp" listed (when proxied? egress-instructions))]
         (if server
           (do
             (set b.server server)
             (set agent.sandbox (sandbox.forward agent.sandbox server.port))
-            b)
-          (values nil (.. "delegation is off: " problem)))))))
+            (values b said))
+          (values nil (.. (if delegates? "delegation is off: " "egress_status is off: ") problem)))))))
 
 (fn session-options [b]
   ;; What session.start needs for the parent.

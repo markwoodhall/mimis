@@ -765,6 +765,19 @@
       (when (not ok)
         (vim.notify (.. "acp: could not write session log: " (tostring e)) vim.log.levels.ERROR)))))
 
+(fn take-egress-news [s]
+  ;; Answers to egress questions the agent hasn't been told about, as a line for its
+  ;; next prompt and a shorter one for the chat, once each. nil if there are none.
+  (let [said (icollect [key answer (pairs s.egress-unsaid)]
+               (.. key " " answer))]
+    (when (> (length said) 0)
+      (table.sort said)
+      (set s.egress-unsaid {})
+      (let [list (table.concat said ", ")]
+        (values (.. "[Neovim: the user answered about network access you asked for: " list
+                    ". Retry what failed on an allowed host if it still matters.]\n\n")
+                list)))))
+
 (fn send-prompt [s text]
   (if (not (alive? s))
     (vim.notify "acp: no running session" vim.log.levels.WARN)
@@ -772,17 +785,20 @@
     (vim.notify "acp: session is still starting" vim.log.levels.WARN)
     (turn-active? s)
     (vim.notify "acp: a turn is already running" vim.log.levels.WARN)
-    (let [turn {:state :running
+    (let [(news news-note) (take-egress-news s)
+          turn {:state :running
                 :prompt text
                 :time (os.date "%H:%M")
                 :blocks []
                 :tool-ids []}]
+      (when news
+        (note s (.. "> acp: told the agent about egress: " news-note)))
       (set s.turn turn)
       (render.begin-turn s turn)
       (busy s "thinking")
       (start-stall-timer s)
       (rpc.request s.rpc protocol.methods.session-prompt
-                   (protocol.prompt-params s.session.id text)
+                   (protocol.prompt-params s.session.id (.. (or news "") text))
                    (fn [err result]
                      (when (= s.turn turn)
                        (end-turn s err result))))
@@ -891,7 +907,7 @@
     s.mcp-servers
     (do
       (render.status s (.. (or info.name "this agent") " takes no MCP servers over HTTP, "
-                           "so it can't delegate"))
+                           "so it gets no tools from Neovim"))
       [])))
 
 (fn create-session [s info]
@@ -1027,9 +1043,33 @@
       (turn-active? s) :running
       :idle))
 
+(fn egress-dismiss-command []
+  ;; How to take a notification down once its question is answered:
+  ;; vim.g.acp-egress-dismiss is a command that takes its id as its last argument, or
+  ;; false for none. Only a notification command that prints an id can be taken down.
+  (let [cmd vim.g.acp-egress-dismiss]
+    (if (= cmd false) nil
+        (= (type cmd) :table) cmd
+        (= 1 (vim.fn.executable "gdbus"))
+        ["gdbus" "call" "--session" "--dest" "org.freedesktop.Notifications"
+         "--object-path" "/org/freedesktop/Notifications"
+         "--method" "org.freedesktop.Notifications.CloseNotification"])))
+
+(fn close-alert [q]
+  (let [cmd (egress-dismiss-command)]
+    (when (and cmd q.alert-id)
+      (pcall vim.system (vim.list_extend (vim.deepcopy cmd) [q.alert-id]) {:detach true}))))
+
+(fn dismiss-alert [q]
+  ;; The question is settled. If its notification's id isn't back yet, alert-egress
+  ;; takes it down when it is.
+  (set q.settled true)
+  (close-alert q))
+
 (fn answer-egress [s q choice]
   (let [late q.expired]
     (set s.egress-open (vim.tbl_filter #(not= $1 q) s.egress-open))
+    (dismiss-alert q)
     (render.detach-lines s q.block)
     (set q.choice (.. choice.said
                       (if (and late (not= choice.verb :deny))
@@ -1037,6 +1077,8 @@
                         "")))
     (set q.block.line (egress-question-line q))
     (render.update-line s q.block)
+    (tset s.egress-answers q.key choice.verb)
+    (tset s.egress-unsaid q.key choice.said)
     (sandbox.answer s.sandbox q.key choice.verb)
     (when (and (running? s) (not (waiting-on-you? s)))
       (busy s (still-running-label s)))))
@@ -1075,13 +1117,61 @@
           (render.status s (.. "egress blocked: " entry.host))
           (log.append-note s (.. "> acp: egress blocked: " entry.host)))))))
 
+(fn egress-pending [s]
+  ;; The hosts waiting on your answer.
+  (icollect [_ q (ipairs s.egress-open)]
+    {:host q.key
+     :state :pending
+     :waited_seconds (math.floor (/ (- (vim.uv.now) q.asked-at) 1000))}))
+
+(fn egress-report [s]
+  ;; Every host held or refused this session and where it stands, for the agent. An
+  ;; answer reported here needn't be repeated in its next prompt.
+  (let [hosts (egress-pending s)
+        seen (collect [_ h (ipairs hosts)] h.host true)]
+    (each [host verb (pairs s.egress-answers)]
+      (when (not (. seen host))
+        (tset seen host true)
+        (tset s.egress-unsaid host nil)
+        (table.insert hosts {: host :state (. {:allow :allowed :deny :denied :block :blocked} verb)})))
+    (each [host (pairs s.egress)]
+      (when (not (. seen host))
+        (table.insert hosts {: host :state :refused})))
+    (table.sort hosts #(< $1.host $2.host))
+    hosts))
+
+(fn egress-alert-command []
+  ;; How to tell you about a question when you may not be looking at Neovim:
+  ;; vim.g.acp-egress-notify is a command that takes the message as its last argument,
+  ;; or false for none.
+  (let [cmd vim.g.acp-egress-notify]
+    (if (= cmd false) nil
+        (= (type cmd) :table) cmd
+        (= 1 (vim.fn.executable "notify-send")) ["notify-send" "--expire-time=0" "--print-id" "--" "Neovim ACP"])))
+
+(fn alert-egress [s q]
+  ;; The host is the agent's to choose, and notification daemons can read markup.
+  (let [cmd (egress-alert-command)
+        host (string.gsub q.key "[^%w%.:_%[%]-]" "?")]
+    (when cmd
+      (pcall vim.system (vim.list_extend (vim.deepcopy cmd)
+                                         [(.. (tag s) "the agent wants to reach " host)])
+             {:text true}
+             (vim.schedule_wrap
+               (fn [result]
+                 (set q.alert-id (string.match (or result.stdout "") "^%s*(%d+)%s*$"))
+                 (when q.settled
+                   (close-alert q))))))))
+
 (fn ask-egress [s key]
   ;; The proxy is holding a request for key until it hears back or gives up. A host
   ;; already waiting for an answer isn't asked about twice.
   (when (and (not s.ended) (not (open-egress s key)))
     (let [block {:type :line}
-          q {: key : block}]
+          q {: key : block :asked-at (vim.uv.now)}]
       (tset s.egress-asked key true)
+      (tset s.egress-answers key nil)
+      (tset s.egress-unsaid key nil)
       (set block.line (egress-question-line q))
       (if (turn-active? s)
         (add-line-block s block)
@@ -1090,6 +1180,7 @@
       (render.attach-lines s block (icollect [i c (ipairs egress-choices)]
                                      (.. "  " i ". " c.name)))
       (when (running? s) (busy s "waiting for your answer"))
+      (alert-egress s q)
       (when (not (render.visible? s.buf))
         (vim.notify (.. (tag s) "the agent wants to reach " key
                         (find-it s " (:Acp to choose, <CR> on a choice)")))))))
@@ -1133,6 +1224,8 @@
            :last-event (os.time)
            :egress {}
            :egress-asked {}
+           :egress-answers {}
+           :egress-unsaid {}
            :egress-open []}]
     (table.insert sessions.all s)
     (log.init s)
@@ -1183,6 +1276,8 @@
     (when (= s.turn.state :running) (cancel s))
     (set s.ended true)
     (stop-stall-timer s)
+    (each [_ q (ipairs s.egress-open)]
+      (dismiss-alert q))
     (when (and s.agent.proc (not s.exited))
       (transport.stop s.agent.proc (and s.sandbox true)))
     (sandbox.stop s.sandbox)
@@ -1214,6 +1309,8 @@
     (set s.ended true)
     (stop-stall-timer s)
     (render.activity s nil)
+    (each [_ q (ipairs s.egress-open)]
+      (dismiss-alert q))
     (when (and s.agent.proc (not s.exited))
       (transport.stop s.agent.proc (and s.sandbox true)))
     (sandbox.stop s.sandbox)))
@@ -1382,6 +1479,8 @@
  : choose-at
  : egress-choice-at
  : choose-egress-at
+ : egress-pending
+ : egress-report
  : first-choice-row
  : first-elicitation-row
  : choose-kind
