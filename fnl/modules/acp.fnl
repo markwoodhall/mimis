@@ -3,6 +3,7 @@
 (local session (require :modules.acp.session))
 (local agents (require :modules.acp.agents))
 (local broker (require :modules.acp.broker))
+(local handoff (require :modules.acp.handoff))
 (local render (require :modules.acp.render))
 (local log (require :modules.acp.log))
 (local summary (require :modules.acp.summary))
@@ -167,6 +168,7 @@
           (when delegation (broker.attach delegation s))
           (when problem (vim.notify (.. "acp: " problem) vim.log.levels.WARN))
           (chat-keymaps s)
+          (handoff.flush s)
           (focus s mods))))))
 
 (fn open [opts]
@@ -300,6 +302,17 @@
       (icollect [_ c (ipairs candidates)]
         (when (vim.startswith c arglead) c)))))
 
+(fn screenshot [opts]
+  ;; :AcpScreenshot  select a region or window after a few seconds, to get to another
+  ;; workspace; :AcpScreenshot N  after N seconds, 0 for straight away;
+  ;; :AcpScreenshot clipboard  the copied image.
+  (let [seconds (tonumber (string.match opts.args "^%d+$"))]
+    (if (or seconds (= opts.args ""))
+      (handoff.screenshot nil seconds)
+      (= opts.args "clipboard")
+      (handoff.screenshot :clipboard)
+      (vim.notify (.. "acp: unknown screenshot source '" opts.args "'") vim.log.levels.WARN))))
+
 (fn enable [])
 
 (fn highlights []
@@ -355,6 +368,9 @@
      :desc "Show or change ACP session settings (model, mode, effort...)"})
   (vim.api.nvim_create_user_command "AcpSend" send
     {:nargs "*" :desc "Send the prompt buffer, or the given text, to the ACP agent"})
+  (vim.api.nvim_create_user_command "AcpScreenshot" screenshot
+    {:nargs "?" :complete (fn [] ["clipboard"])
+     :desc "Add a screenshot to the ACP prompt: select one on screen after a few seconds (or N), or clipboard for the copied image"})
   (vim.api.nvim_create_user_command "AcpCancel" cancel {:desc "Cancel the running ACP turn"})
   (vim.api.nvim_create_user_command "AcpStop" quit {:desc "End the ACP session"})
   (vim.api.nvim_create_user_command "AcpAllow" allow

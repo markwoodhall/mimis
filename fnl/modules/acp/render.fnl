@@ -513,6 +513,18 @@
   (vim.api.nvim_buf_set_lines s.buf (- (input-row s) 1) -1 false [""])
   (cursor-to s (input-row s)))
 
+(fn add-to-prompt [s line]
+  ;; Adds a line to the end of the prompt, keeping an empty one after it to type in. A
+  ;; cursor on that empty line stays on it. Undoable, like clear-prompt.
+  (let [row (- (line-count s.buf) 1)
+        empty? (= (line-at s.buf row) "")
+        wins (when empty?
+               (vim.tbl_filter #(= (. (vim.api.nvim_win_get_cursor $1) 1) (+ row 1))
+                               (vim.fn.win_findbuf s.buf)))]
+    (vim.api.nvim_buf_set_lines s.buf (if empty? row (+ row 1)) -1 false [line ""])
+    (each [_ w (ipairs (or wins []))]
+      (vim.api.nvim_win_set_cursor w [(line-count s.buf) 0]))))
+
 (fn wipe [s]
   (set s.activity nil)
   (stop-timer s)
@@ -587,5 +599,6 @@
  : refresh-tool
  : prompt-text
  : clear-prompt
+ : add-to-prompt
  : wipe
  : open-code-block}

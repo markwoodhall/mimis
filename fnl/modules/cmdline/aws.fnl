@@ -1,6 +1,7 @@
 (local commands (require :commands))
 (local nvim (require "nvim"))
 (local mimis (require :mimis))
+(local handoff (require :modules.acp.handoff))
 
 (fn enable [])
 
@@ -61,7 +62,7 @@
     (mimis.split lgs "\n")))
 
 (fn completer [command]
-  (let [command (string.match (vim.fn.substitute command "Aws" "aws" "") "aws.*")
+  (let [command (string.match (vim.fn.substitute command "Aws!\\?" "aws" "") "aws.*")
         lgs (vim.fn.system (.. "COMMAND_LINE='" command "' aws_completer"))
         col (mimis.split lgs "\n")]
     (accumulate 
@@ -133,9 +134,11 @@
                      [s ""
                       _ v (ipairs (?. opts :fargs))]
                      (.. s " " v))]
-          (mimis.shell opts (.. aws-command args))
+          (if opts.bang
+            (handoff.run opts "aws" (.. aws-command args) (.. "aws" args))
+            (mimis.shell opts (.. aws-command args)))
           (set nvim.bo.syntax :json)))
-      {:bang false :desc "AWS command line wrapper" :nargs "*"
+      {:bang true :desc "AWS command line wrapper; ! also hands the output to the ACP agent" :nargs "*"
        :complete completion}))
 
   {: enable
