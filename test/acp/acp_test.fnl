@@ -1123,6 +1123,23 @@
   (vim.fn.delete dir :rf)
   (vim.fn.delete file))
 
+;; The X sockets reach the screen and keyboard of every window. /tmp is writable, so the
+;; mask has to come after that bind; a machine with no X has nothing to mask.
+(when (= "dir" (vim.fn.getftype "/tmp/.X11-unix"))
+  (let [masked-at (fn [spec]
+                    (let [box (sandbox.prepare spec (vim.fn.tempname))
+                          argv (or (?. box :prefix) [])
+                          found (accumulate [at nil i v (ipairs argv)]
+                                  (if (and (= v "--tmpfs") (= (. argv (+ i 1)) "/tmp/.X11-unix"))
+                                    i
+                                    at))
+                          tmp (accumulate [at nil i v (ipairs argv)]
+                                (if (and (= v "--bind") (= (. argv (+ i 1)) "/tmp")) i at))]
+                      (sandbox.stop box)
+                      (and found tmp (> found tmp))))]
+    (check "the X sockets are hidden, over the writable /tmp" (masked-at {:net false}))
+    (check ":mask false leaves the X sockets alone" (not (masked-at {:net false :mask false})))))
+
 ;; A hook is the one thing in the writable project that runs on the host later.
 (let [project (vim.fn.tempname)]
   (vim.fn.mkdir (.. project "/.git/hooks") "p")

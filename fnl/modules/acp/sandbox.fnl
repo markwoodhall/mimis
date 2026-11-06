@@ -13,7 +13,8 @@
 ;; plus :read and :write, extra $HOME paths to expose read-only or writable, and
 ;; :mask, extra paths to hide inside the sandbox. The docker and D-Bus sockets are
 ;; masked by default: without that the agent can ask a daemon outside the namespace
-;; to make the request for it. :mask false leaves them alone.
+;; to make the request for it. So are the X sockets, which reach the screen, the
+;; clipboard and the keyboard of every window. :mask false leaves them alone.
 ;;
 ;; :local is the host's loopback ports the agent may ask for, [5432 3306 6379] by
 ;; default. Loopback inside the sandbox is its own, so each port is listened on there
@@ -52,7 +53,7 @@
 ;; turn it on or off for one session, without touching the profile.
 
 (local listen "127.0.0.1:8899")
-(local defaults ["/var/run/docker.sock" "/run/docker.sock"])
+(local defaults ["/var/run/docker.sock" "/run/docker.sock" "/tmp/.X11-unix"])
 ;; Postgres, MySQL and Redis: the host services an agent is most often pointed at.
 (local local-ports [5432 3306 6379])
 (var counter 0)
