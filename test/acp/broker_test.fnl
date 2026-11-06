@@ -23,7 +23,7 @@
 (set vim.g.acp-debug-log (vim.fn.tempname))
 (set vim.g.acp-config-cache (vim.fn.tempname))
 (set vim.g.acp-egress-log-dir (vim.fn.tempname))
-(set vim.g.acp-egress-notify false)
+(set vim.g.acp-notify false)
 
 (local session (require :modules.acp.session))
 (local mcp (require :modules.acp.mcp))

@@ -59,9 +59,8 @@
 ;; the agent's next attempt. The question and the answer go over the proxy's stdout
 ;; and stdin, which the sandbox can't reach.
 ;; A held request usually looks like a timeout to the agent, and you may be elsewhere,
-;; so a question is also a desktop notification (vim.g.acp-egress-notify, gone again once
-;; it's answered, vim.g.acp-egress-dismiss) and the agent
-;; can see where its hosts stand and wait for you with egress_status, see
+;; so a question is also a desktop notification (vim.g.acp-notify, see modules.acp.session)
+;; and the agent can see where its hosts stand and wait for you with egress_status, see
 ;; modules.acp.broker. It can't answer one.
 ;; This stops IP traffic from the agent and everything it spawns. It does not stop a
 ;; unix socket, which is why the places above are emptied and the daemons masked.

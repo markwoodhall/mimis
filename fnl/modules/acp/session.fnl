@@ -439,10 +439,71 @@
 
 ;; Permissions -------------------------------------------------------------------
 
+;; Desktop notifications ---------------------------------------------------------
+;; Anything waiting on your answer, for when you may not be looking at Neovim: the
+;; agent can sit there for as long as you take. A notification goes when its prompt
+;; does, so what's on the desktop is what's still waiting.
+
+(fn alert-command []
+  ;; vim.g.acp-notify is a command that takes the message as its last argument, or
+  ;; false for none.
+  (let [cmd vim.g.acp-notify]
+    (if (= cmd false) nil
+        (= (type cmd) :table) cmd
+        (= 1 (vim.fn.executable "notify-send")) ["notify-send" "--expire-time=0" "--print-id" "--" "Neovim ACP"])))
+
+(fn alert-dismiss-command []
+  ;; vim.g.acp-notify-dismiss is a command that takes a notification's id as its last
+  ;; argument, or false for none. Only a command that prints an id can be taken down.
+  (let [cmd vim.g.acp-notify-dismiss]
+    (if (= cmd false) nil
+        (= (type cmd) :table) cmd
+        (= 1 (vim.fn.executable "gdbus"))
+        ["gdbus" "call" "--session" "--dest" "org.freedesktop.Notifications"
+         "--object-path" "/org/freedesktop/Notifications"
+         "--method" "org.freedesktop.Notifications.CloseNotification"])))
+
+(fn close-alert [prompt]
+  (let [cmd (alert-dismiss-command)
+        id prompt.alert-id]
+    (set prompt.alert-id nil)
+    (when (and cmd id)
+      (pcall vim.system (vim.list_extend (vim.deepcopy cmd) [id]) {:detach true}))))
+
+(fn dismiss-alert [prompt]
+  ;; The prompt is settled. If its notification's id isn't back yet, raise-alert takes
+  ;; it down when it is.
+  (set prompt.settled true)
+  (close-alert prompt))
+
+(fn raise-alert [s prompt text]
+  ;; Sessions can be running in several projects, so it says which. The text is the
+  ;; agent's to choose, and notification daemons can read markup.
+  (let [cmd (alert-command)
+        project s.session.project
+        message (.. (if (= project "") "" (.. "[" project "] ")) (tag s) text)
+        safe (string.gsub message "[%c<>&]" "?")]
+    (when cmd
+      (pcall vim.system (vim.list_extend (vim.deepcopy cmd) [safe])
+             {:text true}
+             (vim.schedule_wrap
+               (fn [result]
+                 (set prompt.alert-id (string.match (or result.stdout "") "^%s*(%d+)%s*$"))
+                 (when prompt.settled
+                   (close-alert prompt))))))))
+
+(fn dismiss-alerts [s]
+  ;; Nothing will be answered now: the session is over.
+  (when s.permission (dismiss-alert s.permission))
+  (when s.elicitation (dismiss-alert s.elicitation))
+  (each [_ q (ipairs s.egress-open)]
+    (dismiss-alert q)))
+
 (fn answer-permission [s choice]
   (let [p s.permission]
     (when p
       (set s.permission nil)
+      (dismiss-alert p)
       (render.detach-lines s p.block)
       (set p.block.choice (if choice choice.name "cancelled"))
       (set p.block.line (permission-line s p.block))
@@ -485,6 +546,7 @@
         (set s.permission.choice-offset offset)
         (render.attach-lines s block lines)
         (when (running? s) (busy s "waiting for your permission"))
+        (raise-alert s s.permission (.. "agent wants to: " (pick-values 1 (short-title s title))))
         (when (not (render.visible? s.buf))
           (vim.notify (.. (tag s) "agent wants to: " (pick-values 1 (short-title s title))
                           (find-it s " (:Acp to choose, or :AcpAllow / :AcpReject)"))))))))
@@ -552,6 +614,7 @@
   (let [e s.elicitation]
     (when e
       (set s.elicitation nil)
+      (dismiss-alert e)
       (render.detach-lines s e.block)
       (set e.block.choice (case action
                             :accept (.. "answered: " (answers-text e.fields content))
@@ -598,6 +661,8 @@
               (render.attach-lines s block (render.elicitation-lines e.message e.fields))
               (when (turn-active? s)
                 (busy s "waiting for your answer"))
+              (raise-alert s s.elicitation
+                           (.. "agent asks: " (short-title s block.title activity-width)))
               (when (not (render.visible? s.buf))
                 (vim.notify (.. (tag s) "agent asks: "
                                 (short-title s block.title activity-width)
@@ -825,6 +890,8 @@
   (when (and (not s.ended) (= vim.v.exiting vim.NIL))
     (rpc.fail-all s.rpc (.. "agent exited with code " code))
     (abandon-replay s)
+    (when s.permission (dismiss-alert s.permission))
+    (when s.elicitation (dismiss-alert s.elicitation))
     (set s.permission nil)
     (set s.elicitation nil)
     (set s.turn {:state :idle})
@@ -1043,29 +1110,6 @@
       (turn-active? s) :running
       :idle))
 
-(fn egress-dismiss-command []
-  ;; How to take a notification down once its question is answered:
-  ;; vim.g.acp-egress-dismiss is a command that takes its id as its last argument, or
-  ;; false for none. Only a notification command that prints an id can be taken down.
-  (let [cmd vim.g.acp-egress-dismiss]
-    (if (= cmd false) nil
-        (= (type cmd) :table) cmd
-        (= 1 (vim.fn.executable "gdbus"))
-        ["gdbus" "call" "--session" "--dest" "org.freedesktop.Notifications"
-         "--object-path" "/org/freedesktop/Notifications"
-         "--method" "org.freedesktop.Notifications.CloseNotification"])))
-
-(fn close-alert [q]
-  (let [cmd (egress-dismiss-command)]
-    (when (and cmd q.alert-id)
-      (pcall vim.system (vim.list_extend (vim.deepcopy cmd) [q.alert-id]) {:detach true}))))
-
-(fn dismiss-alert [q]
-  ;; The question is settled. If its notification's id isn't back yet, alert-egress
-  ;; takes it down when it is.
-  (set q.settled true)
-  (close-alert q))
-
 (fn answer-egress [s q choice]
   (let [late q.expired]
     (set s.egress-open (vim.tbl_filter #(not= $1 q) s.egress-open))
@@ -1140,29 +1184,6 @@
     (table.sort hosts #(< $1.host $2.host))
     hosts))
 
-(fn egress-alert-command []
-  ;; How to tell you about a question when you may not be looking at Neovim:
-  ;; vim.g.acp-egress-notify is a command that takes the message as its last argument,
-  ;; or false for none.
-  (let [cmd vim.g.acp-egress-notify]
-    (if (= cmd false) nil
-        (= (type cmd) :table) cmd
-        (= 1 (vim.fn.executable "notify-send")) ["notify-send" "--expire-time=0" "--print-id" "--" "Neovim ACP"])))
-
-(fn alert-egress [s q]
-  ;; The host is the agent's to choose, and notification daemons can read markup.
-  (let [cmd (egress-alert-command)
-        host (string.gsub q.key "[^%w%.:_%[%]-]" "?")]
-    (when cmd
-      (pcall vim.system (vim.list_extend (vim.deepcopy cmd)
-                                         [(.. (tag s) "the agent wants to reach " host)])
-             {:text true}
-             (vim.schedule_wrap
-               (fn [result]
-                 (set q.alert-id (string.match (or result.stdout "") "^%s*(%d+)%s*$"))
-                 (when q.settled
-                   (close-alert q))))))))
-
 (fn ask-egress [s key]
   ;; The proxy is holding a request for key until it hears back or gives up. A host
   ;; already waiting for an answer isn't asked about twice.
@@ -1180,7 +1201,7 @@
       (render.attach-lines s block (icollect [i c (ipairs egress-choices)]
                                      (.. "  " i ". " c.name)))
       (when (running? s) (busy s "waiting for your answer"))
-      (alert-egress s q)
+      (raise-alert s q (.. "the agent wants to reach " key))
       (when (not (render.visible? s.buf))
         (vim.notify (.. (tag s) "the agent wants to reach " key
                         (find-it s " (:Acp to choose, <CR> on a choice)")))))))
@@ -1276,8 +1297,7 @@
     (when (= s.turn.state :running) (cancel s))
     (set s.ended true)
     (stop-stall-timer s)
-    (each [_ q (ipairs s.egress-open)]
-      (dismiss-alert q))
+    (dismiss-alerts s)
     (when (and s.agent.proc (not s.exited))
       (transport.stop s.agent.proc (and s.sandbox true)))
     (sandbox.stop s.sandbox)
@@ -1309,8 +1329,7 @@
     (set s.ended true)
     (stop-stall-timer s)
     (render.activity s nil)
-    (each [_ q (ipairs s.egress-open)]
-      (dismiss-alert q))
+    (dismiss-alerts s)
     (when (and s.agent.proc (not s.exited))
       (transport.stop s.agent.proc (and s.sandbox true)))
     (sandbox.stop s.sandbox)))

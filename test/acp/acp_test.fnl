@@ -18,7 +18,7 @@
 ;; A refused host is refused at once; the tests of asking start the proxy themselves.
 (set vim.g.acp-egress-ask-seconds 0)
 ;; Tests of asking mustn't pop up on the desktop of whoever runs them.
-(set vim.g.acp-egress-notify false)
+(set vim.g.acp-notify false)
 (set vim.g.acp-config-cache (vim.fn.tempname))
 (local real-debug-log (.. (vim.fn.stdpath :log) "/acp-debug.log"))
 (local real-debug-size (vim.fn.getfsize real-debug-log))
@@ -1599,14 +1599,14 @@
           state-of (fn [host]
                      (accumulate [found nil _ h (ipairs (session.egress-report s)) &until found]
                        (when (= h.host host) h.state)))]
-      (set vim.g.acp-egress-notify ["sh" "-c" "printf '%s\n' \"$1\" >> \"$0\"" seen])
+      (set vim.g.acp-notify ["sh" "-c" "printf '%s\n' \"$1\" >> \"$0\"" seen])
       (box.on-ask "bell<b>.example:443")
       (wait #(= 1 (vim.fn.filereadable seen)) 3000)
-      (check "a question is also a desktop notification, with the host made safe"
-             (= "acp: the agent wants to reach bell?b?.example:443"
+      (check "a question is also a desktop notification, naming the project, with the host made safe"
+             (= (.. "[" s.session.project "] acp: the agent wants to reach bell?b?.example:443")
                 (?. (vim.fn.readfile seen) 1))
              seen)
-      (set vim.g.acp-egress-notify false)
+      (set vim.g.acp-notify false)
       (check "egress-report says a held host is pending, and for how long"
              (= :pending (state-of "bell<b>.example:443"))
              (session.egress-report s))
@@ -1649,8 +1649,8 @@
           closed-ids #(if (= 1 (vim.fn.filereadable closed)) (vim.fn.readfile closed) [])
           press-allow (fn [host]
                         (press (+ (row-of (.. "> egress: " host " — awaiting choice")) 1)))]
-      (set vim.g.acp-egress-dismiss ["sh" "-c" "printf '%s\n' \"$1\" >> \"$0\"" closed])
-      (set vim.g.acp-egress-notify ["sh" "-c" "echo 71"])
+      (set vim.g.acp-notify-dismiss ["sh" "-c" "printf '%s\n' \"$1\" >> \"$0\"" closed])
+      (set vim.g.acp-notify ["sh" "-c" "echo 71"])
       (box.on-ask "answered.example:443")
       (wait #(?. (open-question s "answered.example:443") :alert-id) 3000)
       (check "an open question's notification stays up" (= 0 (length (closed-ids))) (closed-ids))
@@ -1658,29 +1658,68 @@
       (wait #(= 1 (length (closed-ids))) 3000)
       (check "answering takes the notification down" (vim.deep_equal ["71"] (closed-ids)) (closed-ids))
       (vim.fn.delete closed)
-      (set vim.g.acp-egress-notify ["sh" "-c" "sleep 0.3; echo 72"])
+      (set vim.g.acp-notify ["sh" "-c" "sleep 0.3; echo 72"])
       (box.on-ask "quick.example:443")
       (press-allow "quick.example:443")
       (wait #(= 1 (length (closed-ids))) 3000)
       (check "an answer that beats the notification's id still takes it down"
              (vim.deep_equal ["72"] (closed-ids)) (closed-ids))
       (vim.fn.delete closed)
-      (set vim.g.acp-egress-notify ["true"])
+      (set vim.g.acp-notify ["true"])
       (box.on-ask "noid.example:443")
       (vim.wait 200)
       (press-allow "noid.example:443")
       (vim.wait 200)
       (check "a notification command that prints no id is left alone"
              (= 0 (length (closed-ids))) (closed-ids))
-      (set vim.g.acp-egress-notify ["sh" "-c" "echo 73"])
+      ;; And the agent's own prompts, the same way. The fake agent matches prompts
+      ;; exactly, so nothing can be waiting to go on the front of them, and these have
+      ;; to stay open until they're answered here.
+      (session.egress-report s)
+      (set auto-allow false)
+      (let [said (vim.fn.tempname)]
+        (set vim.g.acp-notify ["sh" "-c" "printf '%s\n' \"$1\" >> \"$0\"; echo 74" said])
+        (session.send-prompt s "long command")
+        (wait #(?. s :permission :alert-id) 5000)
+        (check "the prompt reached the agent as it was sent" (?. s :permission) s.permission)
+        (check "a permission request is a notification, with its title made safe"
+               (let [line (?. (vim.fn.readfile said) 1)]
+                 (and line (vim.startswith line (.. "[" s.session.project "] acp: agent wants to: "))
+                      (= nil (string.find line "[<>&]"))))
+               (vim.fn.readfile said))
+        (check "and stays up while it's open" (= 0 (length (closed-ids))) (closed-ids))
+        (press (session.first-choice-row s))
+        (wait #(= 1 (length (closed-ids))) 3000)
+        (check "answering a permission request takes it down"
+               (vim.deep_equal ["74"] (closed-ids)) (closed-ids))
+        (wait #(= :idle (session.state s)) 5000)
+        (vim.fn.delete closed)
+        (vim.fn.delete said)
+        (session.send-prompt s "elicit")
+        (wait #(?. s :elicitation :alert-id) 5000)
+        (check "a question from the agent is a notification"
+               (vim.startswith (or (?. (vim.fn.readfile said) 1) "")
+                               (.. "[" s.session.project "] acp: agent asks: "))
+               (vim.fn.readfile said))
+        (session.decline-open s)
+        (wait #(= 1 (length (closed-ids))) 3000)
+        (check "answering it takes it down" (vim.deep_equal ["74"] (closed-ids)) (closed-ids))
+        (wait #(= :idle (session.state s)) 5000)
+        (vim.fn.delete closed)
+        (vim.fn.delete said))
+      (set vim.g.acp-notify ["sh" "-c" "echo 73"])
       (box.on-ask "open.example:443")
-      (wait #(?. (open-question s "open.example:443") :alert-id) 3000)
+      (session.send-prompt s "long command")
+      (wait #(and (?. (open-question s "open.example:443") :alert-id)
+                  (?. s :permission :alert-id))
+            5000)
       (session.stop s)
-      (wait #(= 1 (length (closed-ids))) 3000)
-      (check "ending the session takes down what's still open"
-             (vim.deep_equal ["73"] (closed-ids)) (closed-ids))
-      (set vim.g.acp-egress-notify false)
-      (set vim.g.acp-egress-dismiss nil)
+      (wait #(= 2 (length (closed-ids))) 3000)
+      (check "ending the session takes down everything still open"
+             (vim.deep_equal ["73" "73"] (closed-ids)) (closed-ids))
+      (set auto-allow true)
+      (set vim.g.acp-notify false)
+      (set vim.g.acp-notify-dismiss nil)
       (vim.fn.delete closed))
     (vim.fn.delete box.log)))
 
