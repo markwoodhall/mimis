@@ -59,6 +59,7 @@
      :opencode {:sandbox {:net :proxy
                           :allow ["models.opencode.ai:443"
                                  "opencode.ai:443"
+                                 "models.dev:443"
                                  "www.figma.com:443"
                                  "api.figma.com:443"
                                  "registry.npmjs.org:443"

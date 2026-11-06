@@ -15,8 +15,9 @@
 (fn project-root []
   (let [root (when (= 1 (vim.fn.exists "*FindRootDirectory"))
                (vim.fn.call "FindRootDirectory" []))]
+    ;; In a term:// buffer, say, rooter's answer is ".", and agents need an absolute path.
     (if (and root (not= root ""))
-      root
+      (vim.fs.normalize (vim.fn.fnamemodify root ":p"))
       (vim.fn.getcwd))))
 
 (fn alive? [s]

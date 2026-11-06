@@ -25,9 +25,10 @@
 ;; that allows the hosts it lists and logs every attempt; see modules.acp.sandbox.
 ;; Sandboxed agents see the host read-only, but not $HOME: it is replaced with an
 ;; allowlist of toolchain paths, so ~/.ssh and ~/.aws are absent rather than merely
-;; read-only. They may write only to the project, /tmp, the XDG data home and cache;
-;; the project's .git/hooks, .git/config and .gitattributes stay read-only; see
-;; modules.acp.sandbox.
+;; read-only. They may write only to the project, a /tmp of their own, their own state
+;; in the XDG data home, and the cache except Neovim's; the project's .git/hooks,
+;; .git/config and .gitattributes stay read-only. /dev and /run are their own too, so
+;; the host's sockets and devices aren't there; see modules.acp.sandbox.
 ;;   :sandbox false                     unsandboxed (the default)
 ;;   :sandbox true                      no host allowed
 ;;   :sandbox {:net false}              no network at all

@@ -11,10 +11,9 @@
 ;;   {:net false}                     sandbox, no network at all
 ;;   {:net :proxy :allow [HOST:PORT]}  sandbox, egress only to those hosts
 ;; plus :read and :write, extra $HOME paths to expose read-only or writable, and
-;; :mask, extra paths to hide inside the sandbox. The docker and D-Bus sockets are
-;; masked by default: without that the agent can ask a daemon outside the namespace
-;; to make the request for it. So are the X sockets, which reach the screen, the
-;; clipboard and the keyboard of every window. :mask false leaves them alone.
+;; :mask, extra paths to hide inside the sandbox. The docker sockets are masked by
+;; default: without that the agent can ask a daemon outside the namespace to make the
+;; request for it. :mask false leaves them alone.
 ;;
 ;; :local is the host's loopback ports the agent may ask for, [5432 3306 6379] by
 ;; default. Loopback inside the sandbox is its own, so each port is listened on there
@@ -29,12 +28,25 @@
 ;; below plus whatever :read adds. So ~/.ssh, ~/.aws, ~/.config/gh and ~/.kube are not
 ;; read-only, they are absent, and there is no denylist to keep up to date: a path a
 ;; tool needs is one more line in :read. The writable places are the project the
-;; session runs in, /tmp, the XDG data home and cache, the paths in home-writable, and
+;; session runs in, a /tmp of its own, the paths in data-writable and home-writable, and
 ;; whatever :write adds — except the project's .git/hooks, .git/config and
 ;; .gitattributes, which stay read-only even though the project is writable: a hook,
 ;; a core.hooksPath or a filter driver written there would run on the host, outside
 ;; the sandbox, the next time you use git. The cost is that git config writes fail
 ;; inside a session; see project-readonly.
+;;
+;; The places where the host keeps its sockets are the agent's own too, for the same
+;; reason: a socket is a way out that no network namespace stops, and most of them
+;; take orders. /tmp is a private tmpfs, which hides tmux (whose send-keys types into
+;; your shell), the X server and the browser's singleton socket. $XDG_RUNTIME_DIR is
+;; an empty tmpfs, which hides the Neovim servers (whose --remote-expr runs anything),
+;; the ssh and gpg agents, the keyring, D-Bus, pipewire and pulse, accessibility, and
+;; the other sessions' proxies; only this session's proxy socket is put back. /run is
+;; an empty tmpfs as well, which hides the system bus, systemd's sockets, polkit and
+;; the local ssh socket: what those let the agent do would be up to the host's policy,
+;; not this sandbox. /dev is a minimal one of bwrap's, with its own /dev/shm, so
+;; cameras and sound capture are not there. Files to share with the agent go in the
+;; project, not /tmp.
 ;;
 ;; bwrap does the namespace; bin/acp-egress.py is the proxy (host side) and the
 ;; 127.0.0.1 bridge into the namespace (sandbox side, which then execs the agent).
@@ -47,13 +59,14 @@
 ;; the agent's next attempt. The question and the answer go over the proxy's stdout
 ;; and stdin, which the sandbox can't reach.
 ;; This stops IP traffic from the agent and everything it spawns. It does not stop a
-;; unix socket, which is why the daemons above are masked. Needs bwrap and python3.
+;; unix socket, which is why the places above are emptied and the daemons masked.
+;; Needs bwrap and python3.
 ;;
 ;; A profile's :sandbox is the policy and the default; :Acp sandbox and :Acp nosandbox
 ;; turn it on or off for one session, without touching the profile.
 
 (local listen "127.0.0.1:8899")
-(local defaults ["/var/run/docker.sock" "/run/docker.sock" "/tmp/.X11-unix"])
+(local defaults ["/var/run/docker.sock" "/run/docker.sock"])
 ;; Postgres, MySQL and Redis: the host services an agent is most often pointed at.
 (local local-ports [5432 3306 6379])
 (var counter 0)
@@ -85,6 +98,15 @@
 ;; settings, hooks, plugins and CLAUDE.md in .claude are writable too, and an
 ;; unsandboxed claude would run what was written there; Claude is only run sandboxed.
 (local home-writable [".npm" ".cache" ".local/state" ".claude"])
+
+;; The XDG data home is emptied like $HOME, as most of it is other programs': saved
+;; logins and browser certificates to read, pipx and pnpm's executables and desktop
+;; entries to replace. Only an agent's own state goes back in, writable. A tool that
+;; writes anywhere else there gets a directory that goes when the session does.
+(local data-writable ["opencode"])
+;; Neovim's plugins, which a Neovim the agent starts has to load but the one on the
+;; host would run if they were changed.
+(local data-readable ["nvim"])
 
 ;; Project paths kept read-only even though the project itself is writable. A git
 ;; hook is the sharpest one: the agent could write one and it would run on the host,
@@ -181,6 +203,12 @@
                           xdg
                           (.. (or vim.env.HOME "/") "/.local/share")))))
 
+(fn with-data [paths names]
+  ;; paths, plus names in the data home.
+  (vim.list_extend (vim.deepcopy paths)
+                   (icollect [_ name (ipairs names)]
+                     (.. (data-dir) "/" name))))
+
 (fn strip-slash [path]
   (if (and (> (length path) 1) (= (string.sub path -1) "/"))
     (string.sub path 1 -2)
@@ -202,22 +230,15 @@
 
 (fn mask-paths [spec]
   ;; Paths to hide: the daemons that could egress on the agent's behalf, and the
-  ;; keyring store the writable data home would otherwise expose. Symlinks are
-  ;; resolved, as $XDG_RUNTIME_DIR/bus often is one: masking only the link would
-  ;; leave the socket's real path open.
+  ;; keyring store, which a :write of the data home would otherwise expose. Those in
+  ;; $XDG_RUNTIME_DIR are gone with it, see runtime-home. Symlinks are resolved:
+  ;; masking only a link would leave its real path open.
   (let [user (if (= (type spec.mask) :table) spec.mask [])
         base (if (= spec.mask false) [] defaults)
-        runtime vim.env.XDG_RUNTIME_DIR
-        runtime-extra (if runtime
-                        [(.. runtime "/bus")
-                         (.. runtime "/systemd/private")
-                         (.. runtime "/docker.sock")
-                         (.. runtime "/podman/podman.sock")]
-                        [])
         h (home)
         home-extra (if h [(.. h "/.local/share/keyrings")] [])
         all (vim.list_extend
-              (vim.list_extend (vim.deepcopy base) runtime-extra)
+              (vim.deepcopy base)
               (vim.list_extend user home-extra))
         seen {}]
     (icollect [_ path (ipairs all)]
@@ -226,42 +247,64 @@
           (tset seen real true)
           real)))))
 
-(fn bwrap-prefix [spec project]
+(fn runtime-home []
+  ;; $XDG_RUNTIME_DIR as an absolute path, or nil when there is none worth emptying.
+  (let [path vim.env.XDG_RUNTIME_DIR]
+    (when (and path (= (string.sub path 1 1) "/") (not= path "/"))
+      (strip-slash (vim.fs.normalize path)))))
+
+(fn bwrap-prefix [spec project sock]
   ;; The namespace, the masks, then the relay that execs whatever follows. The host
   ;; is bound read-only, so the agent can run everything it finds but change nothing.
+  ;; sock is the proxy's socket, the one thing in /tmp or /run it may reach.
   (let [h (home)
-        ro (allowlist home-readable spec.read)
-        rw (allowlist home-writable spec.write)
+        runtime (runtime-home)
+        data (data-dir)
+        cache (vim.fn.stdpath :cache)
+        ro (allowlist (with-data home-readable data-readable) spec.read)
+        rw (allowlist (with-data home-writable data-writable) spec.write)
         argv ["bwrap"
               "--unshare-net" "--unshare-pid" "--unshare-ipc" "--unshare-uts"
               "--new-session" "--die-with-parent"
-              ;; Everything from the host, read-only, then a writable /dev and a
-              ;; procfs for the new pid namespace.
+              ;; Everything from the host, read-only, then a /dev with only the
+              ;; basic devices, a procfs for the new pid namespace, and empty places
+              ;; where the host keeps its sockets. These come first, so the project
+              ;; and the allowlist are bound over them even if they are in /tmp.
               "--ro-bind" "/" "/"
-              "--dev-bind" "/dev" "/dev"
+              "--dev" "/dev"
               "--proc" "/proc"
+              "--tmpfs" "/tmp"
+              "--tmpfs" "/run"
               ;; Needed only to bring loopback up, which the relay does first.
               "--cap-add" "CAP_NET_ADMIN"]]
+    (when runtime
+      (vim.list_extend argv ["--tmpfs" runtime]))
     (when h
       ;; $HOME is emptied first, so a path that is not in the allowlist can't be read
       ;; because it isn't there — that is what keeps ~/.ssh and ~/.aws out without
       ;; naming them. Then the allowlist is bound back in.
       (vim.list_extend argv ["--tmpfs" h])
+      ;; $XDG_DATA_HOME can be outside $HOME. Where it doesn't exist there is nothing
+      ;; to hide, and outside $HOME nowhere to make the mount.
+      (when (= "dir" (vim.fn.getftype data))
+        (vim.list_extend argv ["--tmpfs" data]))
       (each [_ path (ipairs ro)]
         (vim.list_extend argv ["--ro-bind" path path]))
       (each [_ path (ipairs rw)]
         (vim.list_extend argv ["--bind-try" path path]))
+      ;; A private cache for Neovim, under the writable .cache: the one on the host
+      ;; loads the compiled Lua in it (vim.loader), so what is written here must not
+      ;; reach it. Made even if it doesn't exist yet, or the agent could create it.
+      (when (or (encloses? h cache) (= "dir" (vim.fn.getftype cache)))
+        (vim.list_extend argv ["--tmpfs" cache]))
       ;; The relay lives under $HOME and has to be put back after the masking.
       (let [relay (script)]
         (when (= (string.sub relay 1 (+ (length h) 1)) (.. h "/"))
           (vim.list_extend argv ["--ro-bind" relay relay]))))
     (vim.list_extend
       argv
-      [;; The only writable places besides the allowlist: the project, /tmp, and the
-       ;; XDG data home, so an agent can keep its own state.
-       "--bind-try" project project
-       "--bind-try" (data-dir) (data-dir)
-       "--bind" "/tmp" "/tmp"])
+      [;; The only writable host place besides the allowlist.
+       "--bind-try" project project])
     ;; Mounted after the project, so read-only wins over its writable bind: a path the
     ;; profile asked to be read-only is not made writable again by running in it, and
     ;; a hook or a line of repo config can't be replaced with one that runs on the
@@ -293,6 +336,18 @@
       (if (= "dir" (vim.fn.getftype path))
         (vim.list_extend argv ["--tmpfs" path])
         (vim.list_extend argv ["--ro-bind" "/dev/null" path])))
+    ;; :mask false leaves the docker sockets alone, so they come back through the
+    ;; empty /run.
+    (when (= spec.mask false)
+      (let [seen {}]
+        (each [_ path (ipairs defaults)]
+          (let [real (vim.uv.fs_realpath path)]
+            (when (and real (not (. seen real)))
+              (tset seen real true)
+              (vim.list_extend argv ["--bind" real real]))))))
+    ;; Last, so no tmpfs above hides it again.
+    (when sock
+      (vim.list_extend argv ["--bind" sock sock]))
     argv))
 
 (fn proxy-env []
@@ -341,7 +396,8 @@
 (fn prepare [spec project]
   ;; Start the proxy if the spec needs one, and return what transport.start needs:
   ;; {:prefix [ARGV...] :env {VAR VALUE} :proc proxy :sock :log :net :allow :watch nil}.
-  ;; project is the directory the session runs in, the one writable place besides /tmp.
+  ;; project is the directory the session runs in, the one writable host place besides
+  ;; the allowlist.
   ;; Returns nil and a message when the sandbox can't be built.
   (let [s (normalize spec)
         ;; bwrap resolves a relative destination against the sandbox root, so a project
@@ -398,7 +454,7 @@
               (values nil (.. "the egress proxy did not start — see " log)))
             ;; Filled in place: the stdout callback already holds box.
             (do
-              (each [k v (pairs {:prefix (vim.list_extend (bwrap-prefix s project)
+              (each [k v (pairs {:prefix (vim.list_extend (bwrap-prefix s project sock)
                                                           (relay-argv sock log (. s :local)))
                                  :env (proxy-env)
                                  :net :proxy

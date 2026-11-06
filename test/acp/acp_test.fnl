@@ -999,7 +999,7 @@
               (= "--" (. box.prefix (length box.prefix))))
          (or problem box.prefix))
   (when box
-    (check "the sandbox binds the host read-only with the project, /tmp and the data home writable"
+    (check "the sandbox binds the host read-only with the project writable, and /tmp, /dev and the data home its own"
            (let [argv box.prefix
                  data (sandbox.data-dir)]
              (and
@@ -1010,14 +1010,19 @@
                  (or seen (and (= v "--bind-try")
                                (= (. argv (+ i 1)) project)
                                (= (. argv (+ i 2)) project))))
-               (accumulate [seen false i v (ipairs argv)]
-                 (or seen (and (= v "--bind-try")
-                               (= (. argv (+ i 1)) data)
-                               (= (. argv (+ i 2)) data))))
-               (accumulate [seen false i v (ipairs argv)]
-                 (or seen (and (= v "--bind")
-                               (= (. argv (+ i 1)) "/tmp")
-                               (= (. argv (+ i 2)) "/tmp"))))))
+               (not (accumulate [seen false i v (ipairs argv)]
+                      (or seen (and (= v "--bind-try")
+                                    (= (. argv (+ i 1)) data)
+                                    (= (. argv (+ i 2)) data)))))
+               (not (vim.tbl_contains argv "--dev-bind"))
+               (let [at (fn [flag path]
+                          (accumulate [found nil i v (ipairs argv)]
+                            (or found (when (and (= v flag) (= (. argv (+ i 1)) path)) i))))
+                     tmp (at "--tmpfs" "/tmp")
+                     project-bind (at "--bind-try" project)]
+                 ;; The project is in /tmp here, so it has to be bound after /tmp is emptied.
+                 (and (at "--dev" "/dev") tmp project-bind (< tmp project-bind)
+                      (not (at "--bind" "/tmp"))))))
            box.prefix)
     (let [res (vim.system (vim.list_extend (vim.deepcopy box.prefix)
                                            ["/bin/sh" :-c
@@ -1028,19 +1033,25 @@
                                                 "; if [ -e \"$HOME/.ssh\" ] || [ -e \"$HOME/.aws\" ]; then"
                                                 " echo home-secrets-visible; else echo home-secrets-absent; fi"
                                                 "; if (echo probe > \"$HOME/.acp-probe\") 2>/dev/null; then"
-                                                " echo home-writable; else echo home-locked; fi")])
+                                                " echo home-writable; else echo home-locked; fi"
+                                                "; if [ -e /run/dbus ] || [ -e /run/systemd ]; then"
+                                                " echo run-visible; else echo run-empty; fi")])
                           {:text true})
           out (res:wait)]
-      (check "the agent gets the project, /tmp and its data home, and an empty $HOME"
+      (check "the agent gets the project, and an empty $HOME, /tmp, /run and data home"
              (and (vim.uv.fs_stat (.. project "/probe"))
-                  (vim.uv.fs_stat "/tmp/acp-sandbox-probe")
-                  (vim.uv.fs_stat (.. (sandbox.data-dir) "/acp-sandbox-probe"))
+                  ;; Its /tmp is its own: a file written there never reaches the host's.
+                  (not (vim.uv.fs_stat "/tmp/acp-sandbox-probe"))
+                  ;; So is its data home, outside what the allowlist puts back.
+                  (not (vim.uv.fs_stat (.. (sandbox.data-dir) "/acp-sandbox-probe")))
                   ;; ~/.ssh and ~/.aws are absent inside, not read-only.
                   (string.match (tostring out.stdout) "home%-secrets%-absent")
                   ;; $HOME itself is a private tmpfs, so a write lands there and
                   ;; never on the host.
                   (string.match (tostring out.stdout) "home%-writable")
-                  (not (vim.uv.fs_stat (.. vim.env.HOME "/.acp-probe"))))
+                  (not (vim.uv.fs_stat (.. vim.env.HOME "/.acp-probe")))
+                  ;; The system bus and systemd's sockets are absent too.
+                  (string.match (tostring out.stdout) "run%-empty"))
              out)
       (vim.fn.delete (.. project "/probe"))
       (vim.fn.delete "/tmp/acp-sandbox-probe")
@@ -1061,6 +1072,10 @@
     (vim.fn.mkdir (.. fake "/.claude") "p")
     (vim.fn.writefile ["{}"] (.. fake "/.claude/.credentials.json"))
     (vim.fn.writefile ["{}"] (.. fake "/.claude/settings.json"))
+    (vim.fn.mkdir (.. fake "/.local/share/opencode") "p")
+    (vim.fn.mkdir (.. fake "/.local/share/nvim/plugged") "p")
+    (vim.fn.mkdir (.. fake "/.local/share/remmina") "p")
+    (vim.fn.mkdir (.. fake "/.cache") "p")
     (set vim.env.HOME fake)
     (set vim.env.XDG_DATA_HOME nil)
     (let [(box problem) (sandbox.prepare {:net false :read ["~/.config/gh"]}
@@ -1083,17 +1098,37 @@
                   (not (binds "--ro-bind" "/" fake))
                   (not (binds "--dev-bind" fake nil)))
              argv)
-      ;; After the read-only .claude, so the writable bind wins.
-      (check "claude's credentials are writable so refreshed tokens are kept"
-             (> (or (argv-index argv "--bind-try" (.. fake "/.claude/.credentials.json")
-                                (.. fake "/.claude/.credentials.json"))
-                    0)
-                (or (argv-index argv "--ro-bind" (.. fake "/.claude") (.. fake "/.claude"))
-                    math.huge))
+      ;; Whole, as Claude locks its credentials by creating a file beside them.
+      (check ".claude is writable whole so refreshed tokens are kept"
+             (and (binds "--bind-try" (.. fake "/.claude") (.. fake "/.claude"))
+                  (not (binds "--ro-bind" (.. fake "/.claude") (.. fake "/.claude"))))
              argv)
-      (check "the rest of .claude stays read-only"
-             (not (binds "--bind-try" (.. fake "/.claude/settings.json") nil))
-             argv)
+      (let [data (.. fake "/.local/share")
+            opencode (.. data "/opencode")
+            nvim (.. data "/nvim")
+            emptied (argv-index argv "--tmpfs" data)]
+        ;; Otherwise the plugins and everything else there are the agent's to replace.
+        (check "the data home is emptied, and only an agent's state is writable in it"
+               (and emptied
+                    (> (or (argv-index argv "--bind-try" opencode opencode) 0) emptied)
+                    (not (binds "--bind-try" data nil))
+                    (not (binds "--bind-try" (.. data "/remmina") nil))
+                    (not (binds "--ro-bind" (.. data "/remmina") nil)))
+               argv)
+        (check "Neovim's data stays readable and can't be changed"
+               (and (> (or (argv-index argv "--ro-bind" nvim nvim) 0) emptied)
+                    (not (binds "--bind-try" nvim nil)))
+               argv))
+      ;; The host's Neovim loads compiled Lua from here, and .cache is writable.
+      (let [cache (.. fake "/.cache")
+            nvim-cache (vim.fn.stdpath :cache)
+            cache-at (or (argv-index argv "--bind-try" cache cache) 0)]
+        (check "Neovim's cache is private, even though it doesn't exist yet"
+               (and (not (vim.uv.fs_stat nvim-cache))
+                    (accumulate [seen false i v (ipairs argv)]
+                      (or seen (and (= v "--tmpfs") (= (. argv (+ i 1)) nvim-cache) (> i cache-at))))
+                    (> cache-at 0))
+               argv))
       (sandbox.stop box))
     (vim.fn.delete fake :rf)
     (set vim.env.HOME real)
@@ -1123,22 +1158,50 @@
   (vim.fn.delete dir :rf)
   (vim.fn.delete file))
 
-;; The X sockets reach the screen and keyboard of every window. /tmp is writable, so the
-;; mask has to come after that bind; a machine with no X has nothing to mask.
-(when (= "dir" (vim.fn.getftype "/tmp/.X11-unix"))
-  (let [masked-at (fn [spec]
-                    (let [box (sandbox.prepare spec (vim.fn.tempname))
-                          argv (or (?. box :prefix) [])
-                          found (accumulate [at nil i v (ipairs argv)]
-                                  (if (and (= v "--tmpfs") (= (. argv (+ i 1)) "/tmp/.X11-unix"))
-                                    i
-                                    at))
-                          tmp (accumulate [at nil i v (ipairs argv)]
-                                (if (and (= v "--bind") (= (. argv (+ i 1)) "/tmp")) i at))]
-                      (sandbox.stop box)
-                      (and found tmp (> found tmp))))]
-    (check "the X sockets are hidden, over the writable /tmp" (masked-at {:net false}))
-    (check ":mask false leaves the X sockets alone" (not (masked-at {:net false :mask false})))))
+;; $XDG_RUNTIME_DIR holds the Neovim servers, the ssh and gpg agents and the other
+;; sessions' proxies: it is emptied, and only this session's proxy socket put back.
+(let [runtime vim.env.XDG_RUNTIME_DIR
+      (box problem) (sandbox.prepare {:net :proxy :allow []} (vim.fn.tempname))
+      argv (or (?. box :prefix) [])
+      at (fn [flag path]
+           (accumulate [found nil i v (ipairs argv)]
+             (or found (when (and (= v flag) (= (. argv (+ i 1)) path)) i))))
+      relay (accumulate [found nil i v (ipairs argv)]
+              (or found (when (= v "--") i)))]
+  (check "the runtime directory is emptied and only the proxy socket put back"
+         (and box (not problem)
+              (or (not runtime) (not= nil (at "--tmpfs" (vim.fs.normalize runtime))))
+              (let [sock (at "--bind" box.sock)]
+                (and sock (< sock relay)
+                     (> sock (or (at "--tmpfs" (vim.fs.normalize (or runtime "/nonexistent"))) 0))
+                     (> sock (at "--tmpfs" "/tmp")))))
+         (or problem argv))
+  (check "/run is emptied before the runtime directory and the proxy socket go in it"
+         (let [run (at "--tmpfs" "/run")]
+           (and run (< run (at "--bind" box.sock))
+                (or (not runtime) (< run (at "--tmpfs" (vim.fs.normalize runtime))))))
+         argv)
+  (sandbox.stop box))
+
+;; A machine with no docker has nothing to put back.
+(let [docker (vim.uv.fs_realpath "/run/docker.sock")]
+  (when docker
+    (let [argv-for (fn [spec]
+                     (let [box (sandbox.prepare spec (vim.fn.tempname))
+                           argv (or (?. box :prefix) [])]
+                       (sandbox.stop box)
+                       argv))
+          masked (argv-for {:net false})
+          open (argv-for {:net false :mask false})]
+      (check "the docker socket is hidden by default"
+             (and (argv-index masked "--ro-bind" "/dev/null" docker)
+                  (not (argv-index masked "--bind" docker docker)))
+             masked)
+      (check ":mask false puts the docker socket back through the empty /run"
+             (and (not (argv-index open "--ro-bind" "/dev/null" docker))
+                  (> (or (argv-index open "--bind" docker docker) 0)
+                     (or (argv-index open "--tmpfs" "/run") math.huge)))
+             open))))
 
 ;; A hook is the one thing in the writable project that runs on the host later.
 (let [project (vim.fn.tempname)]
