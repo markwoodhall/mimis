@@ -18,6 +18,7 @@
    :modules.lisp []
    :modules.sql []
    :modules.packages.python []
+   :modules.packages.go []
 
    :modules.org []
 
@@ -83,6 +84,7 @@
    :modules.lisp []
    :modules.sql []
    :modules.packages.python []
+   :modules.packages.go []
 
    :modules.org [:org-babel-like :notes]
 
