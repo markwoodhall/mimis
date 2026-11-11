@@ -39,9 +39,16 @@
   (if (= arg "sandbox") true
       (= arg "nosandbox") false))
 
+(fn known-settings [name]
+  ;; What the named agent offers, or with none named the agent a new :Acp would use.
+  (session.known-config (or name
+                            (?. (session.current) :agent :name)
+                            (agents.default-name))))
+
 (fn setting-ids []
-  ;; The settings the running session offers, or the last one did.
-  (collect [_ o (ipairs (session.known-config))]
+  ;; The settings of the agent in use, which is as much as can be known before the
+  ;; arguments have been told apart.
+  (collect [_ o (ipairs (known-settings))]
     (values o.id true)))
 
 (fn parse-args [fargs]
@@ -267,18 +274,19 @@
           (session.configure s {id value}))))))
 
 (fn complete-settings [max-pairs agents?]
-  ;; Completes "setting value" pairs, from the running session or the last one seen.
+  ;; Completes "setting value" pairs, of the agent named if any, else the agent in use.
   ;; With agents?, the first argument may also be an agent name, which shifts the pairs
   ;; by one, and with no argument at all the sandbox switches are offered too.
   (fn [arglead cmdline _]
-    (let [known (session.known-config)
-          ids (setting-ids)
+    (let [ids (setting-ids)
           args (. (vim.api.nvim_parse_cmd cmdline {}) :args)
           skip (if (sandbox-flag (. args 1)) 1 0)
           done (if (= arglead "") (length args) (- (length args) 1))
           left (- done skip)
           lead (when (and agents? (> left 0)) (. args (+ skip 1)))
-          offset (+ skip (if (and lead (agents.get lead) (not (. ids lead))) 1 0))
+          named (when (and lead (agents.get lead) (not (. ids lead))) lead)
+          offset (+ skip (if named 1 0))
+          known (known-settings named)
           candidates (if (>= (- done offset) (* 2 max-pairs))
                        []
                        (= 0 (% (- done offset) 2))

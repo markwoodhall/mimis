@@ -836,6 +836,35 @@
        (vim.fn.getcompletion "Acp mode plan " "cmdline"))
 (check ":AcpConfig completes only one pair"
        (vim.deep_equal [] (vim.fn.getcompletion "AcpConfig mode plan " "cmdline")))
+;; Each agent's settings complete on their own, and one agent's session leaves what
+;; another offered alone.
+(vim.fn.writefile [(vim.json.encode {:opencode [{:id "model" :values ["other-provider/x"]}]})]
+                  vim.g.acp-config-cache)
+(check ":Acp completes the named agent's models from what it last offered"
+       (vim.deep_equal ["other-provider/x"] (vim.fn.getcompletion "Acp opencode model " "cmdline"))
+       (vim.fn.getcompletion "Acp opencode model " "cmdline"))
+(check ":Acp doesn't complete another agent's models for the default agent"
+       (vim.deep_equal [] (vim.fn.getcompletion "Acp model " "cmdline"))
+       (vim.fn.getcompletion "Acp model " "cmdline"))
+(vim.cmd "Acp!")
+(let [s (session.current)]
+  (wait #s.ready))
+(check ":Acp completes the named agent's models, not the running session's"
+       (vim.deep_equal ["other-provider/x"] (vim.fn.getcompletion "Acp opencode model " "cmdline"))
+       (vim.fn.getcompletion "Acp opencode model " "cmdline"))
+(check ":Acp without an agent completes the running session's models"
+       (vim.deep_equal ["default" "sonnet"] (vim.fn.getcompletion "Acp model " "cmdline"))
+       (vim.fn.getcompletion "Acp model " "cmdline"))
+(let [known (vim.json.decode (table.concat (vim.fn.readfile vim.g.acp-config-cache) ""))]
+  (check "a session adds its agent's settings beside the others'"
+         (and known.opencode known.claude)
+         known))
+(vim.cmd "AcpStop")
+(check "an older file of one agent's settings counts for nothing"
+       (do
+         (vim.fn.writefile [(vim.json.encode [{:id "model" :values ["unattributed"]}])]
+                           vim.g.acp-config-cache)
+         (vim.deep_equal [] (vim.fn.getcompletion "Acp model " "cmdline"))))
 
 ;; Choosing the agent ---------------------------------------------------------------
 

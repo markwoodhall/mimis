@@ -222,27 +222,36 @@
       (render.add-line s {:type :line : line})
       (log.append-note s line))))
 
-;; The settings and values last seen, kept on disk so :Acp can complete them
-;; before a session exists.
+;; The settings and values each agent last offered, kept on disk so :Acp can complete
+;; them before a session exists.
 (fn known-path []
   (vim.fn.expand (or vim.g.acp-config-cache (.. (vim.fn.stdpath :data) "/acp-config.json"))))
 
-(fn remember [options]
-  (let [known (icollect [_ o (ipairs options)]
-                {:id o.id :values (icollect [_ v (ipairs o.values)] v.value)})
-        encoded (vim.json.encode known)]
-    (when (not= encoded sessions.known-encoded)
-      (set sessions.known-encoded encoded)
-      (pcall vim.fn.writefile [encoded] (known-path)))))
+(fn read-known []
+  ;; {agent-name [{:id :values [value ...]}]}. A list is the older file, of one agent's
+  ;; settings and not saying whose, so it counts for nothing.
+  (let [(ok known) (pcall #(vim.json.decode (table.concat (vim.fn.readfile (known-path)) "")))]
+    (if (and ok (= (type known) :table) (not (vim.islist known))) known {})))
 
-(fn known-config []
-  ;; [{:id :values [value ...]}] from the running session, else from the last one.
-  (let [live (?. sessions.current :config)]
+(fn option-values [options]
+  (icollect [_ o (ipairs options)]
+    {:id o.id :values (icollect [_ v (ipairs o.values)] v.value)}))
+
+(fn remember [name options]
+  (let [known (read-known)
+        offered (option-values options)]
+    (when (not (vim.deep_equal (. known name) offered))
+      (tset known name offered)
+      (pcall vim.fn.writefile [(vim.json.encode known)] (known-path)))))
+
+(fn known-config [name]
+  ;; [{:id :values [value ...]}] for the named agent: from the running session if it's
+  ;; that agent's, else from what it last offered.
+  (let [current sessions.current
+        live (when (= (?. current :agent :name) name) current.config)]
     (if (and live (> (length live) 0))
-      (icollect [_ o (ipairs live)]
-        {:id o.id :values (icollect [_ v (ipairs o.values)] v.value)})
-      (let [(ok known) (pcall #(vim.json.decode (table.concat (vim.fn.readfile (known-path)) "")))]
-        (if (and ok (= (type known) :table)) known [])))))
+      (option-values live)
+      (or (. (read-known) name) []))))
 
 (fn apply-config [s options announce?]
   (when (> (length options) 0)
@@ -254,7 +263,7 @@
     (set s.config options)
     ;; A delegated agent's settings aren't what :Acp should complete.
     (when (not s.parent)
-      (remember options))
+      (remember s.agent.name options))
     (vim.cmd "redrawstatus!")))
 
 (fn apply-mode [s id announce?]
