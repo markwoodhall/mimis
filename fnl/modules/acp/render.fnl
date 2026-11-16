@@ -10,23 +10,23 @@
 ;; Agent output is always written at the end of the transcript, so you can type
 ;; the next prompt while a reply streams in.
 
+(local image (require :modules.acp.image))
+
 (local ns (vim.api.nvim_create_namespace "acp"))
 
 (fn markdown [buf]
   ;; The bundled markdown ftplugin starts treesitter, which leaves ```diff blocks
   ;; uncoloured without a diff parser; vim syntax colours them via
   ;; markdown_fenced_languages.
-  (tset (. vim.bo buf) :filetype :markdown)
-  (pcall vim.treesitter.stop buf)
-  (tset (. vim.bo buf) :syntax :markdown)
-  ;; The tool, permission, elicitation, egress, stop and acp rows carry agent-supplied titles. Left to
-  ;; markdown, a stray backtick or fence in a title opens syntax that colours every
-  ;; line below it, so keep those rows (and the folded >> thinking) out of markdown.
-  (vim.api.nvim_buf_call buf
-    (fn []
-      (vim.cmd (.. "syntax region AcpUiLine matchgroup=AcpUiPrefix "
-                   "start=/^>\\%(>\\| \\%(tool\\|permission\\|elicitation\\|egress\\|stop\\|acp\\):\\)/ "
-                   "end=/$/ contains=NONE")))))
+  ;; markdown.vim's own concealing stays off, as it blanks whole fence lines; the chat's
+  ;; own rules on top, syntax/acpchat.vim, hide the inline markers instead.
+  (let [conceal vim.g.markdown_syntax_conceal]
+    (set vim.g.markdown_syntax_conceal 0)
+    (tset (. vim.bo buf) :filetype :markdown)
+    (pcall vim.treesitter.stop buf)
+    (tset (. vim.bo buf) :syntax :markdown)
+    (set vim.g.markdown_syntax_conceal conceal))
+  (vim.api.nvim_buf_call buf #(vim.cmd "runtime! syntax/acpchat.vim")))
 
 (fn chat-name [s]
   ;; A delegated session shares its project with its parent, so it needs its label too.
@@ -35,6 +35,8 @@
 (local chats {})
 ;; Shades worked out for each chat buffer in its current redraw.
 (local drawing {})
+;; Lays the chat's tables out again for its window's width; see Tables below.
+(var fit-tables nil)
 
 (fn held? [s]
   ;; While you type in the chat, agent writes wait: anything holding a row across the
@@ -72,7 +74,15 @@
     (on :CursorHold #(flush s))
     (on :CursorHoldI #(when (= 0 (vim.fn.pumvisible))
                         (set s.typing-paused true)
-                        (flush s)))))
+                        (flush s)))
+    ;; Tables wrap their cells to the window, so a new width lays them out again.
+    ;; Scheduled, so a window just opened has its options (no number column) by then.
+    (on :BufWinEnter #(vim.schedule #(fit-tables s)))
+    (vim.api.nvim_create_autocmd [:WinResized :VimResized]
+      {: group
+       :callback #(if (vim.api.nvim_buf_is_valid buf)
+                    (do (fit-tables s) nil)
+                    true)})))
 
 (fn create-buffers [s]
   (let [buf (vim.api.nvim_create_buf false true)]
@@ -82,10 +92,14 @@
     (markdown buf)
     (vim.api.nvim_buf_set_lines buf 0 -1 false ["" "" "## You" ""])
     (set s.input-mark (vim.api.nvim_buf_set_extmark buf ns 1 0 {}))
+    ;; Combined, so it keeps the prompt's shade behind it.
     (vim.api.nvim_buf_set_extmark buf ns 2 0 {:virt_text [["<CR> to send" :Comment]]
+                                              :hl_mode :combine
                                               :virt_text_pos :eol})
-    (vim.api.nvim_buf_call buf #(vim.cmd "syntax sync minlines=200"))
     (set s.held [])
+    (set s.tables [])
+    (set s.diagrams [])
+    (set s.images [])
     (set s.attached-blocks {})
     (tset chats buf s)
     (watch-typing s buf)
@@ -104,10 +118,13 @@
   (tset (. vim.wo win) :linebreak true)
   (tset (. vim.wo win) :number false)
   (tset (. vim.wo win) :relativenumber false)
-  (tset (. vim.wo win) :conceallevel 0)
+  ;; For the UI rows' labels, see decorate; the cursor's line shows them in full.
+  (tset (. vim.wo win) :conceallevel 2)
+  (tset (. vim.wo win) :concealcursor "")
   ;; Thinking (">> " lines) folds closed; zo / zR open it.
   (tset (. vim.wo win) :foldmethod :expr)
-  (tset (. vim.wo win) :foldexpr "getline(v:lnum)=~#'^>>'")
+  ;; Diagrams fold away their source too, see fold.
+  (tset (. vim.wo win) :foldexpr "v:lua.require'modules.acp.render'.fold(v:lnum)")
   (tset (. vim.wo win) :foldlevel 0)
   (tset (. vim.wo win) :foldenable true))
 
@@ -243,6 +260,488 @@
         col (length (line-at s.buf row))]
     (vim.api.nvim_buf_set_text s.buf row col row col (vim.list_extend [""] lines))))
 
+;; Tables -----------------------------------------------------------------------------
+;; Agents pad markdown tables loosely, if at all. Once a table's rows are complete
+;; (the line after it has begun, or something else is put under it) its columns are
+;; padded to the widest cell, display width, so it reads as a grid. Only the table
+;; that just ended is looked at, and only in the agent's text, not in code blocks.
+
+(fn table-row? [line]
+  (not= nil (line:match "^%s*|.*|%s*$")))
+
+(fn table-cells [line]
+  ;; Splits on | outside `code` and not escaped as \|.
+  (let [body (-> line (vim.trim) (: :gsub "^|" "") (: :gsub "|$" ""))
+        cells []]
+    (var cell "")
+    (var code? false)
+    (var i 1)
+    (while (<= i (length body))
+      (let [c (body:sub i i)]
+        (if (and (= c "\\") (= (body:sub (+ i 1) (+ i 1)) "|"))
+          (do (set cell (.. cell "\\|")) (set i (+ i 1)))
+          (= c "`")
+          (do (set code? (not code?)) (set cell (.. cell c)))
+          (and (= c "|") (not code?))
+          (do (table.insert cells (vim.trim cell)) (set cell ""))
+          (set cell (.. cell c))))
+      (set i (+ i 1)))
+    (table.insert cells (vim.trim cell))
+    cells))
+
+(fn rule-cell? [cell]
+  (not= nil (cell:match "^:?%-+:?$")))
+
+(fn rule? [cells]
+  (accumulate [all true _ c (ipairs cells)] (and all (rule-cell? c))))
+
+(fn width-of [text]
+  ;; Width as shown, with the markers syntax/acpchat.vim conceals left out: code spans'
+  ;; backticks (what's inside them is shown as is), link brackets and URLs, and bold,
+  ;; italic and struck-out markers. A row on the cursor's line shows them, and is
+  ;; wider for it.
+  (let [shown (-> text
+                  (: :gsub "(`+)(.-)%1" #(string.rep "x" (vim.fn.strdisplaywidth $2)))
+                  (: :gsub "!?%[(.-)%]%b()" "%1")
+                  (: :gsub "%*%*%*(%S.-)%*%*%*" "%1")
+                  (: :gsub "%*%*(%S.-)%*%*" "%1")
+                  (: :gsub "__(%S.-)__" "%1")
+                  (: :gsub "~~(%S.-)~~" "%1")
+                  (: :gsub "%*(%S.-)%*" "%1"))]
+    (vim.fn.strdisplaywidth shown)))
+
+(fn cell-tokens [text]
+  ;; A cell's words. A `code span` with spaces in it is a word for each, each its own
+  ;; span, so it can break like the rest; next to each other they look the same.
+  (let [tokens []]
+    (var token "")
+    (var code? false)
+    (for [i 1 (length text)]
+      (let [c (text:sub i i)]
+        (when (= c "`") (set code? (not code?)))
+        (if (= c " ")
+          (do (when (not= token "")
+                (table.insert tokens (if code? (.. token "`") token)))
+              (set token (if code? "`" "")))
+          (set token (.. token c)))))
+    (when (and (not= token "") (not= token "`")) (table.insert tokens token))
+    tokens))
+
+(fn split-token [token width]
+  ;; A word wider than its column, in pieces that fit. A code span stays code in each
+  ;; piece, as an unclosed backtick would colour the rest of the table.
+  (let [code? (and (> (length token) 2) (vim.startswith token "`") (vim.endswith token "`"))
+        inner (if code? (token:sub 2 -2) token)
+        room (math.max 1 (if code? (- width 2) width))
+        pieces []]
+    (var piece "")
+    (each [_ ch (ipairs (vim.fn.split inner "\\zs"))]
+      (when (and (not= piece "") (> (width-of (.. piece ch)) room))
+        (table.insert pieces piece)
+        (set piece ""))
+      (set piece (.. piece ch)))
+    (table.insert pieces piece)
+    (if code?
+      (icollect [_ p (ipairs pieces)] (.. "`" p "`"))
+      pieces)))
+
+(fn wrap-cell [text width]
+  ;; A cell's text as lines no wider than width, broken between words.
+  (let [lines []]
+    (var line "")
+    (each [_ token (ipairs (cell-tokens text))]
+      (each [_ piece (ipairs (if (> (width-of token) width) (split-token token width) [token]))]
+        (if (= line "") (set line piece)
+            (<= (width-of (.. line " " piece)) width) (set line (.. line " " piece))
+            (do (table.insert lines line)
+                (set line piece)))))
+    (table.insert lines line)
+    lines))
+
+(fn sum [xs]
+  (accumulate [total 0 _ x (ipairs xs)] (+ total x)))
+
+(fn fit-widths [natural floors room]
+  ;; Each column gets its floor, then what's left of room goes to the columns in
+  ;; proportion to how much more they'd take, so a column of long text gets the most.
+  (let [spare (math.max 0 (- room (sum floors)))
+        wants (icollect [i n (ipairs natural)] (- n (. floors i)))
+        wanted (sum wants)
+        widths (icollect [i f (ipairs floors)]
+                 (+ f (if (> wanted 0) (math.floor (/ (* spare (. wants i)) wanted)) 0)))]
+    ;; What rounding left over, a cell each to the columns still short.
+    (var left (- (math.min room (sum natural)) (sum widths)))
+    (each [i w (ipairs widths)]
+      (when (and (> left 0) (< w (. natural i)))
+        (tset widths i (+ w 1))
+        (set left (- left 1))))
+    widths))
+
+(fn lay-out-rows [rows max-width]
+  ;; The table's rows (lists of cells, the rule second) as lines padded to even
+  ;; columns. Wider than max-width, if given, its widest columns narrow and their cells
+  ;; wrap onto rows of their own, as long as a column can keep its longest word whole
+  ;; (up to an even share of the width).
+  (do
+      (let [columns (accumulate [n 0 _ r (ipairs rows)] (math.max n (length r)))
+            aligns (fcollect [i 1 columns]
+                     (let [c (or (. rows 2 i) "-")]
+                       (if (and (vim.startswith c ":") (vim.endswith c ":")) :center
+                           (vim.endswith c ":") :right
+                           :left)))
+            natural (fcollect [i 1 columns]
+                      (accumulate [w 3 ri r (ipairs rows)]
+                        (if (= ri 2) w (math.max w (width-of (or (. r i) ""))))))
+            room (if max-width (- max-width (+ (* 3 columns) 1)) math.huge)
+            ;; A column's floor is its longest word, kept whole if every column's
+            ;; can be, else capped at an even share of the room.
+            words (fcollect [i 1 columns]
+                    (math.min (. natural i)
+                              (accumulate [w 3 ri r (ipairs rows)]
+                                (if (= ri 2) w
+                                    (accumulate [w w _ t (ipairs (cell-tokens (or (. r i) "")))]
+                                      (math.max w (width-of t)))))))
+            share (math.max 3 (math.floor (/ room columns)))
+            floors (if (<= (sum words) room)
+                     words
+                     (icollect [_ w (ipairs words)] (math.min w share)))
+            widths (if (<= (sum natural) room)
+                     natural
+                     (fit-widths natural floors room))
+            pad (fn [text width align]
+                  (let [gap (- width (width-of text))
+                        left (case align :right gap :center (math.floor (/ gap 2)) _ 0)]
+                    (.. (string.rep " " left) text (string.rep " " (- gap left)))))
+            rule-segment (fn [width align]
+                           (case align
+                             :center (.. ":" (string.rep "-" width) ":")
+                             :right (.. "-" (string.rep "-" width) ":")
+                             _ (string.rep "-" (+ width 2))))]
+        (let [out []]
+          (each [ri r (ipairs rows)]
+            (if (= ri 2)
+              (table.insert out (.. "|" (table.concat (fcollect [i 1 columns]
+                                                        (rule-segment (. widths i) (. aligns i)))
+                                                      "|") "|"))
+              (let [cells (fcollect [i 1 columns] (wrap-cell (or (. r i) "") (. widths i)))
+                    height (accumulate [h 1 _ c (ipairs cells)] (math.max h (length c)))]
+                (for [k 1 height]
+                  (table.insert out (.. "| " (table.concat (fcollect [i 1 columns]
+                                                             (pad (or (. cells i k) "") (. widths i) (. aligns i)))
+                                                           " | ") " |"))))))
+          out))))
+
+(fn aligned-table [lines max-width]
+  ;; The table's lines laid out, or nil if it isn't a table: a header row then a rule
+  ;; of dashes. Widths are as shown, with markers concealed, but 'linebreak' breaks a
+  ;; line by its whole width, so a row whose markers take it past max-width would
+  ;; still break: laid out again a column narrower until none does, the widest that
+  ;; fits, giving up after 30.
+  (let [rows (icollect [_ l (ipairs lines)] (table-cells l))
+        fits? (fn [out]
+                (accumulate [ok true _ l (ipairs out)]
+                  (and ok (<= (vim.fn.strdisplaywidth l) max-width))))]
+    (when (and (>= (length rows) 2) (rule? (. rows 2)))
+      (var out (lay-out-rows rows max-width))
+      (when max-width
+        (var width max-width)
+        (while (and (not (fits? out)) (> width (math.max 20 (- max-width 30))))
+          (set width (- width 1))
+          (set out (lay-out-rows rows width))))
+      out)))
+
+(fn in-code-block? [buf row]
+  ;; Whether row (0-based) is inside a fenced block, counting fences back to the
+  ;; ## You or ## Agent heading that opens its section.
+  (var fences 0)
+  (var r (- row 1))
+  (var done false)
+  (while (and (not done) (>= r 0))
+    (let [line (line-at buf r)]
+      (if (or (vim.startswith line "## You") (vim.startswith line "## Agent")) (set done true)
+          (line:match "^%s*```") (set fences (+ fences 1))))
+    (set r (- r 1)))
+  (= 1 (% fences 2)))
+
+;; A laid-out table can't be laid out again from what's in the buffer, once its cells
+;; are wrapped, so each keeps the rows it came as in s.tables, with a mark on its first
+;; line and how many lines it takes, to lay it out again for a new width.
+
+(fn table-width [s]
+  ;; The chat window's text width, else the last one known; nil for no limit.
+  (let [win (vim.fn.bufwinid s.buf)]
+    (when (not= -1 win)
+      (let [info (. (vim.fn.getwininfo win) 1)]
+        (set s.table-width (- info.width info.textoff))))
+    s.table-width))
+
+(fn table-at [s top]
+  (accumulate [found nil _ t (ipairs s.tables) &until found]
+    (let [[row] (vim.api.nvim_buf_get_extmark_by_id s.buf ns t.mark {})]
+      (when (= row top) t))))
+
+(fn lay-out [s top bottom source entry]
+  ;; Replaces rows top..bottom (0-based, inclusive) with source laid out, and
+  ;; remembers it. Returns false if source isn't a table.
+  (let [layout (aligned-table source (table-width s))]
+    (when layout
+      (when (not (vim.deep_equal layout (vim.api.nvim_buf_get_lines s.buf top (+ bottom 1) false)))
+        (vim.api.nvim_buf_set_lines s.buf top (+ bottom 1) false layout))
+      (let [t (or entry (let [t {}] (table.insert s.tables t) t))]
+        (set t.mark (vim.api.nvim_buf_set_extmark s.buf ns top 0 {:id t.mark}))
+        (set t.source source)
+        (set t.height (length layout))))
+    (not= nil layout)))
+
+(fn align-table-above [s row]
+  ;; Aligns the table whose last row is row (0-based), if there is one: from the rows
+  ;; it came as, if it was laid out before, and the rows added since.
+  (let [buf s.buf]
+    (when (and (>= row 0) (table-row? (line-at buf row)))
+      (var top row)
+      (while (and (> top 0) (table-row? (line-at buf (- top 1))))
+        (set top (- top 1)))
+      (when (not (in-code-block? buf top))
+        (let [entry (table-at s top)
+              lines (vim.api.nvim_buf_get_lines buf top (+ row 1) false)
+              source (if entry
+                       (vim.list_extend (vim.deepcopy entry.source)
+                                        (vim.list_slice lines (+ entry.height 1)))
+                       lines)]
+          (lay-out s top row source entry))))))
+
+(fn reflow-tables [s]
+  ;; Lays every table out again, for a new width. A table that isn't where it was
+  ;; (edited away) is forgotten.
+  (set s.tables
+       (icollect [_ t (ipairs s.tables)]
+         (let [[top] (vim.api.nvim_buf_get_extmark_by_id s.buf ns t.mark {})]
+           (when (and top (table-row? (line-at s.buf top))
+                      (lay-out s top (+ top t.height -1) t.source t))
+             t)))))
+
+;; Diagrams ---------------------------------------------------------------------------
+;; A ```mermaid block is drawn once its closing fence arrives: as an image where the
+;; terminal shows them and mmdc is there (see image.fnl), else as text by
+;; vim.g.acp-mermaid-cmd (mermaid-ascii by default) reading it on stdin. The drawing
+;; goes under the block as virtual lines, and the block folds away: zo shows the
+;; source. The buffer's text doesn't change. If nothing can draw it, the block stays
+;; as it is. s.diagrams holds a mark on the line after each block and how many lines
+;; the block takes, and for an image its file, pixel size, id and size in cells.
+
+(local diagram-ns (vim.api.nvim_create_namespace "acp-diagram"))
+
+(fn mermaid-block [buf row]
+  ;; If row (0-based) closes a ```mermaid block: the block's first row and its source.
+  (when (and (: (line-at buf row) :match "^%s*```+%s*$") (in-code-block? buf row))
+    (var top (- row 1))
+    (while (and (>= top 0) (not (: (line-at buf top) :match "^%s*```")))
+      (set top (- top 1)))
+    (when (and (>= top 0) (: (line-at buf top) :match "^%s*```+%s*mermaid%s*$"))
+      (values top (vim.api.nvim_buf_get_lines buf (+ top 1) row false)))))
+
+(fn drawing-lines [stdout]
+  (let [lines (icollect [_ l (ipairs (vim.split stdout "\n" {:plain true}))]
+                (pick-values 1 (l:gsub "%s+$" "")))]
+    (while (and (> (length lines) 0) (= "" (. lines (length lines))))
+      (table.remove lines))
+    lines))
+
+(fn place-diagram [s d virt-lines]
+  ;; Shows virt-lines (each a list of [text group] chunks) under the diagram's block,
+  ;; and folds the block.
+  (let [[after] (vim.api.nvim_buf_get_extmark_by_id s.buf diagram-ns d.mark {})]
+    (when after
+      (vim.api.nvim_buf_set_extmark s.buf diagram-ns after 0
+                                    {:id d.mark :virt_lines virt-lines :virt_lines_above true})
+      (when (not d.drawn)
+        (set d.drawn true)
+        ;; Folds are worked out again only for changed lines, so the block is
+        ;; rewritten as it is for its fold to close.
+        (let [top (- after d.height)]
+          (vim.api.nvim_buf_set_lines s.buf top after false
+                                      (vim.api.nvim_buf_get_lines s.buf top after false)))))))
+
+(fn draw-text [s d source]
+  ;; The diagram drawn as text, by vim.g.acp-mermaid-cmd.
+  (let [cmd (or vim.g.acp-mermaid-cmd ["mermaid-ascii" "-f" "-"])]
+    (when (= 1 (vim.fn.executable (. cmd 1)))
+      (pcall vim.system cmd {:stdin (table.concat source "\n") :text true}
+             (vim.schedule_wrap
+               (fn [result]
+                 (let [lines (drawing-lines (or result.stdout ""))]
+                   (when (and (= result.code 0) (> (length lines) 0)
+                              (vim.api.nvim_buf_is_loaded s.buf))
+                     (later s #(modify s #(place-diagram s d (icollect [_ l (ipairs lines)]
+                                                               [[l :AcpDiagram]]))))))))))))
+
+(fn image-lines [s img]
+  ;; The placeholder lines of an image ({: path : size :scale :max-rows}) at the
+  ;; chat's width now, placing it again if its size in cells changed.
+  (let [(cols rows) (image.cells img.size (or img.scale 1)
+                                 (math.max 10 (- (or (table-width s) 80) 2))
+                                 img.max-rows)]
+    (when (or (not= cols img.cols) (not= rows img.rows))
+      (if img.id
+        (image.place img.id cols rows)
+        (set img.id (image.show img.path cols rows)))
+      (set img.cols cols)
+      (set img.rows rows))
+    (image.lines img.id cols rows)))
+
+(fn draw-image [s d source]
+  ;; The diagram drawn as an image by mmdc, else as text.
+  (image.render-mermaid (table.concat source "\n")
+    (fn [path]
+      (let [size (when path (image.png-size path))]
+        (if (and size (vim.api.nvim_buf_is_loaded s.buf))
+          (do (set d.image {: path : size :scale 2})
+              (later s #(modify s #(place-diagram s d (image-lines s d.image)))))
+          (draw-text s d source))))))
+
+(fn draw-diagram [s row]
+  ;; Draws the diagram whose block closes at row (0-based), if it is one.
+  (let [(top source) (mermaid-block s.buf row)]
+    (when top
+      (let [d {:mark (vim.api.nvim_buf_set_extmark s.buf diagram-ns (+ row 1) 0 {})
+               :height (+ (- row top) 1)}]
+        (table.insert s.diagrams d)
+        (if (and (image.supported?) (image.mermaid?))
+          (draw-image s d source)
+          (draw-text s d source))))))
+
+;; Inline images ----------------------------------------------------------------------
+;; ![alt](path) in the agent's text, a local file, shows as an image under its line,
+;; as wide as the chat allows and no taller than a third of its window. A path is the
+;; session directory's if it isn't absolute or ~, and may start file://. Not a PNG,
+;; it's made one by magick. A web address, a file that isn't there, or a terminal
+;; without images leaves the line as it is, its alt text showing. s.images holds a
+;; mark on each line and the image's file, pixel size, id and size in cells.
+
+(local image-ns (vim.api.nvim_create_namespace "acp-image"))
+
+(fn image-paths [s line]
+  (icollect [target (line:gmatch "!%[[^%]]*%]%(%s*<?([^%s%)>]+)>?[^%)]*%)")]
+    (let [path (target:gsub "^file://" "")]
+      (when (not (path:match "^%a[%w+.-]*://"))
+        (let [full (if (or (vim.startswith path "/") (vim.startswith path "~"))
+                     (vim.fn.expand path)
+                     (.. (or (?. s :session :cwd) (vim.fn.getcwd)) "/" path))]
+          (when (= 1 (vim.fn.filereadable full)) full))))))
+
+(fn image-rows [s]
+  ;; A third of the chat window's height, or of the editor's if it isn't showing.
+  (let [win (vim.fn.bufwinid s.buf)]
+    (math.max 4 (math.floor (/ (if (= -1 win) vim.o.lines (vim.api.nvim_win_get_height win)) 3)))))
+
+(fn place-images [s entry]
+  (let [[row] (vim.api.nvim_buf_get_extmark_by_id s.buf image-ns entry.mark {})]
+    (when row
+      (vim.api.nvim_buf_set_extmark
+        s.buf image-ns row 0
+        {:id entry.mark
+         :virt_lines (accumulate [lines [] _ img (ipairs entry.images)]
+                       (vim.list_extend lines (image-lines s img)))}))))
+
+(fn show-images [s row]
+  ;; Shows the images the line at row (0-based) names, once it's complete.
+  (when (and (image.supported?) (not (in-code-block? s.buf row)))
+    (let [paths (image-paths s (line-at s.buf row))]
+      (when (> (length paths) 0)
+        (let [entry {:mark (vim.api.nvim_buf_set_extmark s.buf image-ns row 0 {}) :images []}]
+          (table.insert s.images entry)
+          (each [_ path (ipairs paths)]
+            (image.as-png path
+              (fn [png]
+                (let [size (when png (image.png-size png))]
+                  (when (and size (vim.api.nvim_buf_is_loaded s.buf))
+                    (table.insert entry.images {:path png : size :max-rows (image-rows s)})
+                    (later s #(modify s #(place-images s entry)))))))))))))
+
+(fn refit-images [s]
+  ;; Images at the chat's new width.
+  (each [_ d (ipairs s.diagrams)]
+    (when (and d.drawn d.image)
+      (place-diagram s d (image-lines s d.image))))
+  (each [_ entry (ipairs s.images)]
+    (when (> (length entry.images) 0)
+      (place-images s entry))))
+
+(set fit-tables
+     (fn [s]
+       ;; When the chat window's width changes: tables lay out again, images resize.
+       (let [before s.table-width]
+         (when (and (vim.api.nvim_buf_is_loaded s.buf) (visible? s.buf)
+                    (not= before (table-width s)))
+           (later s #(modify s #(do (reflow-tables s)
+                                    (refit-images s))))))))
+
+(fn diagram-at [s row]
+  ;; The first row of the drawn diagram's block that row (0-based) is in, or nil.
+  (accumulate [found nil _ d (ipairs (or s.diagrams [])) &until found]
+    (when d.drawn
+      (let [[after] (vim.api.nvim_buf_get_extmark_by_id s.buf diagram-ns d.mark {})]
+        (when (and after (< row after) (>= row (- after d.height)))
+          (- after d.height))))))
+
+(fn fold [lnum]
+  ;; The chat's 'foldexpr': thinking (">> " lines), and drawn diagrams' source.
+  (let [buf (vim.api.nvim_get_current_buf)
+        s (. chats buf)
+        row (- lnum 1)
+        top (when s (diagram-at s row))]
+    (if (vim.startswith (vim.fn.getline lnum) ">>") 1
+        (= top row) ">1"
+        top 1
+        0)))
+
+;; UI rows --------------------------------------------------------------------------
+;; The tool, permission and other "> kind: " rows keep their text, which the log and
+;; <CR> rely on, but show quieter: the label gives way to an icon, a finished tool
+;; loses its "— done", an answered permission shows only its answer under the tool,
+;; and a plain end of turn shows nothing. The cursor's line shows the text in full.
+
+(local ui-ns (vim.api.nvim_create_namespace "acp-ui"))
+
+(fn ui-look [line]
+  ;; {: icon : hl :hide [from to]...} for a UI row, or nil. Ranges are 0-based bytes,
+  ;; end exclusive.
+  (let [label (line:match "^> (%a+): ")
+        start (when label (+ (length label) 4))
+        (body-end status) (line:match "()%s—%s([^—]-)$")]
+    (case label
+      :tool (let [hl (case status
+                       "done" :AcpToolDone
+                       "failed" :AcpToolFailed
+                       _ :AcpToolRunning)]
+              {:icon (case status "done" "✓ " "failed" "✗ " _ "• ")
+               : hl
+               :hide (if (= status "done")
+                       [[0 start] [(- body-end 1) (length line)]]
+                       [[0 start]])})
+      :permission (if (and status (not (vim.startswith status "awaiting")))
+                    {:icon "  ↳ " :hl :AcpUiPrefix
+                     :hide [[0 (+ (- body-end 1) (length " — "))]]}
+                    {:icon "? " :hl :AcpAttention :hide [[0 start]]})
+      :elicitation {:icon "? " :hl :AcpAttention :hide [[0 start]]}
+      :egress {:icon "⇄ " :hl :AcpAttention :hide [[0 start]]}
+      :stop (if (= line "> stop: end_turn")
+              {:icon "" :hl :AcpUiPrefix :hide [[0 (length line)]]}
+              {:icon "■ " :hl :AcpToolFailed :hide [[0 start]]})
+      :acp {:icon "· " :hl :AcpUiPrefix :hide [[0 start]]})))
+
+(fn decorate [buf row]
+  ;; Restyles the UI row at row (0-based), after it's written or rewritten.
+  (vim.api.nvim_buf_clear_namespace buf ui-ns row (+ row 1))
+  (let [look (ui-look (line-at buf row))]
+    (when look
+      (each [_ [from to] (ipairs look.hide)]
+        (vim.api.nvim_buf_set_extmark buf ui-ns row from {:end_col to :conceal ""}))
+      (when (not= look.icon "")
+        (vim.api.nvim_buf_set_extmark buf ui-ns row 0
+                                      {:virt_text [[look.icon look.hl]]
+                                       :virt_text_pos :inline})))))
+
 (fn joins-previous? [line]
   ;; Quoted lines stack directly under headings and other quoted lines (not thinking).
   (or (= line nil) (= line "") (line:match "^>[^>]") (line:match "^#")))
@@ -250,6 +749,7 @@
 (fn put-line [s line]
   ;; Puts a standalone line at the end of the transcript, keeping an empty line after
   ;; it for what comes next. Returns the 0-based row it landed on.
+  (align-table-above s (last-row s))
   (let [row (last-row s)
         previous (when (> row 0) (line-at s.buf (- row 1)))]
     (if (not= (last-line s) "")
@@ -257,12 +757,16 @@
       (joins-previous? previous)
       (replace-last s [line ""])
       (replace-last s ["" line ""])))
-  (- (last-row s) 1))
+  (let [row (- (last-row s) 1)]
+    (decorate s.buf row)
+    row))
 
 (fn status [s message]
   (later s (fn [] (modify s #(put-line s (.. "> acp: " message))))))
 
 (fn begin-turn [s turn]
+  ;; Files may have come or gone since the names were looked up.
+  (set s.paths nil)
   (let [lines (vim.list_extend
                 [(if turn.time (.. "## You — " turn.time) "## You")]
                 (vim.split turn.prompt "\n" {:plain true}))]
@@ -282,7 +786,14 @@
                 (let [row (last-row s)
                       col (length (last-line s))]
                   (vim.api.nvim_buf_set_text s.buf row col row col
-                                             (vim.split text "\n" {:plain true})))))))
+                                             (vim.split text "\n" {:plain true}))
+                  ;; Every line before the one being written is complete, and one
+                  ;; chunk can finish a table and carry on past it.
+                  (for [r row (- (last-row s) 1)]
+                    (when (not (table-row? (line-at s.buf (+ r 1))))
+                      (align-table-above s r))
+                    (draw-diagram s r)
+                    (show-images s r)))))))
 
 (fn add-line [s block]
   (later s #(modify s
@@ -291,14 +802,17 @@
                   (set block.mark (vim.api.nvim_buf_set_extmark s.buf ns row 0 {:right_gravity false})))))))
 
 (fn update-line [s block]
-  ;; Checked when it runs: a held add-line has no mark yet.
+  ;; Checked when it runs: a held add-line has no mark yet. A tool that finished may
+  ;; have made or removed files the chat names.
+  (set s.paths nil)
   (later s #(when block.mark
               (modify s
                 (fn []
                   (let [[row] (vim.api.nvim_buf_get_extmark_by_id s.buf ns block.mark {})]
                     (when row
                       (let [current (. (vim.api.nvim_buf_get_lines s.buf row (+ row 1) false) 1)]
-                        (vim.api.nvim_buf_set_text s.buf row 0 row (length current) [block.line])))))))))
+                        (vim.api.nvim_buf_set_text s.buf row 0 row (length current) [block.line])
+                        (decorate s.buf row)))))))))
 
 (fn line-row [s block]
   ;; 1-based row of a block's line in the chat, or nil.
@@ -599,6 +1113,36 @@
             (= kind :agent) (tset result row :AcpAgent))))
       result)))
 
+;; File names ------------------------------------------------------------------------
+;; A word naming a file or directory that's there, under the session's directory or as
+;; an absolute or ~ path, shows as AcpPath (bold, underlined), with any :line after it.
+;; Looked up as lines are drawn, and remembered per chat, as a reply names the same
+;; files over and over.
+
+(fn path-exists? [s path]
+  (let [known (or s.paths (do (set s.paths {}) s.paths))]
+    (when (= nil (. known path))
+      (let [full (if (or (vim.startswith path "/") (vim.startswith path "~"))
+                   (vim.fn.expand path)
+                   (.. (or (?. s :session :cwd) (vim.fn.getcwd)) "/" path))]
+        (tset known path (not= nil (vim.uv.fs_stat full)))))
+    (. known path)))
+
+(fn path-ranges [s line]
+  ;; [from to] byte ranges (0-based, end exclusive) of the file names in line. Only
+  ;; words that look like paths: with a / or a file extension.
+  (let [ranges []]
+    (each [from word to (line:gmatch "()([%w_%.%-/~]+)()")]
+      (let [name (word:gsub "[%.]+$" "")
+            line-ref (: (line:sub to) :match "^:%d+")]
+        (when (and (or (name:find "/" 1 true) (name:match "%.%a%w*$"))
+                   (> (length name) 2)
+                   (not (name:match "^%.+$"))
+                   (path-exists? s name))
+          (table.insert ranges [(- from 1) (+ (- from 1) (length name)
+                                              (if (and line-ref (= name word)) (length line-ref) 0))]))))
+    ranges))
+
 (vim.api.nvim_set_decoration_provider shade-ns
   {:on_win (fn [_ _ buf top bot]
              (let [s (. chats buf)]
@@ -606,11 +1150,17 @@
                  (do (tset drawing buf (shades s top bot)) true)
                  false)))
    :on_line (fn [_ _ buf row]
-              (let [group (?. drawing buf row)]
+              (let [group (?. drawing buf row)
+                    s (. chats buf)]
                 (when group
                   (vim.api.nvim_buf_set_extmark buf shade-ns row 0
                                                 {:end_row (+ row 1) :end_col 0 :hl_group group
-                                                 :hl_eol true :ephemeral true :priority 1}))))})
+                                                 :hl_eol true :ephemeral true :priority 1}))
+                (when s
+                  (each [_ [from to] (ipairs (path-ranges s (line-at buf row)))]
+                    (vim.api.nvim_buf_set_extmark buf shade-ns row from
+                                                  {:end_col to :hl_group :AcpPath
+                                                   :ephemeral true :priority 200})))))})
 
 (fn expansion-lines [s tool]
   (let [sections (tool-sections s tool "####")]
@@ -746,4 +1296,5 @@
  : clear-prompt
  : add-to-prompt
  : wipe
+ : fold
  : open-code-block}

@@ -403,6 +403,19 @@
   ;; Rows protected from markdown in render.markdown; keep their old blockquote look.
   (vim.api.nvim_set_hl 0 :AcpUiLine {:link :Normal :default false})
   (vim.api.nvim_set_hl 0 :AcpUiPrefix {:link :Comment :default false})
+  ;; Icons on the chat's tool, permission and other UI rows.
+  (vim.api.nvim_set_hl 0 :AcpToolDone {:link :DiagnosticOk :default false})
+  (vim.api.nvim_set_hl 0 :AcpToolFailed {:link :DiagnosticError :default false})
+  (vim.api.nvim_set_hl 0 :AcpToolRunning {:link :DiagnosticWarn :default false})
+  (vim.api.nvim_set_hl 0 :AcpAttention {:link :WarningMsg :default false})
+  ;; Files the chat names.
+  (vim.api.nvim_set_hl 0 :AcpPath {:bold true :underline true :default false})
+  ;; Mermaid diagrams drawn in the chat.
+  (vim.api.nvim_set_hl 0 :AcpDiagram {:link :Normal :default false})
+  ;; Markdown tables in the chat.
+  (vim.api.nvim_set_hl 0 :AcpTablePipe {:link :Comment :default false})
+  (vim.api.nvim_set_hl 0 :AcpTableRule {:link :Comment :default false})
+  (vim.api.nvim_set_hl 0 :AcpTableHeader {:bold true :default false})
   (shade-highlights)
   (usage.highlights))
 
