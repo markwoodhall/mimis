@@ -378,6 +378,13 @@
   (vim.api.nvim_create_user_command "AcpScreenshot" screenshot
     {:nargs "?" :complete (fn [] ["clipboard"])
      :desc "Add a screenshot to the ACP prompt: select one on screen after a few seconds (or N), or clipboard for the copied image"})
+  (vim.api.nvim_create_user_command "AcpRun" #(handoff.run-shell $1 $1.args)
+    {:nargs "+" :complete "shellcmdline"
+     :desc "Run a shell command in a terminal and add its saved output to the ACP prompt"})
+  (vim.api.nvim_create_user_command "AcpPath"
+    #(handoff.link (if (= 0 (length $1.fargs)) ["%"] $1.fargs))
+    {:nargs "*" :complete "file"
+     :desc "Add the given files or directories, or the current file, to the ACP prompt"})
   (vim.api.nvim_create_user_command "AcpCancel" cancel {:desc "Cancel the running ACP turn"})
   (vim.api.nvim_create_user_command "AcpStop" quit {:desc "End the ACP session"})
   (vim.api.nvim_create_user_command "AcpAllow" allow

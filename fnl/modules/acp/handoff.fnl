@@ -5,8 +5,9 @@
 ;; it, or take the line out. stderr only goes to the terminal, so a failed command
 ;; leaves no file and the one it does leave stays valid JSON.
 ;;
-;; A screenshot goes the same way: taken here, where the display is, and saved beside
-;; the rest for an agent that can read images.
+;; :AcpRun does the same for any command, and :Aws! for aws. A screenshot goes the same
+;; way: taken here, where the display is, and saved beside the rest for an agent that
+;; can read images. :AcpPath only adds a line naming files that are already there.
 ;;
 ;; The files stay in vim.g.acp-output-dir (.acp in the project by default), which
 ;; ignores itself in git, until you delete them.
@@ -47,11 +48,10 @@
       (do
         (render.add-to-prompt s line)
         (when (not (render.visible? s.buf))
-          (vim.notify (.. "acp: output is in the prompt, :Acp to ask about it"))))
+          (vim.notify (.. "acp: " path " is in the prompt, :Acp to ask about it"))))
       (do
         (table.insert waiting line)
-        (vim.notify (.. "acp: output saved to " path
-                        ", it will be in the prompt of the next :Acp"))))))
+        (vim.notify (.. "acp: " path " will be in the prompt of the next :Acp"))))))
 
 (fn finished [target path shown]
   (if (<= (vim.fn.getfsize path) 0)
@@ -63,11 +63,12 @@
 (fn project-for [target]
   (if (session.alive? target) target.session.cwd (session.project-root)))
 
-(fn run [opts name cmd shown]
+(fn run [opts name cmd shown extension]
   ;; Runs cmd in a terminal as mimis.shell does, and hands its output over when it ends.
-  ;; name starts the file's name; shown is the command as the agent is told about it.
+  ;; name starts the file's name; shown is the command as the agent is told about it;
+  ;; extension is the file's, json if not given.
   (let [target (session.here)
-        path (output-file (project-for target) name "json")
+        path (output-file (project-for target) name (or extension "json"))
         buf (mimis.shell opts (.. "{ " cmd " ; } | tee " (vim.fn.shellescape path 1)))]
     (vim.api.nvim_create_autocmd :TermClose
       {:buffer buf
@@ -75,6 +76,31 @@
        :desc "Hand the command's output to the ACP session"
        :callback #(do (finished target path shown) nil)})
     buf))
+
+(fn run-shell [opts cmd]
+  ;; Any command, its output saved as text and named after the program it runs.
+  (let [program (vim.fn.fnamemodify (or (string.match cmd "%S+") "output") ":t")
+        name (string.gsub program "[^%w_.-]" "-")]
+    (run opts name cmd cmd "txt")))
+
+(fn link [paths]
+  ;; Points the agent at files or directories you name, without copying anything: one
+  ;; line per path, absolute, so it reads the same from any directory. A path outside
+  ;; the project may be out of a sandboxed agent's reach, so that gets a warning.
+  (let [target (session.here)
+        root (vim.fn.fnamemodify (project-for target) ":p")]
+    (each [_ p (ipairs paths)]
+      (let [expanded (vim.fn.expand p)
+            full (vim.fn.fnamemodify expanded ":p")]
+        (if (or (= expanded "")
+                (and (= 0 (vim.fn.filereadable full)) (= 0 (vim.fn.isdirectory full))))
+          (vim.notify (if (= expanded "") "acp: this buffer has no file" (.. "acp: no such file: " p))
+                      vim.log.levels.WARN)
+          (do
+            (when (not (vim.startswith full root))
+              (vim.notify (.. "acp: " full " is outside the project, a sandboxed agent may not be able to read it")
+                          vim.log.levels.WARN))
+            (deliver target full (.. "See " full))))))))
 
 (fn screenshot-argv [source path seconds]
   ;; X11 only, for now. import takes a dragged region or a clicked window. The wait is
@@ -115,5 +141,7 @@
     (table.remove waiting)))
 
 {: run
+ : run-shell
+ : link
  : screenshot
  : flush}
