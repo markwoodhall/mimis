@@ -166,6 +166,17 @@ for line in sys.stdin:
                                          {"optionId": "reject-once", "name": "No", "kind": "reject_once"}]}})
             pending_tool = tool["toolCallId"]
             continue
+        if prompt == "parallel":
+            # Tools run in parallel each ask for permission before any is answered.
+            parallel = {}
+            for n, rid in ((1, 110), (2, 111)):
+                tool = {"toolCallId": "par%d" % n, "kind": "execute", "title": "Run job-%d" % n}
+                update(dict(tool, sessionUpdate="tool_call", status="pending"))
+                send({"id": rid, "method": "session/request_permission",
+                      "params": {"sessionId": SID, "toolCall": tool,
+                                 "options": [{"optionId": "allow-once", "name": "Yes", "kind": "allow_once"},
+                                             {"optionId": "reject-once", "name": "No", "kind": "reject_once"}]}})
+            continue
         if prompt == "leave plan":
             config["mode"] = "default"
             update({"sessionUpdate": "config_option_update", "configOptions": config_options()})
@@ -296,6 +307,15 @@ for line in sys.stdin:
         update({"sessionUpdate": "tool_call_update", "toolCallId": pending_tool,
                 "status": "completed" if allowed else "failed"})
         send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
+    elif msg.get("id") in (110, 111):
+        outcome = msg["result"]["outcome"]
+        parallel[msg["id"]] = outcome.get("optionId", outcome.get("outcome"))
+        update({"sessionUpdate": "tool_call_update", "toolCallId": "par%d" % (msg["id"] - 109),
+                "status": "completed" if parallel[msg["id"]] == "allow-once" else "failed"})
+        # A cancelled turn has already ended.
+        if len(parallel) == 2 and "cancelled" not in parallel.values():
+            text("job-1 %s, job-2 %s." % (parallel[110], parallel[111]))
+            send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
     elif m == "session/cancel":
         send({"id": pending_prompt, "result": {"stopReason": "cancelled"}})
     elif msg.get("id") == 104:

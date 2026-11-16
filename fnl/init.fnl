@@ -17,9 +17,8 @@
    :modules.terraform []
    :modules.lisp []
    :modules.sql []
+   :modules.lean []
    :modules.packages.python []
-   :modules.packages.rust []
-   :modules.packages.go []
 
    :modules.org []
 
@@ -83,10 +82,9 @@
    :modules.packages.clojure []
    :modules.terraform []
    :modules.lisp []
+   :modules.lean []
    :modules.sql []
    :modules.packages.python []
-   :modules.packages.rust []
-   :modules.packages.go []
 
    :modules.org [:org-babel-like :notes]
 

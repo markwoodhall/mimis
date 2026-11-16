@@ -6,6 +6,8 @@
 (fn enable [])
 
 (local aws-command "aws --no-cli-pager ")
+(local insights-command
+  (.. (vim.fn.shellescape (.. (vim.fn.stdpath :config) "/bin/aws-insights")) " "))
 
 (local get-profile (partial commands.get-command-value "--profile"))
 
@@ -85,6 +87,22 @@
 (fn double-switch? [s]
   (and s (>= (length s) 2) (= (string.sub s 1 2) "--")))
 
+(fn insights? [c]
+  (not= nil (string.find c " start%-query")))
+
+;; filter-log-events takes milliseconds, start-query seconds.
+(fn times-ago [c]
+  (let [unit (if (insights? c) "" "000")]
+    (icollect [_ ago (ipairs ["5 minutes" "15 minutes" "30 minutes" "45 minutes"
+                              "1 hour" "2 hour" "24 hours" "7 days"])]
+      (.. "`date -d \"" ago " ago\" +\\%s" unit "`"))))
+
+(local insights-queries
+  ["'fields @timestamp, @message | sort @timestamp desc | limit 200'"
+   "'fields @timestamp, @message | filter @message like /(?i)error|exception/ | sort @timestamp desc | limit 200'"
+   "'filter @message like /(?i)error|exception/ | stats count(*) by bin(5m)'"
+   "'stats count(*) by @logStream | sort count(*) desc'"])
+
 (fn completion [_ c]
   (vim.fn.sort
     (let [c-parts (mimis.split c " ")
@@ -96,7 +114,9 @@
           with-defaults (fn [c]
                           [(unpack c)])]
       (case switch
-        "--log-group-name" (log-groups c) 
+        "--log-group-name" (log-groups c)
+        "--log-group-names" (log-groups c)
+        "--query-string" (for-command c :logs :start-query (fn [_] insights-queries))
         "--queue-url" (for-service c :sqs sqs-queues)
         "--cluster" (for-service c :ecs ecs-clusters)
         "--clusters" (for-service c :ecs ecs-clusters)
@@ -105,21 +125,8 @@
         "--db-instance-identifier" (with-defaults (db-instances c))
         "--attribute-names" (for-command c :sqs :get-queue-attributes (fn [_] ["All"])) 
         "--profile" (profiles)
-        "--start-time" ["`date -d \"5 minutes ago\" +\\%s000`"
-                        "`date -d \"15 minutes ago\" +\\%s000`"
-                        "`date -d \"30 minutes ago\" +\\%s000`"
-                        "`date -d \"45 minutes ago\" +\\%s000`"
-                        "`date -d \"1 hour ago\" +\\%s000`"
-                        "`date -d \"2 hour ago\" +\\%s000`"
-                        "`date -d \"24 hours ago\" +\\%s000`"] 
-
-        "--end-time" ["`date -d \"5 minutes ago\" +\\%s000`"
-                      "`date -d \"15 minutes ago\" +\\%s000`"
-                      "`date -d \"30 minutes ago\" +\\%s000`"
-                      "`date -d \"45 minutes ago\" +\\%s000`"
-                      "`date -d \"1 hour ago\" +\\%s000`"
-                      "`date -d \"2 hour ago\" +\\%s000`"
-                      "`date -d \"24 hours ago\" +\\%s000`"] 
+        "--start-time" (times-ago c)
+        "--end-time" (if (insights? c) ["`date +\\%s`" (unpack (times-ago c))] (times-ago c))
         "|" (for-command c :logs :filter-log-events (fn [_] [" jq '.events[].message | fromjson | {timestamp, exception}'"
                                                              " jq '.events[].message | fromjson | {timestamp, message}'"]))
         _ (case (commands.get-last-double-switch c)
@@ -134,7 +141,10 @@
                      [s ""
                       _ v (ipairs (?. opts :fargs))]
                      (.. s " " v))]
-          (if opts.bang
+          ;; An Insights query hands over its results once it's done, not its id.
+          (if (and opts.bang (insights? args))
+            (handoff.run opts "insights" (.. insights-command args) (.. "aws" args))
+            opts.bang
             (handoff.run opts "aws" (.. aws-command args) (.. "aws" args))
             (mimis.shell opts (.. aws-command args)))
           (set nvim.bo.syntax :json)))

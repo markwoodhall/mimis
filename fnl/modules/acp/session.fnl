@@ -65,9 +65,13 @@
         (if added (.. " (+" added " -" removed ")") "")
         " — " (or (. status-names tool.status) tool.status "pending"))))
 
+(fn more-waiting [queue]
+  (let [n (length (or queue []))]
+    (if (> n 0) (.. " (" n " more waiting)") "")))
+
 (fn permission-line [s block]
   (.. "> permission: " (short-title s block.title)
-      " — " (or block.choice "awaiting choice")))
+      " — " (or block.choice (.. "awaiting choice" (more-waiting s.permission-queue)))))
 
 ;; Activity ----------------------------------------------------------------------
 
@@ -508,6 +512,12 @@
   (each [_ q (ipairs s.egress-open)]
     (dismiss-alert q)))
 
+;; Only one permission request is shown at a time. Agents running tools in parallel
+;; ask for several at once, so the others wait in s.permission-queue, oldest first,
+;; and each is shown when the one before it is answered.
+
+(var show-permission nil)
+
 (fn answer-permission [s choice]
   (let [p s.permission]
     (when p
@@ -521,16 +531,26 @@
       (rpc.respond s.rpc p.id
                    (if choice
                      (protocol.permission-selected choice.id)
-                     (protocol.permission-cancelled))))))
+                     (protocol.permission-cancelled)))
+      (let [queued (table.remove s.permission-queue 1)]
+        (when queued
+          (show-permission s queued.params queued.id))))))
 
-(fn on-permission [s params id]
+(fn cancel-permissions [s]
+  ;; Nothing waiting will be answered now: the queued requests, then the open one.
+  (each [_ q (ipairs s.permission-queue)]
+    (rpc.respond s.rpc q.id (protocol.permission-cancelled)))
+  (set s.permission-queue [])
+  (answer-permission s nil))
+
+(fn permission-title [s p]
+  (or p.title (?. s.tools (or p.tool-id "") :title) "use a tool"))
+
+(set show-permission (fn [s params id]
   (let [p (protocol.parse-permission params)
         tool (. s.tools (or p.tool-id ""))
-        title (or p.title (?. tool :title) "use a tool")
+        title (permission-title s p)
         block {:type :line : title}]
-    (when s.permission
-      ;; Only one prompt at a time; an older unanswered one is cancelled.
-      (answer-permission s nil))
     (when tool
       ;; The request often knows more than the tool line so far, e.g. the diff.
       (each [k v (pairs p.details)]
@@ -558,7 +578,15 @@
         (raise-alert s s.permission (.. "agent wants to: " (pick-values 1 (short-title s title))))
         (when (not (render.visible? s.buf))
           (vim.notify (.. (tag s) "agent wants to: " (pick-values 1 (short-title s title))
-                          (find-it s " (:Acp to choose, or :AcpAllow / :AcpReject)"))))))))
+                          (find-it s " (:Acp to choose, or :AcpAllow / :AcpReject)")))))))))
+
+(fn on-permission [s params id]
+  (if s.permission
+    (let [block s.permission.block]
+      (table.insert s.permission-queue {: params : id})
+      (set block.line (permission-line s block))
+      (render.update-line s block))
+    (show-permission s params id)))
 
 (fn choice-at [s row]
   ;; The permission choice on chat row (1-based), if any.
@@ -616,7 +644,13 @@
 
 (fn elicitation-line [s block]
   (.. "> elicitation: " (short-title s block.title)
-      " — " (or block.choice "awaiting answer, <CR> to answer, :AcpDecline to decline")))
+      " — " (or block.choice (.. "awaiting answer, <CR> to answer, :AcpDecline to decline"
+                                 (more-waiting s.elicitation-queue)))))
+
+;; Like permissions, one question is shown at a time and the rest wait in
+;; s.elicitation-queue.
+
+(var show-elicitation nil)
 
 (fn answer-elicitation [s action content]
   ;; action is :accept, :decline or :cancel; content carries the accepted answers.
@@ -636,7 +670,38 @@
                    (case action
                      :accept (protocol.elicitation-accept content)
                      :decline (protocol.elicitation-declined)
-                     _ (protocol.elicitation-cancelled))))))
+                     _ (protocol.elicitation-cancelled)))
+      (let [queued (table.remove s.elicitation-queue 1)]
+        (when queued
+          (show-elicitation s queued.e queued.id))))))
+
+(fn cancel-elicitations [s]
+  ;; Nothing waiting will be answered now: the queued questions, then the open one.
+  (each [_ q (ipairs s.elicitation-queue)]
+    (rpc.respond s.rpc q.id (protocol.elicitation-cancelled)))
+  (set s.elicitation-queue [])
+  (answer-elicitation s :cancel))
+
+(set show-elicitation (fn [s e id]
+  (let [block {:type :line
+               :title (or (. (vim.split e.message "\n" {:plain true}) 1) "a question")}]
+    (set block.line (elicitation-line s block))
+    (if (turn-active? s)
+      (add-line-block s block)
+      (render.add-line s block))
+    (set s.elicitation {: id : block :fields e.fields})
+    (if (= s.turn.state :cancelling)
+      (answer-elicitation s :cancel)
+      (do
+        (render.attach-lines s block (render.elicitation-lines e.message e.fields))
+        (when (turn-active? s)
+          (busy s "waiting for your answer"))
+        (raise-alert s s.elicitation
+                     (.. "agent asks: " (short-title s block.title activity-width)))
+        (when (not (render.visible? s.buf))
+          (vim.notify (.. (tag s) "agent asks: "
+                          (short-title s block.title activity-width)
+                          (find-it s " (<CR> on it in the chat, or :AcpAnswer)")))))))))
 
 (fn on-elicitation [s params id]
   (let [e (protocol.parse-elicitation params)
@@ -653,29 +718,12 @@
         (rpc.respond s.rpc id (protocol.elicitation-declined))
         (note s (.. "> acp: the agent asked about '" unsupported "', a field type "
                     "the client can't show — declined")))
-      (do
-        (when s.elicitation
-          ;; Only one question at a time; an older unanswered one is cancelled.
-          (answer-elicitation s :cancel))
-        (let [block {:type :line
-                     :title (or (. (vim.split e.message "\n" {:plain true}) 1) "a question")}]
-          (set block.line (elicitation-line s block))
-          (if (turn-active? s)
-            (add-line-block s block)
-            (render.add-line s block))
-          (set s.elicitation {: id : block :fields e.fields})
-          (if (= s.turn.state :cancelling)
-            (answer-elicitation s :cancel)
-            (do
-              (render.attach-lines s block (render.elicitation-lines e.message e.fields))
-              (when (turn-active? s)
-                (busy s "waiting for your answer"))
-              (raise-alert s s.elicitation
-                           (.. "agent asks: " (short-title s block.title activity-width)))
-              (when (not (render.visible? s.buf))
-                (vim.notify (.. (tag s) "agent asks: "
-                                (short-title s block.title activity-width)
-                                (find-it s " (<CR> on it in the chat, or :AcpAnswer)")))))))))))
+      s.elicitation
+      (let [block s.elicitation.block]
+        (table.insert s.elicitation-queue {: e : id})
+        (set block.line (elicitation-line s block))
+        (render.update-line s block))
+      (show-elicitation s e id))))
 
 (fn answer-open [s]
   ;; The form walk for the open elicitation (:AcpAnswer, or <CR> on its line).
@@ -818,8 +866,8 @@
                  (.. "error: " (or err.message "unknown"))
                  (. (protocol.parse-prompt-result result) :stop-reason))]
     (stop-stall-timer s)
-    (when s.permission (answer-permission s nil))
-    (when s.elicitation (answer-elicitation s :cancel))
+    (cancel-permissions s)
+    (cancel-elicitations s)
     (note-unfinished s turn)
     (add-line-block s {:type :line :line (.. "> stop: " reason)})
     (set s.last-turn {:stop-reason reason
@@ -884,8 +932,8 @@
       (set s.turn.state :cancelling)
       (stop-stall-timer s)
       (rpc.notify s.rpc protocol.methods.session-cancel (protocol.cancel-params s.session.id))
-      (answer-permission s nil)
-      (answer-elicitation s :cancel)
+      (cancel-permissions s)
+      (cancel-elicitations s)
       (busy s "cancelling"))
     (vim.notify "acp: nothing to cancel")))
 
@@ -903,6 +951,8 @@
     (when s.elicitation (dismiss-alert s.elicitation))
     (set s.permission nil)
     (set s.elicitation nil)
+    (set s.permission-queue [])
+    (set s.elicitation-queue [])
     (set s.turn {:state :idle})
     (idle s)
     (render.status s (.. "agent exited with code " code
@@ -1104,8 +1154,13 @@
   (let [waiting []]
     (when s.permission
       (table.insert waiting (.. "permission: " s.permission.block.title)))
+    (each [_ q (ipairs s.permission-queue)]
+      (table.insert waiting (.. "permission: " (permission-title s (protocol.parse-permission q.params)))))
     (when s.elicitation
       (table.insert waiting (.. "question: " s.elicitation.block.title)))
+    (each [_ q (ipairs s.elicitation-queue)]
+      (table.insert waiting (.. "question: " (or (. (vim.split q.e.message "\n" {:plain true}) 1)
+                                                 "a question"))))
     (each [_ q (ipairs s.egress-open)]
       (table.insert waiting (.. "network access: " q.key)))
     waiting))
@@ -1247,7 +1302,9 @@
            :usage nil
            :credits nil
            :permission nil
+           :permission-queue []
            :elicitation nil
+           :elicitation-queue []
            :ignored-sessions {}
            :unknown-kinds {}
            :commands []
@@ -1328,6 +1385,9 @@
           (when (= s.buf buf) s))
         sessions.current)))
 
+(fn session-buffer? [s buf]
+  (= buf s.buf))
+
 (fn children [s]
   ;; The sessions delegated from s, oldest first.
   (vim.tbl_filter #(= $1.parent s) sessions.all))
@@ -1342,9 +1402,6 @@
     (when (and s.agent.proc (not s.exited))
       (transport.stop s.agent.proc (and s.sandbox true)))
     (sandbox.stop s.sandbox)))
-
-(fn session-buffer? [s buf]
-  (= buf s.buf))
 
 (fn first-choice-row [s]
   ;; 1-based row of the first choice of a waiting permission request, or else of

@@ -32,6 +32,48 @@
   ;; A delegated session shares its project with its parent, so it needs its label too.
   (.. "acp://chat/" s.session.project (if s.label (.. "/" s.label) "")))
 
+(local chats {})
+;; Shades worked out for each chat buffer in its current redraw.
+(local drawing {})
+
+(fn held? [s]
+  ;; While you type in the chat, agent writes wait: anything holding a row across the
+  ;; edit (insert-mode completion above all) would land on the wrong line. A pause
+  ;; with no completion menu open lets them through.
+  (let [mode (. (vim.api.nvim_get_mode) :mode)]
+    (and (= (vim.api.nvim_get_current_buf) s.buf)
+         (or (vim.startswith mode "i") (vim.startswith mode "R"))
+         (not (and s.typing-paused (= 0 (vim.fn.pumvisible)))))))
+
+(fn flush [s]
+  ;; Writes queued while you typed, in the order they came.
+  (let [queued (or s.held [])]
+    (set s.held [])
+    (when (vim.api.nvim_buf_is_loaded s.buf)
+      (each [_ f (ipairs queued)]
+        (f)))))
+
+(fn later [s f]
+  ;; Runs an agent write now, or once you stop typing.
+  (if (held? s)
+    (table.insert s.held f)
+    (do
+      (when (> (length s.held) 0)
+        (flush s))
+      (f))))
+
+(fn watch-typing [s buf]
+  (let [group (vim.api.nvim_create_augroup (.. "acp-typing-" buf) {:clear true})
+        on (fn [events callback]
+             (vim.api.nvim_create_autocmd events {: group :buffer buf : callback}))]
+    (on [:InsertEnter :InsertCharPre] #(set s.typing-paused false))
+    ;; <C-c> leaves insert mode without InsertLeave; CursorHold catches that.
+    (on :InsertLeave #(do (set s.typing-paused false) (vim.schedule #(flush s))))
+    (on :CursorHold #(flush s))
+    (on :CursorHoldI #(when (= 0 (vim.fn.pumvisible))
+                        (set s.typing-paused true)
+                        (flush s)))))
+
 (fn create-buffers [s]
   (let [buf (vim.api.nvim_create_buf false true)]
     (vim.api.nvim_buf_set_name buf (chat-name s))
@@ -43,6 +85,10 @@
     (vim.api.nvim_buf_set_extmark buf ns 2 0 {:virt_text [["<CR> to send" :Comment]]
                                               :virt_text_pos :eol})
     (vim.api.nvim_buf_call buf #(vim.cmd "syntax sync minlines=200"))
+    (set s.held [])
+    (set s.attached-blocks {})
+    (tset chats buf s)
+    (watch-typing s buf)
     (set s.buf buf)))
 
 (fn retitle [s]
@@ -214,45 +260,45 @@
   (- (last-row s) 1))
 
 (fn status [s message]
-  (modify s
-    #(put-line s (.. "> acp: " message))))
+  (later s (fn [] (modify s #(put-line s (.. "> acp: " message))))))
 
 (fn begin-turn [s turn]
   (let [lines (vim.list_extend
                 [(if turn.time (.. "## You — " turn.time) "## You")]
                 (vim.split turn.prompt "\n" {:plain true}))]
     (vim.list_extend lines ["" "## Agent" ""])
-    (modify s
-      (fn []
-        (if (pristine? s)
-          (replace-last s lines)
-          (do
-            (when (not= (last-line s) "")
-              (append-after s [""]))
-            (append-after s lines)))))))
+    (later s #(modify s
+                (fn []
+                  (if (pristine? s)
+                    (replace-last s lines)
+                    (do
+                      (when (not= (last-line s) "")
+                        (append-after s [""]))
+                      (append-after s lines))))))))
 
 (fn append-text [s text]
-  (modify s
-    (fn []
-      (let [row (last-row s)
-            col (length (last-line s))]
-        (vim.api.nvim_buf_set_text s.buf row col row col
-                                   (vim.split text "\n" {:plain true}))))))
+  (later s #(modify s
+              (fn []
+                (let [row (last-row s)
+                      col (length (last-line s))]
+                  (vim.api.nvim_buf_set_text s.buf row col row col
+                                             (vim.split text "\n" {:plain true})))))))
 
 (fn add-line [s block]
-  (modify s
-    (fn []
-      (let [row (put-line s block.line)]
-        (set block.mark (vim.api.nvim_buf_set_extmark s.buf ns row 0 {:right_gravity false}))))))
+  (later s #(modify s
+              (fn []
+                (let [row (put-line s block.line)]
+                  (set block.mark (vim.api.nvim_buf_set_extmark s.buf ns row 0 {:right_gravity false})))))))
 
 (fn update-line [s block]
-  (when block.mark
-    (modify s
-      (fn []
-        (let [[row] (vim.api.nvim_buf_get_extmark_by_id s.buf ns block.mark {})]
-          (when row
-            (let [current (. (vim.api.nvim_buf_get_lines s.buf row (+ row 1) false) 1)]
-              (vim.api.nvim_buf_set_text s.buf row 0 row (length current) [block.line]))))))))
+  ;; Checked when it runs: a held add-line has no mark yet.
+  (later s #(when block.mark
+              (modify s
+                (fn []
+                  (let [[row] (vim.api.nvim_buf_get_extmark_by_id s.buf ns block.mark {})]
+                    (when row
+                      (let [current (. (vim.api.nvim_buf_get_lines s.buf row (+ row 1) false) 1)]
+                        (vim.api.nvim_buf_set_text s.buf row 0 row (length current) [block.line])))))))))
 
 (fn line-row [s block]
   ;; 1-based row of a block's line in the chat, or nil.
@@ -449,27 +495,122 @@
   (not= nil block.attached))
 
 (fn attach-lines [s block lines]
-  (let [row (line-row s block)]
-    (when (and row (not (attached? block)) (> (length lines) 0))
-      (let [row0 (- row 1)
-            col (line-length s.buf row0)]
-        (modify s #(vim.api.nvim_buf_set_text s.buf row0 col row0 col (vim.list_extend [""] lines)))
-        (set block.attached (length lines))))))
+  (later s
+    (fn []
+      (let [row (line-row s block)]
+        (when (and row (not (attached? block)) (> (length lines) 0))
+          (let [row0 (- row 1)
+                col (line-length s.buf row0)]
+            (modify s #(vim.api.nvim_buf_set_text s.buf row0 col row0 col (vim.list_extend [""] lines)))
+            (set block.attached (length lines))
+            (tset s.attached-blocks block true)))))))
 
 (fn detach-lines [s block]
-  (let [row (line-row s block)]
-    (when (and row (attached? block))
-      (let [row0 (- row 1)
-            last0 (+ row0 block.attached)]
-        (modify s #(vim.api.nvim_buf_set_text s.buf row0 (line-length s.buf row0)
-                                              last0 (line-length s.buf last0) [""]))
-        (set block.attached nil)))))
+  (later s
+    (fn []
+      (let [row (line-row s block)]
+        (when (and row (attached? block))
+          (let [row0 (- row 1)
+                last0 (+ row0 block.attached)]
+            (modify s #(vim.api.nvim_buf_set_text s.buf row0 (line-length s.buf row0)
+                                                  last0 (line-length s.buf last0) [""]))
+            (set block.attached nil)
+            (tset s.attached-blocks block nil)))))))
 
 (fn attached-index [s block row]
   ;; row is 1-based. 0 on the block's own line, 1..n on its attached lines, else nil.
   (let [start (line-row s block)]
     (when (and start (>= row start) (<= row (+ start (or block.attached 0))))
       (- row start))))
+
+;; Section shading -----------------------------------------------------------------
+;; Your prompts (and the input area) and the agent's replies get backgrounds of their
+;; own, AcpYou and AcpAgent. Worked out at draw time from the headings, so streaming,
+;; held writes and expansions can't put it out of step. UI rows (anything starting
+;; with ">": tools, permissions, notes, thinking) and the lines attached under them
+;; stay plain.
+
+(local shade-ns (vim.api.nvim_create_namespace "acp-shade"))
+(local lookahead 50)
+
+(fn heading-kind [line]
+  (if (vim.startswith line "## You") :you
+      (vim.startswith line "## Agent") :agent))
+
+(fn section-above [buf row]
+  ;; The section row (0-based) is in, from the nearest heading above it.
+  (var found nil)
+  (var to row)
+  (while (and (not found) (> to 0))
+    (let [from (math.max 0 (- to 200))
+          lines (vim.api.nvim_buf_get_lines buf from to false)]
+      (for [i (length lines) 1 -1 &until found]
+        (set found (heading-kind (. lines i))))
+      (set to from)))
+  found)
+
+(fn attached-rows [s]
+  ;; 0-based rows of lines attached under blocks, as a set.
+  (let [rows {}]
+    (each [block _ (pairs s.attached-blocks)]
+      (let [start (line-row s block)]
+        (when start
+          (for [r start (+ start (or block.attached 0) -1)]
+            (tset rows r true)))))
+    rows))
+
+(fn shades [s top bot]
+  ;; {row group} for 0-based rows top..bot.
+  (let [buf s.buf
+        input (- (input-row s) 3)
+        last (math.min (+ bot lookahead) (- (line-count buf) 1))
+        lines (vim.api.nvim_buf_get_lines buf top (+ last 1) false)
+        attached (attached-rows s)
+        kinds {}
+        start-section (section-above buf top)]
+    (var section start-section)
+    (each [i line (ipairs lines)]
+      (let [row (+ top i -1)
+            heading (heading-kind line)]
+        (when heading (set section heading))
+        (tset kinds row
+              (if (>= row (+ input 1)) :you
+                  (>= row input) nil
+                  (= section :you) :you
+                  (not= section :agent) nil
+                  (or (vim.startswith line ">") (. attached row)) nil
+                  (= line "") :blank
+                  :agent))))
+    ;; A blank line takes the agent's shade only inside its text, not around UI rows.
+    (let [result {}]
+      (for [row top bot]
+        (let [kind (. kinds row)]
+          (if (= kind :blank)
+            (do
+              (var before (- row 1))
+              (while (= (. kinds before) :blank) (set before (- before 1)))
+              (var after (+ row 1))
+              (while (= (. kinds after) :blank) (set after (+ after 1)))
+              (when (and (= (. kinds after) :agent)
+                         (or (= (. kinds before) :agent)
+                             (and (< before top) (= start-section :agent))))
+                (tset result row :AcpAgent)))
+            (= kind :you) (tset result row :AcpYou)
+            (= kind :agent) (tset result row :AcpAgent))))
+      result)))
+
+(vim.api.nvim_set_decoration_provider shade-ns
+  {:on_win (fn [_ _ buf top bot]
+             (let [s (. chats buf)]
+               (if (and s (vim.api.nvim_buf_is_loaded buf))
+                 (do (tset drawing buf (shades s top bot)) true)
+                 false)))
+   :on_line (fn [_ _ buf row]
+              (let [group (?. drawing buf row)]
+                (when group
+                  (vim.api.nvim_buf_set_extmark buf shade-ns row 0
+                                                {:end_row (+ row 1) :end_col 0 :hl_group group
+                                                 :hl_eol true :ephemeral true :priority 1}))))})
 
 (fn expansion-lines [s tool]
   (let [sections (tool-sections s tool "####")]
@@ -527,6 +668,9 @@
 
 (fn wipe [s]
   (set s.activity nil)
+  (set s.held [])
+  (tset chats s.buf nil)
+  (tset drawing s.buf nil)
   (stop-timer s)
   (when (and s.buf (vim.api.nvim_buf_is_valid s.buf))
     (vim.api.nvim_buf_delete s.buf {:force true})))
@@ -580,6 +724,7 @@
  : activity
  : activity-text
  : status
+ : shades
  : begin-turn
  : append-text
  : add-line

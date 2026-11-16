@@ -1,0 +1,50 @@
+#! /usr/bin/env bash
+
+# Runs a CloudWatch Logs Insights query and waits for it: takes what you'd give
+# `aws` for `logs start-query`, polls until the query is done, and prints its results
+# as one JSON document, each row an object of field to value, without @ptr. Progress
+# goes to stderr, so stdout is only the results. Stopping it stops the query too.
+#
+#   aws-insights --profile p logs start-query --log-group-name g \
+#     --start-time 1700000000 --end-time 1700003600 --query-string 'fields @message'
+#
+# AWS_INSIGHTS_POLL is the seconds between polls, 2 by default.
+
+set -o errexit -o pipefail -o nounset
+
+aws=(aws --no-cli-pager)
+
+# get-query-results needs the same account and region as start-query.
+args=("$@")
+while (($#)); do
+    case $1 in
+    --profile | --region | --endpoint-url)
+        aws+=("$1" "${2:-}")
+        shift 2 || shift
+        ;;
+    *) shift ;;
+    esac
+done
+
+id=$("${aws[@]:0:2}" "${args[@]}" --query queryId --output text)
+echo "query $id started" >&2
+
+trap '"${aws[@]}" logs stop-query --query-id "$id" >/dev/null 2>&1; echo "query $id stopped" >&2; exit 130' INT TERM HUP
+
+started=$SECONDS
+while :; do
+    status=$("${aws[@]}" logs get-query-results --query-id "$id" --query status --output text)
+    case $status in
+    Complete) break ;;
+    Failed | Cancelled | Timeout | Unknown)
+        echo "query $id: $status" >&2
+        exit 1
+        ;;
+    esac
+    echo "query $id: $status ($((SECONDS - started))s)" >&2
+    sleep "${AWS_INSIGHTS_POLL:-2}"
+done
+trap - INT TERM HUP
+
+"${aws[@]}" logs get-query-results --query-id "$id" |
+    jq '{statistics, results: [.results[] | map(select(.field != "@ptr") | {(.field): .value}) | add]}'

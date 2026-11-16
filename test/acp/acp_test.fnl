@@ -374,12 +374,55 @@
   (press-enter-on row)
   (check "the tool's expansion shows the whole diff" (has-line (lines-of s.buf) "+line 199"))
   (press-enter-on row))
+
 (set auto-allow true)
 
 (vim.api.nvim_set_current_win start-win)
 (vim.cmd "AcpTool")
 (check "AcpTool elsewhere shows the latest tool call" (= "# Write big.txt — done" (vim.api.nvim_get_current_line)))
 (vim.cmd "close")
+
+;; Requests that arrive together wait their turn instead of cancelling each other. In
+;; a block of its own, to keep the chunk under Lua's limit on locals.
+(do
+  (set auto-allow false)
+  (session.send-prompt s "parallel")
+  (wait #(and s.permission (= 1 (length s.permission-queue))))
+  (check "a second request waits behind the first"
+         (and (= "Run job-1" (?. s.permission :block :title)) (= 1 (length s.permission-queue))
+              (has-line (lines-of s.buf) "> permission: Run job-1 — awaiting choice (1 more waiting)"))
+         (lines-of s.buf))
+  (check "the first request isn't cancelled by the second"
+         (and (not (has-line (lines-of s.buf) "cancelled"))
+              (has-line (lines-of s.buf) "> tool: Run job-1 — pending")))
+  (check "both show as waiting on you"
+         (vim.deep_equal ["permission: Run job-1" "permission: Run job-2"] (session.waiting-for s))
+         (session.waiting-for s))
+  (vim.cmd "AcpReject")
+  (wait #(= "Run job-2" (?. s.permission :block :title)))
+  (check "answering the first shows the next"
+         (and (has-line (lines-of s.buf) "> permission: Run job-1 — No")
+              (has-line (lines-of s.buf) "> permission: Run job-2 — awaiting choice")
+              (= 0 (length s.permission-queue)))
+         (lines-of s.buf))
+  (vim.cmd "AcpAllow")
+  (wait #(= s.turn.state :idle))
+  (check "each queued request gets its own answer"
+         (and (has-line (lines-of s.buf) "job-1 reject-once, job-2 allow-once.")
+              (has-line (lines-of s.buf) "> tool: Run job-1 — failed")
+              (has-line (lines-of s.buf) "> tool: Run job-2 — done"))
+         (lines-of s.buf))
+
+  (session.send-prompt s "parallel")
+  (wait #(and s.permission (= 1 (length s.permission-queue))))
+  (session.cancel s)
+  (wait #(= s.turn.state :idle))
+  (check "cancelling the turn cancels the queued requests too"
+         (and (= nil s.permission) (= 0 (length s.permission-queue))
+              (has-line (lines-of s.buf) "> permission: Run job-1 — cancelled"))
+         (lines-of s.buf))
+  (set auto-allow true))
+
 (vim.api.nvim_set_current_win (. (vim.fn.win_findbuf s.buf) 1))
 
 (let [log (vim.fn.readfile s.log.path)]
@@ -893,6 +936,14 @@
             (vim.deep_equal {:sandbox true :agent "opencode" :settings {:model "x"}}
                             (acp.parse-args ["sandbox" "opencode" "model" "x"]))
             (= nil (. (acp.parse-args ["model" "x"]) :sandbox))))
+
+(check "read= and write= are paths for the sandbox, wherever they are"
+       (and (vim.deep_equal {:sandbox true :agent "opencode" :settings {:model "x"}
+                             :paths {:read ["/mnt/ro"] :write ["/mnt/usb-data"]}}
+                            (acp.parse-args ["sandbox" "write=/mnt/usb-data/" "opencode"
+                                             "read=/mnt/ro" "model" "x"]))
+            (vim.deep_equal {:settings {} :paths {:read [] :write ["/mnt/usb-data"]}}
+                            (acp.parse-args ["write=/mnt/usb-data"]))))
 
 (check "no arguments: no agent, no settings"
        (vim.deep_equal {:settings {}} (acp.parse-args [])))

@@ -38,6 +38,13 @@
   ["#!/bin/sh"
    "case \"$*\" in"
    "  *fail*) echo 'token expired' >&2; exit 255 ;;"
+   "  *start-query*badquery*) echo q2; exit ;;"
+   "  *start-query*) echo q1; exit ;;"
+   "  *'--query-id q2 --query status'*) echo Failed; exit ;;"
+   "  *'--query status'*) [ -e \"$0.polled\" ] && echo Complete || { touch \"$0.polled\"; echo Running; }; exit ;;"
+   "  *get-query-results*) echo \"$*\" > \"$0.results-args\""
+   "    echo '{\"status\":\"Complete\",\"statistics\":{\"recordsMatched\":1},\"results\":[[{\"field\":\"@timestamp\",\"value\":\"t\"},{\"field\":\"@message\",\"value\":\"m\"},{\"field\":\"@ptr\",\"value\":\"p\"}]]}'"
+   "    exit ;;"
    "esac"
    "echo '{\"args\": \"'\"$*\"'\"}'"
    "echo 'noise' >&2"]
@@ -110,6 +117,37 @@
 (check ":Aws without the bang hands nothing over"
        (and (= 0 (length (files))) (vim.deep_equal [""] (prompt s)))
        (files))
+
+;; Logs Insights ----------------------------------------------------------------------
+
+(fn insights-files []
+  (vim.fn.glob (.. vim.g.acp-output-dir "/insights-*.json") true true))
+
+(set vim.env.AWS_INSIGHTS_POLL "0")
+(run "Aws! --profile p logs start-query --log-group-name g --query-string 'fields @message | limit 5'")
+(let [saved (. (insights-files) 1)
+      lines (prompt s)]
+  (check ":Aws! start-query waits for the query and saves its results as rows"
+         (and saved (vim.deep_equal {:statistics {:recordsMatched 1}
+                                     :results [{"@timestamp" "t" "@message" "m"}]}
+                                    (vim.json.decode (table.concat (vim.fn.readfile saved) "\n"))))
+         (when saved (vim.fn.readfile saved)))
+  (check ":Aws! start-query polls until the query is complete"
+         (= 1 (vim.fn.filereadable (.. bin "/aws.polled"))))
+  (check ":Aws! start-query asks for the results with the same profile"
+         (vim.startswith (or (?. (vim.fn.readfile (.. bin "/aws.results-args")) 1) "")
+                         "--no-cli-pager --profile p logs get-query-results --query-id q1")
+         (vim.fn.readfile (.. bin "/aws.results-args")))
+  (check ":Aws! start-query adds the file to the prompt"
+         (and saved (not= nil (string.find (or (. lines 1) "") saved 1 true))
+              (not= nil (string.find (. lines 1) "Output of: aws --profile p logs start-query" 1 true)))
+         lines)
+  (when saved (vim.fn.delete saved)))
+
+(set-prompt s [""])
+(run "Aws! logs start-query --query-string badquery")
+(check ":Aws! start-query whose query fails leaves no file" (= 0 (length (insights-files))) (insights-files))
+(check ":Aws! start-query whose query fails leaves the prompt alone" (vim.deep_equal [""] (prompt s)) (prompt s))
 
 ;; Screenshots ------------------------------------------------------------------------
 

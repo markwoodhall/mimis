@@ -8,6 +8,7 @@
 (local log (require :modules.acp.log))
 (local summary (require :modules.acp.summary))
 (local usage (require :modules.acp.usage))
+(local sandbox (require :modules.acp.sandbox))
 
 (fn send [opts]
   (let [s (session.here)
@@ -39,6 +40,13 @@
   (if (= arg "sandbox") true
       (= arg "nosandbox") false))
 
+(fn path-grant [arg]
+  ;; :Acp's read=PATH or write=PATH, a path to expose to this session's sandbox, as
+  ;; :read or :write in a profile would. Resolved here, so ./data means this directory.
+  (let [(kind path) (string.match (or arg "") "^(%a+)=(.+)$")]
+    (when (or (= kind "read") (= kind "write"))
+      (values kind (vim.fs.normalize (vim.fn.fnamemodify (vim.fn.expand path) ":p"))))))
+
 (fn known-settings [name]
   ;; What the named agent offers, or with none named the agent a new :Acp would use.
   (session.known-config (or name
@@ -55,13 +63,23 @@
   ;; ["sandbox" "opencode" "model" "x"] -> {:sandbox true :agent "opencode" :settings {:model "x"}}
   ;; ["nosandbox"]                     -> {:sandbox false :settings {}}
   ;; ["model" "x"]                     -> {:settings {:model "x"}}
+  ;; ["write=/mnt/x" "model" "x"]      -> {:settings {:model "x"} :paths {:read [] :write ["/mnt/x"]}}
+  ;;                                       (no :paths when none are given)
   ;; A leading sandbox/nosandbox switches the session's sandbox for this invocation;
   ;; without one the agent's profile decides.
+  ;; read=PATH and write=PATH, anywhere, add to the sandbox's :read and :write.
   ;; A first argument that names an agent (and isn't also a setting id) is the agent,
   ;; and what follows must be pairs. Otherwise all arguments are pairs, and an odd
   ;; count means the first one was meant as an agent that doesn't exist, or is also a
   ;; setting id (such an agent must be renamed: completion would be ambiguous).
-  (let [flag (sandbox-flag (. fargs 1))
+  (let [grants {:read [] :write []}
+        fargs (icollect [_ arg (ipairs fargs)]
+                (let [(kind path) (path-grant arg)]
+                  (if kind
+                    (do (table.insert (. grants kind) path) nil)
+                    arg)))
+        paths (when (or (next grants.read) (next grants.write)) grants)
+        flag (sandbox-flag (. fargs 1))
         fargs (if (= flag nil) fargs (vim.list_slice fargs 2))
         first (. fargs 1)
         agent? (and first (agents.get first) (not (. (setting-ids) first)))]
@@ -69,9 +87,9 @@
       (if (= 0 (% (length fargs) 2))
         (values nil (.. "acp: settings come in pairs after the agent, e.g. :Acp "
                         first " model sonnet"))
-        {:agent first :settings (setting-pairs (vim.list_slice fargs 2)) :sandbox flag})
+        {:agent first :settings (setting-pairs (vim.list_slice fargs 2)) :sandbox flag : paths})
       (= 0 (% (length fargs) 2))
-      {:settings (setting-pairs fargs) :sandbox flag}
+      {:settings (setting-pairs fargs) :sandbox flag : paths}
       (agents.get first)
       (values nil (.. "acp: '" first "' is both an agent and a setting of the agent, "
                       "rename the agent in vim.g.acp-agents"))
@@ -144,14 +162,20 @@
 (fn decline []
   (session.decline-open (session.here)))
 
-(fn sandbox-for [agent flag]
+(fn sandbox-for [agent flag paths]
   ;; flag is :Acp's switch: true (asked for), false (asked against), nil (the profile
   ;; decides). Asking for one an agent has no policy for means no host is allowed.
-  (if (= flag false)
-    nil
-    (or agent.sandbox (and flag true))))
+  ;; paths are :Acp's read= and write= grants, added to the profile's; an unsandboxed
+  ;; session can reach them anyway.
+  (let [spec (sandbox.normalize (if (= flag false)
+                                  nil
+                                  (or agent.sandbox (and flag true))))]
+    (when spec
+      (vim.list_extend spec.read (or (?. paths :read) []))
+      (vim.list_extend spec.write (or (?. paths :write) [])))
+    spec))
 
-(fn start-new [s name requested mods intent sandbox-flag]
+(fn start-new [s name requested mods intent sandbox-flag paths]
   ;; Ends the current session, if any, and starts one with the named agent; with none
   ;; named, the current session's agent, else the default agent. intent says what the
   ;; session is for when it isn't just a new one, see session.start.
@@ -167,7 +191,7 @@
             (vim.notify (.. "acp: switching agent from " s.agent.name " to " name)))
           (session.stop s))
         (let [agent (vim.deepcopy base)
-              _ (tset agent :sandbox (sandbox-for base sandbox-flag))
+              _ (tset agent :sandbox (sandbox-for base sandbox-flag paths))
               (delegation problem) (broker.open agent chat-keymaps)
               s (session.start agent (vim.tbl_extend :force (start-config) requested) intent
                                (when delegation (broker.session-options delegation)))]
@@ -178,9 +202,10 @@
           (focus s mods))))))
 
 (fn open [opts]
-  ;; :Acp [sandbox|nosandbox] [agent] [setting value]...
+  ;; :Acp [sandbox|nosandbox] [read=PATH|write=PATH]... [agent] [setting value]...
   ;;   open or focus the session, changing any settings given; naming a different
-  ;;   agent, or flipping the sandbox, starts a new session.
+  ;;   agent, flipping the sandbox, or giving a path starts a new session, as a running
+  ;;   sandbox's mounts can't be changed.
   ;; :Acp! ... end the current session and start a new one, with the same agent unless
   ;;   another is named.
   ;; New sessions start from vim.g.acp-config, with the arguments on top.
@@ -190,12 +215,13 @@
       (vim.notify problem vim.log.levels.WARN)
       (and (session.alive? s) (not opts.bang)
            (or (not parsed.agent) (= parsed.agent s.agent.name))
-           (or (= parsed.sandbox nil) (= parsed.sandbox (and s.sandbox true))))
+           (or (= parsed.sandbox nil) (= parsed.sandbox (and s.sandbox true)))
+           (not parsed.paths))
       (do
         (when (next parsed.settings)
           (session.configure s parsed.settings))
         (focus s opts.mods))
-      (start-new s parsed.agent parsed.settings opts.mods nil parsed.sandbox))))
+      (start-new s parsed.agent parsed.settings opts.mods nil parsed.sandbox parsed.paths))))
 
 (fn resume [opts]
   ;; :AcpResume [agent] [session-id]  choose an earlier session of this project to
@@ -273,13 +299,11 @@
           (pick-value s option)
           (session.configure s {id value}))))))
 
-(fn complete-settings [max-pairs agents?]
-  ;; Completes "setting value" pairs, of the agent named if any, else the agent in use.
-  ;; With agents?, the first argument may also be an agent name, which shifts the pairs
-  ;; by one, and with no argument at all the sandbox switches are offered too.
-  (fn [arglead cmdline _]
+(fn complete-pairs [max-pairs agents?]
+  (fn [arglead cmdline]
     (let [ids (setting-ids)
-          args (. (vim.api.nvim_parse_cmd cmdline {}) :args)
+          args (icollect [_ a (ipairs (. (vim.api.nvim_parse_cmd cmdline {}) :args))]
+                 (when (not (path-grant a)) a))
           skip (if (sandbox-flag (. args 1)) 1 0)
           done (if (= arglead "") (length args) (- (length args) 1))
           left (- done skip)
@@ -301,13 +325,27 @@
                                settings
                                (icollect [_ n (ipairs (agents.names))]
                                  (when (not (. ids n)) n)))
-                             (if (= skip 0) ["sandbox" "nosandbox"] []))
+                             (vim.list_extend
+                               (if (= skip 0) ["sandbox" "nosandbox"] [])
+                               ["read=" "write="]))
                            settings))
                        (let [id (. args done)]
                          (accumulate [choices [] _ o (ipairs known)]
                            (if (= o.id id) o.values choices))))]
       (icollect [_ c (ipairs candidates)]
         (when (vim.startswith c arglead) c)))))
+
+(fn complete-settings [max-pairs agents?]
+  ;; Completes "setting value" pairs, of the agent named if any, else the agent in use.
+  ;; With agents?, the first argument may also be an agent name, which shifts the pairs
+  ;; by one, and with no argument at all the sandbox switches are offered too.
+  ;; read=PATH and write=PATH complete as paths and are otherwise ignored.
+  (fn [arglead cmdline _]
+    (let [(kind path) (string.match arglead "^(%a+=)(.*)$")]
+      (if (or (= kind "read=") (= kind "write="))
+        (icollect [_ f (ipairs (vim.fn.getcompletion path :dir))]
+          (.. kind f))
+        ((complete-pairs max-pairs agents?) arglead cmdline)))))
 
 (fn screenshot [opts]
   ;; :AcpScreenshot  select a region or window after a few seconds, to get to another
@@ -322,6 +360,36 @@
 
 (fn enable [])
 
+(fn blend [fg bg alpha]
+  ;; fg mixed into bg, alpha of the way: colours as 0xRRGGBB numbers.
+  (let [channel (fn [c shift] (bit.band (bit.rshift c shift) 0xff))
+        mix (fn [shift]
+              (math.floor (+ 0.5 (* alpha (channel fg shift))
+                             (* (- 1 alpha) (channel bg shift)))))]
+    (+ (bit.lshift (mix 16) 16) (bit.lshift (mix 8) 8) (mix 0))))
+
+(fn colour [value]
+  ;; A palette's "#rrggbb", or a highlight's number, as a number.
+  (if (= (type value) :string) (tonumber (value:sub 2) 16) value))
+
+(fn shade-highlights []
+  ;; Backgrounds for your prompts and the agent's replies in the chat: the editor's
+  ;; background with a little of blue and of mauve in it. Catppuccin's palette if it's
+  ;; there, else the colourscheme's Function and Statement colours.
+  (let [(ok? palettes) (pcall require :catppuccin.palettes)
+        (_ c) (when ok? (pcall palettes.get_palette))
+        group (fn [name] (vim.api.nvim_get_hl 0 {: name :link false}))
+        bg (colour (or (?. c :base) (. (group :Normal) :bg)))
+        you (colour (or (?. c :blue) (. (group :Function) :fg)))
+        agent (colour (or (?. c :mauve) (. (group :Statement) :fg)))]
+    (if (and bg you agent)
+      (do
+        (vim.api.nvim_set_hl 0 :AcpYou {:bg (blend you bg 0.08) :default false})
+        (vim.api.nvim_set_hl 0 :AcpAgent {:bg (blend agent bg 0.05) :default false}))
+      (do
+        (vim.api.nvim_set_hl 0 :AcpYou {:link :CursorLine :default false})
+        (vim.api.nvim_set_hl 0 :AcpAgent {:default false})))))
+
 (fn highlights []
   ;; Make added/removed lines in ```diff blocks visibly different. Linking to the
   ;; DiffAdd/DiffDelete groups gives them green/red backgrounds in most colorschemes.
@@ -335,6 +403,7 @@
   ;; Rows protected from markdown in render.markdown; keep their old blockquote look.
   (vim.api.nvim_set_hl 0 :AcpUiLine {:link :Normal :default false})
   (vim.api.nvim_set_hl 0 :AcpUiPrefix {:link :Comment :default false})
+  (shade-highlights)
   (usage.highlights))
 
 (fn setup []
@@ -355,7 +424,7 @@
 
   (vim.api.nvim_create_user_command "Acp" open
     {:nargs "*" :bang true :complete (complete-settings 10 true)
-     :desc "Open or focus the ACP session; ! starts a new one; args are sandbox|nosandbox, an optional agent, then setting/value pairs"})
+     :desc "Open or focus the ACP session; ! starts a new one; args are sandbox|nosandbox, read=PATH|write=PATH to expose to the sandbox, an optional agent, then setting/value pairs"})
   (vim.api.nvim_create_user_command "AcpResume" resume
     {:nargs "*" :bang true
      :complete (fn [arglead _ _]

@@ -67,7 +67,9 @@
 ;; Needs bwrap and python3.
 ;;
 ;; A profile's :sandbox is the policy and the default; :Acp sandbox and :Acp nosandbox
-;; turn it on or off for one session, without touching the profile.
+;; turn it on or off for one session, without touching the profile, and :Acp read=PATH
+;; and :Acp write=PATH add to its :read and :write for one session. The mounts are made
+;; when the sandbox starts, so a path given to a running session starts a new one.
 
 (local listen "127.0.0.1:8899")
 (local defaults ["/var/run/docker.sock" "/run/docker.sock"])
