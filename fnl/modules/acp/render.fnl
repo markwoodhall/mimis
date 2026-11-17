@@ -115,22 +115,32 @@
   (not= -1 (vim.fn.bufwinid buf)))
 
 (fn chat-window-options [win]
-  (tset (. vim.wo win) :wrap true)
-  (tset (. vim.wo win) :linebreak true)
-  (tset (. vim.wo win) :number false)
-  (tset (. vim.wo win) :relativenumber false)
-  ;; For the UI rows' labels, see decorate; the cursor's line shows them in full.
-  (tset (. vim.wo win) :conceallevel 2)
-  (tset (. vim.wo win) :concealcursor "")
-  ;; Headings bold in their colours, here only, not in other markdown.
-  (tset (. vim.wo win) :winhighlight
-        (table.concat (fcollect [level 1 6] (.. "markdownH" level ":AcpH" level)) ","))
-  ;; Thinking (">> " lines) folds closed; zo / zR open it.
-  (tset (. vim.wo win) :foldmethod :expr)
-  ;; Diagrams fold away their source too, see fold.
-  (tset (. vim.wo win) :foldexpr "v:lua.require'modules.acp.render'.fold(v:lnum)")
-  (tset (. vim.wo win) :foldlevel 0)
-  (tset (. vim.wo win) :foldenable true))
+  ;; For the chat in win only, as :setlocal: the chat often opens in the window you
+  ;; were in, and the buffer you go back to there keeps its own options.
+  (let [setlocal (fn [name value]
+                   (vim.api.nvim_set_option_value name value {:scope :local : win}))]
+    (setlocal :wrap true)
+    (setlocal :linebreak true)
+    (setlocal :number false)
+    (setlocal :relativenumber false)
+    ;; For the UI rows' labels, see decorate; the cursor's line shows them in full.
+    (setlocal :conceallevel 2)
+    (setlocal :concealcursor "")
+    ;; Headings bold in their colours, and folded thinking muted, here only.
+    (setlocal :winhighlight
+              (table.concat (vim.list_extend (fcollect [level 1 6] (.. "markdownH" level ":AcpH" level))
+                                             ["Folded:AcpFolded"])
+                            ","))
+    ;; Thinking (">> " lines) folds closed; zo / zR open it.
+    (setlocal :foldmethod :expr)
+    ;; Diagrams fold away their source too, see fold.
+    (setlocal :foldexpr "v:lua.require'modules.acp.render'.fold(v:lnum)")
+    (setlocal :foldlevel 0)
+    (setlocal :foldenable true)
+    ;; A bar beside your prompts, see gutter: a one-column fold column gives the
+    ;; status column its width, and gutter draws it instead.
+    (setlocal :foldcolumn "1")
+    (setlocal :statuscolumn "%!v:lua.require'modules.acp.render'.gutter()")))
 
 (fn line-count [buf]
   (vim.api.nvim_buf_line_count buf))
@@ -168,12 +178,14 @@
       (when (= (. (vim.api.nvim_win_get_cursor w) 1) row) w))))
 
 (fn show [s mods]
-  ;; mods are the command modifiers (:tab, :vertical, :botright...); without any,
-  ;; the chat opens as a vertical split on the right.
+  ;; mods are the command modifiers (:tab, :vertical, :botright...), which open the
+  ;; chat in a new window; without any, it takes the current one. Already showing,
+  ;; its window is focused.
   (if (visible? s.buf)
     (vim.api.nvim_set_current_win (vim.fn.bufwinid s.buf))
     (do
-      (vim.cmd (if (and mods (not= mods "")) (.. mods " split") "botright vsplit"))
+      (when (and mods (not= mods ""))
+        (vim.cmd (.. mods " split")))
       (vim.api.nvim_win_set_buf 0 s.buf)
       (chat-window-options 0))))
 
@@ -783,7 +795,11 @@
                      "failed" :AcpToolFailed
                      _ :AcpToolRunning)
                : hide
-               :marks (or (?. stats :marks) [])})
+               ;; The row is muted, but a failure is said in full colour.
+               :marks (vim.list_extend (if (and body-end (= status "failed"))
+                                         [[(- body-end 1) (length line) :AcpToolFailed]]
+                                         [])
+                                       (or (?. stats :marks) []))})
       :permission (if (and status (not (vim.startswith status "awaiting")))
                     {:icon "   ↳ " :hl :AcpUiPrefix
                      :hide [[0 (+ (- body-end 1) (length " — "))]]}
@@ -1170,13 +1186,18 @@
         (tset kinds row
               (if (>= row (+ input 1)) :input
                   (>= row input) nil
-                  (= section :you) :you
+                  (= section :you) (if (= line "") :you-blank :you)
                   (not= section :agent) nil
                   (or (vim.startswith line ">") (. attached row)) nil
                   (= line "") :blank
+                  ;; The agent's # and ## headings, which open a block of their own.
+                  (line:match "^ ? ? ?##? ") :section
                   :agent))))
-    ;; A blank line takes the agent's shade only inside its text, not around UI rows.
-    (let [result {}]
+    ;; A blank line takes the agent's shade only inside its text, not around UI rows,
+    ;; and not before a # or ## heading: the gap there ends the block above, and the
+    ;; heading starts one with its rule and its text.
+    (let [result {}
+          text? (fn [kind] (or (= kind :agent) (= kind :section)))]
       (for [row top bot]
         (let [kind (. kinds row)]
           (if (= kind :blank)
@@ -1186,14 +1207,37 @@
               (var after (+ row 1))
               (while (= (. kinds after) :blank) (set after (+ after 1)))
               (when (and (= (. kinds after) :agent)
-                         (or (= (. kinds before) :agent)
+                         (or (text? (. kinds before))
                              (and (< before top) (= start-section :agent))))
                 (tset result row :AcpAgent)))
+            ;; A blank line in a prompt you sent is shaded only between its
+            ;; paragraphs, so the gap after the prompt is plain.
+            (= kind :you-blank)
+            (do
+              (var after (+ row 1))
+              (while (= (. kinds after) :you-blank) (set after (+ after 1)))
+              (when (= (. kinds after) :you)
+                (tset result row :AcpYou)))
             (= kind :you) (tset result row :AcpYou)
             ;; The prompt you're writing, apart from the ones already sent.
             (= kind :input) (tset result row :AcpInput)
-            (= kind :agent) (tset result row :AcpAgent))))
+            (text? kind) (tset result row :AcpAgent))))
       result)))
+
+(fn gutter []
+  ;; The chat's 'statuscolumn': a bar beside your prompts and the agent's replies, on
+  ;; every screen row of them, wrapped ones too, from the shades worked out for this
+  ;; redraw. A virtual line (a heading's rule, a drawing, an image) is counted as the
+  ;; line it hangs from, so in a reply it has the reply's bar.
+  (let [buf (vim.api.nvim_win_get_buf vim.g.statusline_winid)
+        row (- vim.v.lnum 1)
+        group (?. drawing buf row)
+        group (if (or (>= vim.v.virtnum 0) (= group :AcpAgent)) group nil)]
+    (case group
+      :AcpYou "%#AcpYouBar#▎"
+      :AcpInput "%#AcpInputBar#▎"
+      :AcpAgent "%#AcpAgentBar#▎"
+      _ " ")))
 
 ;; File names ------------------------------------------------------------------------
 ;; A word naming a file or directory that's there, under the session's directory or as
@@ -1239,10 +1283,13 @@
                                                 {:end_row (+ row 1) :end_col 0 :hl_group group
                                                  :hl_eol true :ephemeral true :priority 1}))
                 (when s
-                  (each [_ [from to] (ipairs (path-ranges s (line-at buf row)))]
-                    (vim.api.nvim_buf_set_extmark buf shade-ns row from
-                                                  {:end_col to :hl_group :AcpPath
-                                                   :ephemeral true :priority 200})))))})
+                  (let [line (line-at buf row)
+                        ;; In a tool, note or thinking row, as quiet as the row.
+                        path-group (if (vim.startswith line ">") :AcpPathQuiet :AcpPath)]
+                    (each [_ [from to] (ipairs (path-ranges s line))]
+                      (vim.api.nvim_buf_set_extmark buf shade-ns row from
+                                                    {:end_col to :hl_group path-group
+                                                     :ephemeral true :priority 200}))))))})
 
 (fn expansion-lines [s tool]
   (let [sections (tool-sections s tool "####")]
@@ -1379,4 +1426,5 @@
  : add-to-prompt
  : wipe
  : fold
+ : gutter
  : open-code-block}

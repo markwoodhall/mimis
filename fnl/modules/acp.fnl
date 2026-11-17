@@ -389,11 +389,19 @@
         green (colour (or (?. c :green) (. (group :DiagnosticOk) :fg)))]
     (if (and bg you agent)
       (do
-        (vim.api.nvim_set_hl 0 :AcpYou {:bg (blend you bg 0.08) :default false})
-        (vim.api.nvim_set_hl 0 :AcpAgent {:bg (blend agent bg 0.05) :default false}))
+        (vim.api.nvim_set_hl 0 :AcpYou {:bg (blend you bg 0.14) :default false})
+        (vim.api.nvim_set_hl 0 :AcpAgent {:bg (blend agent bg 0.05) :default false})
+        ;; The bar beside your prompts: blue, brighter for the one being written; and
+        ;; beside the agent's replies, mauve.
+        (vim.api.nvim_set_hl 0 :AcpYouBar {:fg (blend you bg 0.6) :default false})
+        (vim.api.nvim_set_hl 0 :AcpInputBar {:fg you :default false})
+        (vim.api.nvim_set_hl 0 :AcpAgentBar {:fg (blend agent bg 0.6) :default false}))
       (do
         (vim.api.nvim_set_hl 0 :AcpYou {:link :CursorLine :default false})
-        (vim.api.nvim_set_hl 0 :AcpAgent {:default false})))
+        (vim.api.nvim_set_hl 0 :AcpAgent {:default false})
+        (vim.api.nvim_set_hl 0 :AcpYouBar {:link :Comment :default false})
+        (vim.api.nvim_set_hl 0 :AcpInputBar {:link :Function :default false})
+        (vim.api.nvim_set_hl 0 :AcpAgentBar {:link :Statement :default false})))
     (vim.api.nvim_set_hl 0 :AcpInput
                          (if (and bg grey)
                            {:bg (if c grey (blend grey bg 0.1)) :default false}
@@ -413,17 +421,33 @@
                                    ["@diff.minus" :DiffDelete]
                                    ["@diff.delta" :DiffChange]])]
     (vim.api.nvim_set_hl 0 group {:link target :default false}))
-  ;; Rows protected from markdown in render.markdown; keep their old blockquote look.
-  (vim.api.nvim_set_hl 0 :AcpUiLine {:link :Normal :default false})
-  (vim.api.nvim_set_hl 0 :AcpUiPrefix {:link :Comment :default false})
-  ;; Icons on the chat's tool, permission and other UI rows.
-  (vim.api.nvim_set_hl 0 :AcpToolDone {:link :DiagnosticOk :default false})
-  (vim.api.nvim_set_hl 0 :AcpToolFailed {:link :DiagnosticError :default false})
-  (vim.api.nvim_set_hl 0 :AcpToolRunning {:link :DiagnosticWarn :default false})
-  (vim.api.nvim_set_hl 0 :AcpAttention {:link :WarningMsg :default false})
-  ;; A tool's diff counts, +4 -0.
-  (vim.api.nvim_set_hl 0 :AcpDiffAdded {:link :Added :default false})
-  (vim.api.nvim_set_hl 0 :AcpDiffRemoved {:link :Removed :default false})
+  ;; The tool, permission, note and thinking rows are muted, a way from their colour
+  ;; towards the background, so the conversation has the focus. What needs you keeps
+  ;; its full colour: a failed tool, a question waiting, an egress you allowed.
+  (let [normal (vim.api.nvim_get_hl 0 {:name :Normal :link false})
+        quiet (fn [name group extra]
+                (let [fg (. (vim.api.nvim_get_hl 0 {:name group :link false}) :fg)]
+                  (vim.api.nvim_set_hl 0 name
+                                       (if (and fg normal.bg)
+                                         (vim.tbl_extend :force {:fg (blend fg normal.bg 0.6) :default false}
+                                                         (or extra {}))
+                                         (vim.tbl_extend :force {:link group :default false}
+                                                         (or extra {}))))))]
+    ;; Rows protected from markdown in render.markdown.
+    (quiet :AcpUiLine :Normal)
+    (vim.api.nvim_set_hl 0 :AcpUiPrefix {:link :Comment :default false})
+    ;; Icons on the chat's tool, permission and other UI rows.
+    (quiet :AcpToolDone :DiagnosticOk)
+    (quiet :AcpToolRunning :DiagnosticWarn)
+    (vim.api.nvim_set_hl 0 :AcpToolFailed {:link :DiagnosticError :default false})
+    (vim.api.nvim_set_hl 0 :AcpAttention {:link :WarningMsg :default false})
+    ;; A tool's diff counts, +4 -0.
+    (quiet :AcpDiffAdded :Added)
+    (quiet :AcpDiffRemoved :Removed)
+    ;; File names in those rows: underlined, but not bold, in their muted colour.
+    (quiet :AcpPathQuiet :Normal {:underline true})
+    ;; Folded thinking, the chat's Folded.
+    (quiet :AcpFolded :Comment {:italic true}))
   ;; Files the chat names.
   (vim.api.nvim_set_hl 0 :AcpPath {:bold true :underline true :default false})
   ;; Mermaid diagrams drawn in the chat.
@@ -436,17 +460,20 @@
           title (vim.api.nvim_get_hl 0 {:name :Title :link false})]
       (vim.api.nvim_set_hl 0 (.. "AcpH" level) {:fg (or own.fg title.fg) :bold true :default false})))
   (vim.api.nvim_set_hl 0 :AcpTurn {:link :Comment :default false})
-  ;; The rule: a third of the way from the background to Comment, faint but there.
-  (let [bg (. (vim.api.nvim_get_hl 0 {:name :Normal :link false}) :bg)
-        fg (. (vim.api.nvim_get_hl 0 {:name :Comment :link false}) :fg)]
-    (vim.api.nvim_set_hl 0 :AcpHeadingRule (if (and bg fg)
-                                             {:fg (blend fg bg 0.35) :default false}
-                                             {:link :Comment :default false})))
   ;; Markdown tables in the chat.
   (vim.api.nvim_set_hl 0 :AcpTablePipe {:link :Comment :default false})
   (vim.api.nvim_set_hl 0 :AcpTableRule {:link :Comment :default false})
   (vim.api.nvim_set_hl 0 :AcpTableHeader {:bold true :default false})
   (shade-highlights)
+  ;; The rule: a third of the way from the reply's shade to Comment, faint but there.
+  ;; It's a virtual line, which the shading can't reach, so it has the reply's shade
+  ;; behind it itself, or it would cut the heading off from the text under it.
+  (let [shade (. (vim.api.nvim_get_hl 0 {:name :AcpAgent :link false}) :bg)
+        bg (or shade (. (vim.api.nvim_get_hl 0 {:name :Normal :link false}) :bg))
+        fg (. (vim.api.nvim_get_hl 0 {:name :Comment :link false}) :fg)]
+    (vim.api.nvim_set_hl 0 :AcpHeadingRule (if (and bg fg)
+                                             {:fg (blend fg bg 0.35) :bg shade :default false}
+                                             {:link :Comment :default false})))
   (usage.highlights))
 
 (fn setup []

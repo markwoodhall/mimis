@@ -72,7 +72,7 @@
 (let [child-setup (.. "lua local r = require('modules.acp.render') "
                       "require('modules.acp').setup() "
                       "local s = {session = {project = 'screen', cwd = '/tmp'}} "
-                      "r['create-buffers'](s) vim.cmd('enew') r.show(s, '') vim.cmd('only') "
+                      "r['create-buffers'](s) vim.cmd('enew') r.show(s, '') vim.cmd('silent! only') "
                       "r['begin-turn'](s, {prompt = 'mine', time = '09:00'}) "
                       "r['append-text'](s, 'theirs') "
                       "vim.g.acp_screen_ready = true")
@@ -85,8 +85,9 @@
         group-bg (fn [name] (. (request :nvim_get_hl 0 {: name}) :bg))
         rows (request :nvim_exec_lua "return vim.api.nvim_buf_get_lines(0, 0, -1, false)" [])]
     (check "the shades reach the screen, across the whole width"
-           (and (= (group-bg :AcpYou) (background 1 0) (background 1 40))
-                (= (group-bg :AcpAgent) (background 4 0) (background 4 40)))
+           ;; Column 0 is the gutter, with the bar beside your prompts.
+           (and (= (group-bg :AcpYou) (background 1 1) (background 1 40))
+                (= (group-bg :AcpAgent) (background 4 1) (background 4 40)))
            rows))
   (vim.fn.jobstop chan))
 
