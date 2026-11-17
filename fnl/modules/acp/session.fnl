@@ -863,6 +863,25 @@
 
 ;; Turns ---------------------------------------------------------------------------
 
+(fn elapsed [seconds]
+  ;; 45s, 2m 3s, 1h 4m.
+  (let [s (math.floor seconds)]
+    (if (< s 60) (.. s "s")
+        (< s 3600) (.. (math.floor (/ s 60)) "m " (% s 60) "s")
+        (.. (math.floor (/ s 3600)) "h " (math.floor (/ (% s 3600) 60)) "m"))))
+
+(fn turn-footer [s turn output-tokens]
+  ;; The line under a reply: the agent, the model, how long the turn took, and its
+  ;; speed if the agent said how many tokens it wrote.
+  (let [seconds (/ (- (vim.uv.hrtime) (or turn.started (vim.uv.hrtime))) 1e9)
+        model (?. (config-by-category s :model) :display)
+        parts [(or s.label s.agent.name)]]
+    (when model (table.insert parts model))
+    (table.insert parts (elapsed seconds))
+    (when (and (= (type output-tokens) :number) (> output-tokens 0) (>= seconds 1))
+      (table.insert parts (string.format "%.1f tok/s" (/ output-tokens seconds))))
+    (.. "> turn: " (table.concat parts " · "))))
+
 (fn end-turn [s err result]
   (let [turn s.turn
         reason (if err
@@ -878,6 +897,10 @@
       (if (= reason "end_turn")
         (table.insert turn.blocks block)
         (add-line-block s block)))
+    (add-line-block s {:type :line
+                       :line (turn-footer s turn (when (not err)
+                                                   (. (protocol.parse-prompt-result result)
+                                                      :output-tokens)))})
     (set s.last-turn {:stop-reason reason
                       :reply (vim.trim (table.concat (icollect [_ b (ipairs turn.blocks)]
                                                        (when (= b.type :text) b.text))
@@ -919,6 +942,7 @@
           turn {:state :running
                 :prompt text
                 :time (os.date "%H:%M")
+                :started (vim.uv.hrtime)
                 :blocks []
                 :tool-ids []}]
       (when news
@@ -1448,6 +1472,25 @@
       (>= pct 70) status-groups.context-warn
       status-groups.context))
 
+;; Left-filled eighths of a cell, for the meter's last, partly filled cell.
+(local eighths ["▏" "▎" "▍" "▌" "▋" "▊" "▉"])
+(local meter-cells 8)
+
+(fn context-meter [pct]
+  ;; How full the context is, as a row of cells filled from the left in eighths; the
+  ;; rest are spaces, which show the meter's track.
+  (let [filled (math.floor (+ 0.5 (* (/ (math.max 0 (math.min 100 pct)) 100) meter-cells 8)))
+        full (math.floor (/ filled 8))
+        part (% filled 8)]
+    (.. (string.rep "█" full)
+        (if (> part 0) (. eighths part) "")
+        (string.rep " " (- meter-cells full (if (> part 0) 1 0))))))
+
+(fn meter-group [pct]
+  (if (>= pct 90) "AcpStatusMeterCritical"
+      (>= pct 70) "AcpStatusMeterWarn"
+      "AcpStatusMeter"))
+
 (fn status-activity-group [s]
   (let [label (?. s :activity :label)
         asks? (and label (or (string.find label "permission" 1 true)
@@ -1480,7 +1523,9 @@
                         (when (and s.usage s.usage.size (> s.usage.size 0))
                           (let [pct (math.floor (/ (* 100 s.usage.used) s.usage.size))]
                             (table.insert parts
-                                          (status-highlight (status-context-group pct) (.. pct "%")))))
+                                          (.. (status-highlight (meter-group pct) (context-meter pct))
+                                              (status-highlight (status-context-group pct)
+                                                                (.. " " pct "%"))))))
                         (when (= (type (?. s.usage :cost)) :number)
                           (let [cost (if (or (= s.usage.currency "USD") (not s.usage.currency))
                                          (string.format "$%.2f" s.usage.cost)

@@ -126,10 +126,12 @@
     ;; For the UI rows' labels, see decorate; the cursor's line shows them in full.
     (setlocal :conceallevel 2)
     (setlocal :concealcursor "")
-    ;; Headings bold in their colours, and folded thinking muted, here only.
+    ;; Headings bold in their colours, bold text and code in colours of their own,
+    ;; and folded thinking muted, here only.
     (setlocal :winhighlight
               (table.concat (vim.list_extend (fcollect [level 1 6] (.. "markdownH" level ":AcpH" level))
-                                             ["Folded:AcpFolded"])
+                                             ["markdownBold:AcpBold" "markdownCode:AcpCode"
+                                              "Folded:AcpFolded"])
                             ","))
     ;; Thinking (">> " lines) folds closed; zo / zR open it.
     (setlocal :foldmethod :expr)
@@ -137,9 +139,9 @@
     (setlocal :foldexpr "v:lua.require'modules.acp.render'.fold(v:lnum)")
     (setlocal :foldlevel 0)
     (setlocal :foldenable true)
-    ;; A bar beside your prompts, see gutter: a one-column fold column gives the
+    ;; A bar beside your prompts, see gutter: a three-column fold column gives the
     ;; status column its width, and gutter draws it instead.
-    (setlocal :foldcolumn "1")
+    (setlocal :foldcolumn "3")
     (setlocal :statuscolumn "%!v:lua.require'modules.acp.render'.gutter()")))
 
 (fn line-count [buf]
@@ -818,6 +820,11 @@
                  :hide [[0 start]]})
       ;; Only an unusual end is in the chat, see session.end-turn.
       :stop {:icon "■ " :hl :AcpToolFailed :hide [[0 start]]}
+      ;; The line under a reply: agent · model · time · speed, the agent in its colour.
+      :turn (let [name-end (or (line:find " · " start true) (+ (length line) 1))]
+              {:icon "" :hl :AcpUiPrefix
+               :hide [[0 start]]
+               :marks [[start (- name-end 1) :AcpTurnAgent]]})
       :acp {:icon "· " :hl :AcpUiPrefix :hide [[0 start]]})))
 
 (fn decorate [buf row kind]
@@ -832,10 +839,11 @@
       (when look.line
         (vim.api.nvim_buf_set_extmark buf ui-ns row 0 {:line_hl_group look.line :priority 50}))
       ;; Combined, so a line's background goes behind the icon too.
-      (vim.api.nvim_buf_set_extmark buf ui-ns row 0
-                                    {:virt_text [[look.icon look.hl]]
-                                     :virt_text_pos :inline
-                                     :hl_mode :combine}))))
+      (when (not= look.icon "")
+        (vim.api.nvim_buf_set_extmark buf ui-ns row 0
+                                      {:virt_text [[look.icon look.hl]]
+                                       :virt_text_pos :inline
+                                       :hl_mode :combine})))))
 
 (fn joins-previous? [line]
   ;; Quoted lines stack directly under headings and other quoted lines (not thinking).
@@ -1227,17 +1235,17 @@
 (fn gutter []
   ;; The chat's 'statuscolumn': a bar beside your prompts and the agent's replies, on
   ;; every screen row of them, wrapped ones too, from the shades worked out for this
-  ;; redraw. A virtual line (a heading's rule, a drawing, an image) is counted as the
-  ;; line it hangs from, so in a reply it has the reply's bar.
+  ;; redraw. A virtual line (a block's padding, a heading's rule, a drawing, an image)
+  ;; is counted as the line it hangs from, so it has that line's bar.
   (let [buf (vim.api.nvim_win_get_buf vim.g.statusline_winid)
-        row (- vim.v.lnum 1)
-        group (?. drawing buf row)
-        group (if (or (>= vim.v.virtnum 0) (= group :AcpAgent)) group nil)]
+        group (?. drawing buf (- vim.v.lnum 1))]
+    ;; Three columns: the bar, then two of padding in the block's own shade, so its
+    ;; text sits inside the block rather than against its edge.
     (case group
-      :AcpYou "%#AcpYouBar#▎"
-      :AcpInput "%#AcpInputBar#▎"
-      :AcpAgent "%#AcpAgentBar#▎"
-      _ " ")))
+      :AcpYou "%#AcpYouBar#▎%#AcpYou#  "
+      :AcpInput "%#AcpInputBar#▎%#AcpInput#  "
+      :AcpAgent "%#AcpAgentBar#▎%#AcpAgent#  "
+      _ "   ")))
 
 ;; File names ------------------------------------------------------------------------
 ;; A word naming a file or directory that's there, under the session's directory or as
@@ -1269,11 +1277,55 @@
                                               (if (and line-ref (= name word)) (length line-ref) 0))]))))
     ranges))
 
+;; Block padding ----------------------------------------------------------------------
+;; A row of a block's own shade above and below it, so its text isn't tight against
+;; its top and bottom edges. The buffer's one blank line between blocks stays the plain
+;; gap, so the padding is virtual lines, worked out from the shades as the chat is
+;; drawn: when the blocks' edges on screen change, the padding there is put again,
+;; after the redraw, as a redraw can't change marks.
+
+(local pad-ns (vim.api.nvim_create_namespace "acp-pad"))
+
+(fn block-edges [shaded top bot]
+  ;; [row above? group] for each edge of a shaded block in rows top..bot.
+  (let [edges []]
+    (for [row top bot]
+      (let [group (. shaded row)]
+        (when group
+          (when (not= group (. shaded (- row 1)))
+            (table.insert edges [row true group]))
+          (when (not= group (. shaded (+ row 1)))
+            (table.insert edges [row false group])))))
+    edges))
+
+(fn pad-blocks [s top bot shaded]
+  (let [edges (block-edges shaded top bot)
+        key (table.concat (icollect [_ [row above? group] (ipairs edges)]
+                            (.. row (if above? "^" "v") group))
+                          " ")]
+    (when (not= key s.pad-key)
+      (set s.pad-key key)
+      (vim.schedule
+        (fn []
+          (when (vim.api.nvim_buf_is_loaded s.buf)
+            (let [last (- (line-count s.buf) 1)
+                  blank (string.rep " " (or (table-width s) 80))]
+              (vim.api.nvim_buf_clear_namespace s.buf pad-ns (math.max 0 (- top 1)) (+ bot 2))
+              (each [_ [row above? group] (ipairs edges)]
+                (when (<= row last)
+                  (vim.api.nvim_buf_set_extmark s.buf pad-ns row 0
+                                                {:virt_lines [[[blank group]]]
+                                                 :virt_lines_above above?}))))))))))
+
 (vim.api.nvim_set_decoration_provider shade-ns
   {:on_win (fn [_ _ buf top bot]
              (let [s (. chats buf)]
                (if (and s (vim.api.nvim_buf_is_loaded buf))
-                 (do (tset drawing buf (shades s top bot)) true)
+                 ;; A row either side, to know where the blocks on screen start and end.
+                 (let [shaded (shades s (math.max 0 (- top 1)) (+ bot 1))]
+                   (tset drawing buf shaded)
+                   (pad-blocks s top bot shaded)
+                   true)
                  false)))
    :on_line (fn [_ _ buf row]
               (let [group (?. drawing buf row)

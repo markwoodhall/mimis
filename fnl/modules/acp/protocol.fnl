@@ -92,7 +92,9 @@
    :prompt [{:type :text : text}]})
 
 (fn parse-prompt-result [result]
-  {:stop-reason (or (?. result :stopReason) "unknown")})
+  ;; usage is optional, and only some agents send it.
+  {:stop-reason (or (?. result :stopReason) "unknown")
+   :output-tokens (?. result :usage :outputTokens)})
 
 (fn cancel-params [session-id]
   {:sessionId session-id})

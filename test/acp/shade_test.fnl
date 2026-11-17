@@ -85,9 +85,9 @@
         group-bg (fn [name] (. (request :nvim_get_hl 0 {: name}) :bg))
         rows (request :nvim_exec_lua "return vim.api.nvim_buf_get_lines(0, 0, -1, false)" [])]
     (check "the shades reach the screen, across the whole width"
-           ;; Column 0 is the gutter, with the bar beside your prompts.
-           (and (= (group-bg :AcpYou) (background 1 1) (background 1 40))
-                (= (group-bg :AcpAgent) (background 4 1) (background 4 40)))
+           ;; Columns 0 and 1 are the gutter, the bar beside your prompts and a space.
+           (and (= (group-bg :AcpYou) (background 1 2) (background 1 40))
+                (= (group-bg :AcpAgent) (background 4 2) (background 4 40)))
            rows))
   (vim.fn.jobstop chan))
 

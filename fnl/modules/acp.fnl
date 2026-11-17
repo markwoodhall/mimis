@@ -406,6 +406,12 @@
                          (if (and bg grey)
                            {:bg (if c grey (blend grey bg 0.1)) :default false}
                            {:link :CursorLine :default false}))
+    ;; Each bar is drawn on its block's shade, as the gutter's padding is, so the block
+    ;; starts at the bar and its text sits inside it.
+    (each [bar block (pairs {:AcpYouBar :AcpYou :AcpInputBar :AcpInput :AcpAgentBar :AcpAgent})]
+      (let [look (vim.api.nvim_get_hl 0 {:name bar :link false})
+            shade (. (vim.api.nvim_get_hl 0 {:name block :link false}) :bg)]
+        (vim.api.nvim_set_hl 0 bar (vim.tbl_extend :force look {:bg shade :default false}))))
     (vim.api.nvim_set_hl 0 :AcpEgressAllowed
                          (if (and bg green)
                            {:bg (blend green bg 0.25) :bold true :default false}
@@ -450,6 +456,14 @@
     (quiet :AcpFolded :Comment {:italic true}))
   ;; Files the chat names.
   (vim.api.nvim_set_hl 0 :AcpPath {:bold true :underline true :default false})
+  ;; In the chat, bold text is peach and code green, so a long reply's structure
+  ;; shows at a glance; and a turn's footer starts with the agent, in mauve.
+  (let [(ok? palettes) (pcall require :catppuccin.palettes)
+        (_ c) (when ok? (pcall palettes.get_palette))
+        fg (fn [name] (. (vim.api.nvim_get_hl 0 {: name :link false}) :fg))]
+    (vim.api.nvim_set_hl 0 :AcpBold {:fg (colour (or (?. c :peach) (fg :Constant))) :bold true :default false})
+    (vim.api.nvim_set_hl 0 :AcpCode {:fg (colour (or (?. c :green) (fg :String))) :default false})
+    (vim.api.nvim_set_hl 0 :AcpTurnAgent {:fg (colour (or (?. c :mauve) (fg :Statement))) :bold true :default false}))
   ;; Mermaid diagrams drawn in the chat.
   (vim.api.nvim_set_hl 0 :AcpDiagram {:link :Normal :default false})
   ;; Headings in the chat, which maps markdownH1..6 to these: the colourscheme's

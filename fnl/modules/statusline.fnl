@@ -12,7 +12,8 @@
     (when c
       (let [set-hl (fn [group spec] (vim.api.nvim_set_hl 0 group spec))
             bg c.mantle
-            acp-bg c.surface0]
+            ;; Not surface0, the grey of the ACP chat's input, which it sits under.
+            acp-bg c.mantle]
         (set-hl :StatusLineBranch {:fg c.mauve :bg bg :bold true})
         (set-hl :StatusLineFile {:fg c.blue :bg bg})
         (set-hl :StatusLineFlags {:fg c.peach :bg bg})
@@ -26,6 +27,11 @@
         (set-hl :AcpStatusContext {:fg c.sky :bg acp-bg})
         (set-hl :AcpStatusContextWarn {:fg c.yellow :bg acp-bg})
         (set-hl :AcpStatusContextCritical {:fg c.red :bg acp-bg :bold true})
+        ;; The context meter: its fill in the context colours, on a track a step darker
+        ;; than the statusline (not surface0, the chat input's grey, just above it).
+        (set-hl :AcpStatusMeter {:fg c.sky :bg c.crust})
+        (set-hl :AcpStatusMeterWarn {:fg c.yellow :bg c.crust})
+        (set-hl :AcpStatusMeterCritical {:fg c.red :bg c.crust})
         (set-hl :AcpStatusCost {:fg c.teal :bg acp-bg})
         (set-hl :AcpStatusCredits {:fg c.sapphire :bg acp-bg})
         (set-hl :AcpStatusSandbox {:fg c.maroon :bg acp-bg :bold true})
