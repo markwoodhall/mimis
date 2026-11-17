@@ -33,10 +33,13 @@
   (.. "acp://chat/" s.session.project (if s.label (.. "/" s.label) "")))
 
 (local chats {})
-;; Shades worked out for each chat buffer in its current redraw.
+;; Shades worked out for each chat buffer in its current redraw, and its attached rows.
 (local drawing {})
+(local drawing-attached {})
 ;; Lays the chat's tables out again for its window's width; see Tables below.
 (var fit-tables nil)
+;; Shows which choice the cursor is on; see Choices below.
+(var show-selection nil)
 
 (fn held? [s]
   ;; While you type in the chat, agent writes wait: anything holding a row across the
@@ -72,6 +75,8 @@
     ;; <C-c> leaves insert mode without InsertLeave; CursorHold catches that.
     (on :InsertLeave #(do (set s.typing-paused false) (vim.schedule #(flush s))))
     (on :CursorHold #(flush s))
+    ;; nil, as a callback that returns something true is deleted.
+    (on [:CursorMoved :CursorMovedI] #(do (show-selection s) nil))
     (on :CursorHoldI #(when (= 0 (vim.fn.pumvisible))
                         (set s.typing-paused true)
                         (flush s)))
@@ -92,10 +97,6 @@
     (markdown buf)
     (vim.api.nvim_buf_set_lines buf 0 -1 false ["" "" "## You" ""])
     (set s.input-mark (vim.api.nvim_buf_set_extmark buf ns 1 0 {}))
-    ;; Combined, so it keeps the prompt's shade behind it.
-    (vim.api.nvim_buf_set_extmark buf ns 2 0 {:virt_text [["<CR> to send" :Comment]]
-                                              :hl_mode :combine
-                                              :virt_text_pos :eol})
     (set s.held [])
     (set s.tables [])
     (set s.diagrams [])
@@ -1177,6 +1178,37 @@
             (tset rows r true)))))
     rows))
 
+;; Choices ----------------------------------------------------------------------------
+;; The choices of a permission, egress request or question are lines "  N. name"
+;; attached under it, picked with <CR> on one; the number is hidden as the line is
+;; drawn. The one the cursor is on shows as selected: ▸ in its indent, then its name
+;; as a pill of the accent colour. A mark, not drawn-time decoration, as moving the
+;; cursor alone doesn't redraw lines.
+
+(local selection-ns (vim.api.nvim_create_namespace "acp-selection"))
+
+(set show-selection
+     (fn [s]
+       (when (vim.api.nvim_buf_is_loaded s.buf)
+         (vim.api.nvim_buf_clear_namespace s.buf selection-ns 0 -1)
+         (when (= (vim.api.nvim_get_current_buf) s.buf)
+           (let [row (- (. (vim.api.nvim_win_get_cursor 0) 1) 1)
+                 line (line-at s.buf row)
+                 (number name) (line:match "^  (%d+%. )()")]
+             (when (and number (. (attached-rows s) row))
+               ;; Drawn over the whole line, as the cursor's line shows what's concealed
+               ;; (its number): ▸ in the indent, the name as a pill, then spaces over
+               ;; what's left, so its name lines up with the other choices'.
+               (let [label (line:sub name)
+                     pill (.. " " label " ")
+                     width (vim.fn.strdisplaywidth line)
+                     used (+ 1 (vim.fn.strdisplaywidth pill))]
+                 (vim.api.nvim_buf_set_extmark s.buf selection-ns row 0
+                                               {:virt_text [["▸" :AcpChoiceArrow]
+                                                            [pill :AcpChoiceSelected]
+                                                            [(string.rep " " (math.max 0 (- width used))) :Normal]]
+                                                :virt_text_pos :overlay :priority 300}))))))))
+
 (fn shades [s top bot]
   ;; {row group} for 0-based rows top..bot.
   (let [buf s.buf
@@ -1198,24 +1230,35 @@
                   (not= section :agent) nil
                   (or (vim.startswith line ">") (. attached row)) nil
                   (= line "") :blank
+                  ;; The turn's own hidden ## Agent line, shaded only with text after it.
+                  (= heading :agent) :turn
                   ;; The agent's # and ## headings, which open a block of their own.
                   (line:match "^ ? ? ?##? ") :section
                   :agent))))
     ;; A blank line takes the agent's shade only inside its text, not around UI rows,
     ;; and not before a # or ## heading: the gap there ends the block above, and the
     ;; heading starts one with its rule and its text.
+    ;; The hidden ## Agent line is shaded only when text follows it (past blank lines):
+    ;; a reply that starts with a tool call would otherwise open with an empty block.
     (let [result {}
-          text? (fn [kind] (or (= kind :agent) (= kind :section)))]
+          text? (fn [kind] (or (= kind :agent) (= kind :section)))
+          next-kind (fn [row]
+                      (var after (+ row 1))
+                      (while (= (. kinds after) :blank) (set after (+ after 1)))
+                      (. kinds after))]
       (for [row top bot]
         (let [kind (. kinds row)]
-          (if (= kind :blank)
+          (if (= kind :turn)
+            (when (text? (next-kind row))
+              (tset result row :AcpAgent))
+            (= kind :blank)
             (do
               (var before (- row 1))
               (while (= (. kinds before) :blank) (set before (- before 1)))
-              (var after (+ row 1))
-              (while (= (. kinds after) :blank) (set after (+ after 1)))
-              (when (and (= (. kinds after) :agent)
+              (when (and (= (next-kind row) :agent)
                          (or (text? (. kinds before))
+                             ;; Under a ## Agent line that has text after it.
+                             (= (. kinds before) :turn)
                              (and (< before top) (= start-section :agent))))
                 (tset result row :AcpAgent)))
             ;; A blank line in a prompt you sent is shaded only between its
@@ -1286,50 +1329,130 @@
 
 (local pad-ns (vim.api.nvim_create_namespace "acp-pad"))
 
-(fn block-edges [shaded top bot]
-  ;; [row above? group] for each edge of a shaded block in rows top..bot.
+(fn block-edges [buf shaded top bot]
+  ;; [row above? group] for each edge of a shaded block in rows top..bot. A block that
+  ;; starts with its turn's hidden ## You or ## Agent line has an empty row of the
+  ;; shade there already, so it gets no padding above.
   (let [edges []]
     (for [row top bot]
       (let [group (. shaded row)]
         (when group
-          (when (not= group (. shaded (- row 1)))
+          (when (and (not= group (. shaded (- row 1)))
+                     (let [line (line-at buf row)]
+                       (not (or (vim.startswith line "## You") (vim.startswith line "## Agent")))))
             (table.insert edges [row true group]))
-          (when (not= group (. shaded (+ row 1)))
+          ;; Not under the input: it ends the buffer, and Neovim doesn't scroll virtual
+          ;; lines under the last line into view, so they'd come and go as you type.
+          (when (and (not= group (. shaded (+ row 1))) (not= group :AcpInput))
             (table.insert edges [row false group])))))
     edges))
 
+(fn git-branch [s]
+  ;; The branch checked out in the session's directory, or nil. Asked of git in the
+  ;; background and kept a few seconds, as it's wanted on every redraw; a change
+  ;; redraws the chat.
+  (let [now (os.time)
+        cwd (?. s :session :cwd)]
+    (when (and cwd (not s.branch-asking) (> (- now (or s.branch-at 0)) 5))
+      (set s.branch-asking true)
+      (pcall vim.system ["git" "-C" cwd "branch" "--show-current"] {:text true}
+             (vim.schedule_wrap
+               (fn [result]
+                 (let [branch (vim.trim (or result.stdout ""))
+                       branch (when (and (= result.code 0) (not= branch "")) branch)]
+                   (set s.branch-asking false)
+                   (set s.branch-at (os.time))
+                   (when (not= branch s.branch)
+                     (set s.branch branch)
+                     (when (vim.api.nvim_buf_is_loaded s.buf)
+                       (pcall vim.api.nvim__redraw {:buf s.buf :valid false}))))))))
+    s.branch))
+
+(fn input-footer [s]
+  ;; The agent, its model and the git branch, as chunks, for the input's top row.
+  (let [model (accumulate [found nil _ o (ipairs (or s.config [])) &until found]
+                (when (= o.category :model) o.display))
+        name (or s.label (?. s :agent :name) "agent")
+        branch (git-branch s)]
+    (-> [[name [:AcpInput :AcpTurnAgent]]]
+        (vim.list_extend (if model [[(.. " · " model) [:AcpInput :AcpUiPrefix]]] []))
+        ;; The branch icon, from the Nerd Font symbols, as the tools' are.
+        (vim.list_extend (if branch
+                           [[(.. " · " (vim.fn.nr2char 0xE0A0) " " branch) [:AcpInput :AcpUiPrefix]]]
+                           [])))))
+
+(fn pad-lines [s above? group width]
+  ;; A block's padding: a row of its shade.
+  [[[(string.rep " " width) group]]])
+
 (fn pad-blocks [s top bot shaded]
-  (let [edges (block-edges shaded top bot)
-        key (table.concat (icollect [_ [row above? group] (ipairs edges)]
-                            (.. row (if above? "^" "v") group))
-                          " ")]
+  (let [edges (block-edges s.buf shaded top bot)
+        width (or (table-width s) 80)
+        key (.. (table.concat (icollect [_ [row above? group] (ipairs edges)]
+                                (.. row (if above? "^" "v") group))
+                              " ")
+                width)]
     (when (not= key s.pad-key)
       (set s.pad-key key)
       (vim.schedule
         (fn []
           (when (vim.api.nvim_buf_is_loaded s.buf)
-            (let [last (- (line-count s.buf) 1)
-                  blank (string.rep " " (or (table-width s) 80))]
+            (let [last (- (line-count s.buf) 1)]
               (vim.api.nvim_buf_clear_namespace s.buf pad-ns (math.max 0 (- top 1)) (+ bot 2))
               (each [_ [row above? group] (ipairs edges)]
                 (when (<= row last)
                   (vim.api.nvim_buf_set_extmark s.buf pad-ns row 0
-                                                {:virt_lines [[[blank group]]]
+                                                {:virt_lines (pad-lines s above? group width)
                                                  :virt_lines_above above?}))))))))))
 
+;; Whole-line shades -------------------------------------------------------------------
+;; Concealed markers still count where 'linebreak' wraps a line, so a wrapped row can end
+;; a few cells short of the window, cells that aren't text and that a highlight of the
+;; text doesn't reach. A whole-line highlight, as 'cursorline' is, does, but only from a
+;; mark, not one put while drawing: so, like the padding, marks for the rows around the
+;; view, put after a redraw whenever the shades there change.
+
+(local line-ns (vim.api.nvim_create_namespace "acp-line-shade"))
+
+(fn sync-line-shades [s from to shaded]
+  (let [key (table.concat (fcollect [row from to] (or (. shaded row) "-")) " ")]
+    (when (or (not= key s.line-key) (not= from s.line-from))
+      (set s.line-key key)
+      (set s.line-from from)
+      (vim.schedule
+        (fn []
+          (when (vim.api.nvim_buf_is_loaded s.buf)
+            (let [last (- (line-count s.buf) 1)]
+              (vim.api.nvim_buf_clear_namespace s.buf line-ns from (+ to 1))
+              (for [row from (math.min to last)]
+                (let [group (. shaded row)]
+                  (when group
+                    (vim.api.nvim_buf_set_extmark s.buf line-ns row 0
+                                                  {:line_hl_group group :priority 1})))))))))))
+
 (vim.api.nvim_set_decoration_provider shade-ns
-  {:on_win (fn [_ _ buf top bot]
+  {:on_win (fn [_ win buf top]
              (let [s (. chats buf)]
                (if (and s (vim.api.nvim_buf_is_loaded buf))
-                 ;; A row either side, to know where the blocks on screen start and end.
-                 (let [shaded (shades s (math.max 0 (- top 1)) (+ bot 1))]
+                 ;; Rows by count from the top, a window's height and a margin, rather than
+                 ;; the last row on screen: the padding takes rows of the screen, so with
+                 ;; it worked out from the last row, putting it moved the last row, which
+                 ;; changed the padding, which moved it back, and the window flickered.
+                 (let [from (math.max 0 (- top lookahead))
+                       to (+ top (vim.api.nvim_win_get_height win) lookahead)
+                       shaded (shades s (math.max 0 (- from 1)) (+ to 1))]
                    (tset drawing buf shaded)
-                   (pad-blocks s top bot shaded)
+                   (tset drawing-attached buf (attached-rows s))
+                   (pad-blocks s from to shaded)
+                   (sync-line-shades s from to shaded)
                    true)
                  false)))
    :on_line (fn [_ _ buf row]
               (let [group (?. drawing buf row)
                     s (. chats buf)]
+                ;; Its text and on to the window's edge, at once; the cells a wrapped
+                ;; row leaves where its concealed markers would have been are filled by
+                ;; the line marks put after the redraw, see sync-line-shades.
                 (when group
                   (vim.api.nvim_buf_set_extmark buf shade-ns row 0
                                                 {:end_row (+ row 1) :end_col 0 :hl_group group
@@ -1341,7 +1464,31 @@
                     (each [_ [from to] (ipairs (path-ranges s line))]
                       (vim.api.nvim_buf_set_extmark buf shade-ns row from
                                                     {:end_col to :hl_group path-group
-                                                     :ephemeral true :priority 200}))))))})
+                                                     :ephemeral true :priority 200}))
+                    ;; A prompt's hidden ## You line keeps its time, at the right.
+                    (let [time (line:match "^## You — (%d+:%d+)")]
+                      (when time
+                        (vim.api.nvim_buf_set_extmark buf shade-ns row 0
+                                                      {:virt_text [[time :AcpTurn]]
+                                                       :virt_text_pos :right_align
+                                                       :hl_mode :combine
+                                                       :ephemeral true})))
+                    ;; The input's hidden ## You line: the agent, its model and the git
+                    ;; branch, at the right. On its top row, not under it, as the input
+                    ;; ends the buffer and lines under the last aren't scrolled into view.
+                    (when (= row (+ (input-start s) 1))
+                      (vim.api.nvim_buf_set_extmark buf shade-ns row 0
+                                                    {:virt_text (input-footer s)
+                                                     :virt_text_pos :right_align
+                                                     :hl_mode :combine
+                                                     :ephemeral true}))
+                    ;; A choice's number is hidden: the selected one is shown, see
+                    ;; Choices, and a choice is picked by its row, not its number.
+                    (let [number (when (?. drawing-attached buf row) (line:match "^  %d+%. "))]
+                      (when number
+                        (vim.api.nvim_buf_set_extmark buf shade-ns row 2
+                                                      {:end_col (length number) :conceal ""
+                                                       :ephemeral true})))))))})
 
 (fn expansion-lines [s tool]
   (let [sections (tool-sections s tool "####")]

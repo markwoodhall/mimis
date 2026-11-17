@@ -119,8 +119,9 @@
        (has-line (lines-of s.buf) "> acp: Mode: Manual · Model: Opus 5.5"))
 
 (let [win (chat-win)]
-  (check "statusline in the chat window shows agent, model and mode"
-         (not= nil (string.find (statusline-of win) "[acp claude · Opus 5.5 · Manual]" 1 true))
+  ;; The agent and model are in the chat's input, not the statusline.
+  (check "statusline in the chat window shows the mode"
+         (not= nil (string.find (statusline-of win) "[acp Manual]" 1 true))
          (statusline-of win))
   (check "statusline elsewhere is quiet while idle"
          (= nil (string.find (statusline-of start-win) "acp" 1 true))
@@ -428,8 +429,8 @@
 (let [log (vim.fn.readfile s.log.path)]
   (check "thinking is kept in the log" (has-line log ">> let me think") log))
 
-(check "context use shows in the statusline"
-       (not= nil (string.find (statusline-of (chat-win)) "Sonnet 5.5 · Manual · 25%" 1 true))
+(check "context use shows in the statusline, as a meter and a figure"
+       (not= nil (string.find (statusline-of (chat-win)) "Manual · ██%s+25%%"))
        (statusline-of (chat-win)))
 
 (let [log (vim.fn.readfile s.log.path)]
@@ -1847,8 +1848,8 @@
 (check "the agent is told apart by its process" (= "fake opencode" oc.agent.info.name) oc.agent.info)
 (check "settings after the agent are applied" (= "sonnet" (. (session.config-option oc :model) :current)))
 (check "other agents keep the API key" (= "key" oc.agent.info.version) oc.agent.info)
-(check "the statusline names the agent"
-       (not= nil (string.find (statusline-of (vim.fn.bufwinid oc.buf)) "[acp opencode · Sonnet 5.5 · Manual" 1 true))
+(check "the statusline shows the other agent's settings"
+       (not= nil (string.find (statusline-of (vim.fn.bufwinid oc.buf)) "[acp Manual" 1 true))
        (statusline-of (vim.fn.bufwinid oc.buf)))
 
 (local messages-same (notified #(vim.cmd "Acp opencode mode plan")))
@@ -2300,7 +2301,7 @@
   (wait #(= "credits 2" cr.credits))
   (check "and again after each prompt" (= "credits 2" cr.credits) cr.credits)
   (check "the statusline shows the session cost and the credits"
-         (not= nil (string.find (statusline-of (vim.fn.bufwinid cr.buf)) "· 25% · $0.13 · credits 2]" 1 true))
+         (not= nil (string.find (statusline-of (vim.fn.bufwinid cr.buf)) " 25% · $0.13 · credits 2]" 1 true))
          (statusline-of (vim.fn.bufwinid cr.buf)))
   (set cr.agent.credits-cmd ["false"])
   (vim.cmd "AcpSend plain")

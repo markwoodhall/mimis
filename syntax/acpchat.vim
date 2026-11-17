@@ -32,9 +32,10 @@ syntax region markdownH4 matchgroup=markdownH4Delimiter start=" \{,3}####\s"   e
 syntax region markdownH5 matchgroup=markdownH5Delimiter start=" \{,3}#####\s"  end="#*\s*$" keepend oneline contains=@markdownInline,markdownAutomaticLink contained concealends
 syntax region markdownH6 matchgroup=markdownH6Delimiter start=" \{,3}######\s" end="#*\s*$" keepend oneline contains=@markdownInline,markdownAutomaticLink contained concealends
 
-" A turn's own heading (## You, ## Agent) is quiet, so the agent's headings stand out.
-syntax match AcpTurn /^## \%(You\|Agent\)\>.*$/ contains=AcpTurnMark
-syntax match AcpTurnMark /^## / contained conceal
+" A turn's own heading (## You, ## Agent) is hidden altogether: the bar and shade say
+" whose block it is, and the hidden line is the block's top row. A prompt's time shows
+" at the right (render.fnl).
+syntax match AcpTurn /^## \%(You\|Agent\)\>.*$/ conceal
 
 syntax clear markdownLinkText markdownLink
 syntax region markdownLinkText matchgroup=markdownLinkTextDelimiter

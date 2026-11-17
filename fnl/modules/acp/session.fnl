@@ -173,6 +173,21 @@
       (when (and (running? s) (or (= tool.status :pending) (= tool.status :in_progress)))
         (busy s (.. "running " (short-title s tool.title activity-width)))))))
 
+(fn record-edits [s tool]
+  ;; A finished tool's diffs, added to the lines the agent has added and removed in each
+  ;; file this session, for the statusline of a buffer showing one. Once per tool.
+  (when (and (= tool.status :completed) (not tool.counted))
+    (set tool.counted true)
+    (each [_ c (ipairs (or (?. tool.details :content) []))]
+      (when (and (= c.type :diff) c.path)
+        (let [(added removed) (render.diff-stats {:content [c]})
+              path (vim.fs.normalize c.path)
+              total (or (?. s.edits path) {:added 0 :removed 0})]
+          (set s.edits (or s.edits {}))
+          (set total.added (+ total.added (or added 0)))
+          (set total.removed (+ total.removed (or removed 0)))
+          (tset s.edits path total))))))
+
 (fn on-tool-update [s u]
   (let [tool (. s.tools u.id)]
     (if (not tool)
@@ -190,7 +205,8 @@
         (set tool.stall-noted false)
         (set tool.block.line (tool-line s tool))
         (render.update-line s tool.block)
-        (render.refresh-tool s tool)))
+        (render.refresh-tool s tool)
+        (record-edits s tool)))
     (when (or (= u.status :completed) (= u.status :failed))
       (when (running? s) (busy s (still-running-label s)))
       (when (not s.replay)
@@ -913,6 +929,8 @@
     (idle s)
     (refresh-credits s)
     (when (not (render.visible? s.buf))
+      ;; Said in the statusline until the chat is next in sight.
+      (set s.unseen {: reason :at (os.time)})
       (vim.notify (.. (tag s) "agent finished (" reason ")")))
     (let [(ok e) (pcall log.append-turn s turn)]
       (when (not ok)
@@ -948,6 +966,7 @@
       (when news
         (note s (.. "> acp: told the agent about egress: " news-note)))
       (set s.turn turn)
+      (set s.unseen nil)
       (render.begin-turn s turn)
       (busy s "thinking")
       (start-stall-timer s)
@@ -1459,7 +1478,10 @@
    :background "AcpStatusBackground"
    :separator "AcpStatusSeparator"
    :activity "AcpStatusActivity"
-   :alert "AcpStatusAlert"})
+   :alert "AcpStatusAlert"
+   :done "AcpStatusDone"
+   :sandbox-open "AcpStatusSandboxOpen"
+   :edit "AcpStatusEdit"})
 
 (fn status-highlight [group text]
   ;; Statusline text in a highlight group, with % escaped so it survives the parser.
@@ -1500,6 +1522,47 @@
       status-groups.alert
       status-groups.activity)))
 
+(fn ago [at]
+  (let [seconds (- (os.time) at)]
+    (if (< seconds 60) "just now"
+        (< seconds 3600) (.. (math.floor (/ seconds 60)) "m ago")
+        (.. (math.floor (/ seconds 3600)) "h ago"))))
+
+(fn status-unseen [s]
+  ;; A turn that ended out of sight, until the chat is in sight again.
+  (when (and s.unseen (render.visible? s.buf))
+    (set s.unseen nil))
+  (when s.unseen
+    (let [{: reason : at} s.unseen]
+      (if (= reason "end_turn")
+        (status-highlight status-groups.done (.. "✓ done " (ago at)))
+        (status-highlight status-groups.alert
+                          (.. (if (= reason "cancelled") "■ " "✗ ") reason " " (ago at)))))))
+
+(fn status-waiting [s]
+  ;; Other sessions waiting on you to answer, in any project. s says so in its own
+  ;; activity, and counts its delegated agents itself.
+  (let [n (length (vim.tbl_filter #(and (not= $1 s) (not= $1.parent s)
+                                        (or $1.permission $1.elicitation
+                                            (> (length (or $1.egress-open [])) 0)))
+                                  sessions.all))]
+    (when (> n 0)
+      (status-highlight status-groups.alert (if (= n 1) "● waiting" (.. "● " n " waiting"))))))
+
+(fn status-file-edits []
+  ;; What the agents changed in the current buffer's file this session.
+  (let [name (vim.api.nvim_buf_get_name 0)
+        path (when (not= name "") (vim.fs.normalize name))
+        total (when path
+                (accumulate [t nil _ x (ipairs sessions.all)]
+                  (let [e (?. x.edits path)]
+                    (if e
+                      {:added (+ e.added (or (?. t :added) 0)) :removed (+ e.removed (or (?. t :removed) 0))}
+                      t))))]
+    (when total
+      (status-highlight status-groups.edit
+                        (.. "✎ agent +" total.added " -" total.removed)))))
+
 (fn status-text []
   ;; Statusline segment. Agent, sandbox, model, mode, context use, session cost and
   ;; account credits show in the session's own windows; activity shows everywhere
@@ -1511,13 +1574,9 @@
       ""
       (let [sep (status-highlight status-groups.separator " · ")
             details (when (session-buffer? s (vim.api.nvim_get_current_buf))
+                      ;; Not the agent and model: the chat's input shows those.
                       (let [parts []]
-                        (table.insert parts (status-highlight status-groups.agent
-                                                              (or s.label s.agent.name)))
-                        (let [model (config-by-category s :model)
-                              mode (config-by-category s :mode)]
-                          (when model
-                            (table.insert parts (status-highlight status-groups.model model.display)))
+                        (let [mode (config-by-category s :mode)]
                           (when mode
                             (table.insert parts (status-highlight status-groups.mode mode.display))))
                         (when (and s.usage s.usage.size (> s.usage.size 0))
@@ -1533,9 +1592,22 @@
                             (table.insert parts (status-highlight status-groups.cost cost))))
                         (when s.credits
                           (table.insert parts (status-highlight status-groups.credits s.credits)))
+                        ;; The files the agent has changed this session.
+                        (let [n (length (vim.tbl_keys (or s.edits {})))]
+                          (when (> n 0)
+                            (table.insert parts (status-highlight status-groups.edit
+                                                                  (.. "✎ " n (if (= n 1) " file" " files"))))))
                         ;; Last of the details, so a narrow window clips the model first.
+                        ;; With the hosts you've let it reach this session, its holes.
                         (when s.sandbox
-                          (table.insert parts (status-highlight status-groups.sandbox "sandbox")))
+                          (let [open (accumulate [n 0 _ verb (pairs (or s.egress-answers {}))]
+                                       (if (= verb :allow) (+ n 1) n))]
+                            (table.insert parts
+                                          (.. (status-highlight status-groups.sandbox "sandbox")
+                                              (if (> open 0)
+                                                (status-highlight status-groups.sandbox-open
+                                                                  (.. " ⇄" open))
+                                                "")))))
                         (when (> (length parts) 0)
                           (table.concat parts sep))))
             activity (render.activity-text s)
@@ -1563,6 +1635,11 @@
                    (add (when (> needing-you 0)
                           (status-highlight status-groups.alert (.. needing-you " waiting")))
                         " · ")
+                   ;; Outside the chat too: a question waiting anywhere, a turn that
+                   ;; ended out of sight, and what the agent changed in this file.
+                   (add (status-waiting s) " · ")
+                   (add (status-unseen s) " · ")
+                   (add (status-file-edits) " · ")
                    (table.concat parts ""))]
         (if (> (length body) 0)
           (.. (status-highlight status-groups.frame "[")

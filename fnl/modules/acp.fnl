@@ -456,6 +456,18 @@
     (quiet :AcpFolded :Comment {:italic true}))
   ;; Files the chat names.
   (vim.api.nvim_set_hl 0 :AcpPath {:bold true :underline true :default false})
+  ;; The choice the cursor is on, of a permission or question: the accent colour behind
+  ;; the editor's background colour, as a pill.
+  (let [(ok? palettes) (pcall require :catppuccin.palettes)
+        (_ c) (when ok? (pcall palettes.get_palette))
+        normal (vim.api.nvim_get_hl 0 {:name :Normal :link false})
+        accent (colour (or (?. c :blue) (. (vim.api.nvim_get_hl 0 {:name :Function :link false}) :fg)))]
+    (vim.api.nvim_set_hl 0 :AcpChoiceSelected
+                         (if accent
+                           {:bg accent :fg (colour (or (?. c :base) normal.bg)) :bold true :default false}
+                           {:link :Visual :default false}))
+    (vim.api.nvim_set_hl 0 :AcpChoiceArrow
+                         (if accent {:fg accent :default false} {:link :Function :default false})))
   ;; In the chat, bold text is peach and code green, so a long reply's structure
   ;; shows at a glance; and a turn's footer starts with the agent, in mauve.
   (let [(ok? palettes) (pcall require :catppuccin.palettes)

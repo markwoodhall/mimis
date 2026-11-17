@@ -39,6 +39,10 @@
         (set-hl :AcpStatusSeparator {:fg c.overlay1 :bg acp-bg})
         (set-hl :AcpStatusActivity {:fg c.pink :bg acp-bg :italic true})
         (set-hl :AcpStatusAlert {:fg c.red :bg acp-bg :bold true})
+        (set-hl :AcpStatusDone {:fg c.green :bg acp-bg})
+        ;; Hosts let out of the sandbox, in the chat's allowed-egress green.
+        (set-hl :AcpStatusSandboxOpen {:fg c.green :bg acp-bg :bold true})
+        (set-hl :AcpStatusEdit {:fg c.peach :bg acp-bg})
         true))))
 
 (var highlighted? false)
