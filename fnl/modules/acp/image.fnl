@@ -127,12 +127,23 @@
   (send (.. "a=d,d=i,q=2,i=" id))
   (send (.. "a=p,U=1,q=2,i=" id ",c=" cols ",r=" rows)))
 
+(fn transmit [path id cols rows]
+  (send (.. "a=T,U=1,q=2,f=100,t=f,i=" id ",c=" cols ",r=" rows)
+        (vim.base64.encode path)))
+
 (fn show [path cols rows]
   ;; Sends the PNG at path to the terminal, placed cols by rows. Returns its id.
   (let [id (new-id)]
-    (send (.. "a=T,U=1,q=2,f=100,t=f,i=" id ",c=" cols ",r=" rows)
-          (vim.base64.encode path))
+    (transmit path id cols rows)
     id))
+
+(fn resend [path id cols rows]
+  ;; Sends an image again, under the id its placeholders already show. The terminal
+  ;; may never have had it (tmux drops what a pane not on screen sends, unless
+  ;; allow-passthrough is all) or may have lost it; the file is read again, so this is
+  ;; cheap.
+  (send (.. "a=d,d=I,q=2,i=" id))
+  (transmit path id cols rows))
 
 (fn lines [id cols rows]
   ;; The placeholder text for an image, as virtual lines: every cell has its row and
@@ -229,5 +240,6 @@
  : as-png
  : cells
  : show
+ : resend
  : place
  : lines}

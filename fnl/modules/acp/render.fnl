@@ -40,6 +40,8 @@
 (var fit-tables nil)
 ;; Shows which choice the cursor is on; see Choices below.
 (var show-selection nil)
+;; Sends the chat's images to the terminal again; see Inline images.
+(var resend-images nil)
 
 (fn held? [s]
   ;; While you type in the chat, agent writes wait: anything holding a row across the
@@ -82,11 +84,18 @@
                         (flush s)))
     ;; Tables wrap their cells to the window, so a new width lays them out again.
     ;; Scheduled, so a window just opened has its options (no number column) by then.
-    (on :BufWinEnter #(vim.schedule #(fit-tables s)))
+    (on :BufWinEnter #(vim.schedule #(do (fit-tables s) (resend-images s))))
     (vim.api.nvim_create_autocmd [:WinResized :VimResized]
       {: group
        :callback #(if (vim.api.nvim_buf_is_valid buf)
                     (do (fit-tables s) nil)
+                    true)})
+    ;; Back from another tmux window or application: the images may never have
+    ;; reached the terminal while the chat was out of sight.
+    (vim.api.nvim_create_autocmd :FocusGained
+      {: group
+       :callback #(if (vim.api.nvim_buf_is_valid buf)
+                    (do (resend-images s) nil)
                     true)})))
 
 (fn create-buffers [s]
@@ -712,6 +721,20 @@
   (each [_ entry (ipairs s.images)]
     (when (> (length entry.images) 0)
       (place-images s entry))))
+
+(set resend-images
+     (fn [s]
+       ;; Every image the chat shows, sent again, for when the terminal hasn't got
+       ;; them: see image.resend.
+       (when (and (vim.api.nvim_buf_is_loaded s.buf) (visible? s.buf) (image.supported?))
+         (each [_ d (ipairs s.diagrams)]
+           (let [img d.image]
+             (when (and d.drawn img img.id)
+               (image.resend img.path img.id img.cols img.rows))))
+         (each [_ entry (ipairs s.images)]
+           (each [_ img (ipairs entry.images)]
+             (when img.id
+               (image.resend img.path img.id img.cols img.rows)))))))
 
 (set fit-tables
      (fn [s]
