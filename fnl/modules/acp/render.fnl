@@ -42,6 +42,8 @@
 (var show-selection nil)
 ;; Sends the chat's images to the terminal again; see Inline images.
 (var resend-images nil)
+;; Shows the images the prompt you're writing names; see Images in your prompts.
+(var refresh-input-images nil)
 
 (fn held? [s]
   ;; While you type in the chat, agent writes wait: anything holding a row across the
@@ -79,6 +81,7 @@
     (on :CursorHold #(flush s))
     ;; nil, as a callback that returns something true is deleted.
     (on [:CursorMoved :CursorMovedI] #(do (show-selection s) nil))
+    (on [:TextChanged :InsertLeave] #(do (refresh-input-images s) nil))
     (on :CursorHoldI #(when (= 0 (vim.fn.pumvisible))
                         (set s.typing-paused true)
                         (flush s)))
@@ -110,6 +113,7 @@
     (set s.tables [])
     (set s.diagrams [])
     (set s.images [])
+    (set s.input-images [])
     (set s.rules [])
     (set s.attached-blocks {})
     (tset chats buf s)
@@ -147,6 +151,10 @@
     (setlocal :foldmethod :expr)
     ;; Diagrams fold away their source too, see fold.
     (setlocal :foldexpr "v:lua.require'modules.acp.render'.fold(v:lnum)")
+    ;; A closed fold says what it holds (see foldtext), and a lone tool call stays open.
+    (setlocal :foldtext "v:lua.require'modules.acp.render'.foldtext()")
+    (setlocal :fillchars "fold: ")
+    (setlocal :foldminlines 1)
     (setlocal :foldlevel 0)
     (setlocal :foldenable true)
     ;; A bar beside your prompts, see gutter: a three-column fold column gives the
@@ -663,28 +671,82 @@
     (math.max 4 (math.floor (/ (if (= -1 win) vim.o.lines (vim.api.nvim_win_get_height win)) 3)))))
 
 (fn place-images [s entry]
-  (let [[row] (vim.api.nvim_buf_get_extmark_by_id s.buf image-ns entry.mark {})]
+  (let [ns (or entry.ns image-ns)
+        [row] (vim.api.nvim_buf_get_extmark_by_id s.buf ns entry.mark {})]
     (when row
       (vim.api.nvim_buf_set_extmark
-        s.buf image-ns row 0
+        s.buf ns row 0
         {:id entry.mark
          :virt_lines (accumulate [lines [] _ img (ipairs entry.images)]
                        (vim.list_extend lines (image-lines s img)))}))))
+
+(fn show-images-of [s row paths max-rows ns into]
+  ;; Shows the images at paths under the line at row (0-based), no taller than
+  ;; max-rows, with a mark in ns, and keeps them in the list into.
+  (let [entry {:mark (vim.api.nvim_buf_set_extmark s.buf ns row 0 {}) :images [] : ns}]
+    (table.insert into entry)
+    (each [_ path (ipairs paths)]
+      (image.as-png path
+        (fn [png]
+          (let [size (when png (image.png-size png))]
+            (when (and size (vim.api.nvim_buf_is_loaded s.buf))
+              (table.insert entry.images {:path png : size : max-rows})
+              (later s #(modify s #(place-images s entry))))))))))
 
 (fn show-images [s row]
   ;; Shows the images the line at row (0-based) names, once it's complete.
   (when (and (image.supported?) (not (in-code-block? s.buf row)))
     (let [paths (image-paths s (line-at s.buf row))]
       (when (> (length paths) 0)
-        (let [entry {:mark (vim.api.nvim_buf_set_extmark s.buf image-ns row 0 {}) :images []}]
-          (table.insert s.images entry)
-          (each [_ path (ipairs paths)]
-            (image.as-png path
-              (fn [png]
-                (let [size (when png (image.png-size png))]
-                  (when (and size (vim.api.nvim_buf_is_loaded s.buf))
-                    (table.insert entry.images {:path png : size :max-rows (image-rows s)})
-                    (later s #(modify s #(place-images s entry)))))))))))))
+        (show-images-of s row paths (image-rows s) image-ns s.images)))))
+
+;; Images in your prompts -------------------------------------------------------------
+;; A line of a prompt naming an image file by its absolute or ~ path (a screenshot's
+;; "saved to" line, an :AcpPath line) shows it under the line, smaller than in a reply:
+;; in a sent prompt, and in the one you're writing, as soon as the line is there. The
+;; text is left as it is, so what's sent doesn't change.
+
+(local input-image-ns (vim.api.nvim_create_namespace "acp-input-image"))
+(local image-extensions {:png true :jpg true :jpeg true :gif true :webp true :bmp true})
+
+(fn prompt-image-paths [line]
+  (icollect [word (line:gmatch "[^%s\"'()]+")]
+    (let [word (word:gsub "[,.;:]+$" "")
+          extension (: (or (word:match "%.(%w+)$") "") :lower)]
+      (when (and (. image-extensions extension)
+                 (or (vim.startswith word "/") (vim.startswith word "~")))
+        (let [full (vim.fn.expand word)]
+          (when (= 1 (vim.fn.filereadable full)) full))))))
+
+(fn prompt-image-rows [s]
+  (math.min 12 (image-rows s)))
+
+(fn show-prompt-images [s from to]
+  ;; Images named in a sent prompt's rows from..to (0-based).
+  (when (image.supported?)
+    (for [row from to]
+      (let [paths (prompt-image-paths (line-at s.buf row))]
+        (when (> (length paths) 0)
+          (show-images-of s row paths (prompt-image-rows s) image-ns s.images))))))
+
+(set refresh-input-images
+     (fn [s]
+       ;; Images named in the prompt you're writing, put again when what it names
+       ;; changes, so typing doesn't send them to the terminal over and over.
+       (when (and (vim.api.nvim_buf_is_loaded s.buf) (image.supported?))
+         (let [from (- (input-row s) 1)
+               rows (icollect [i line (ipairs (vim.api.nvim_buf_get_lines s.buf from -1 false))]
+                      (let [paths (prompt-image-paths line)]
+                        (when (> (length paths) 0) [(+ from i -1) paths])))
+               key (table.concat (icollect [_ [row paths] (ipairs rows)]
+                                   (.. row ":" (table.concat paths ",")))
+                                 " ")]
+           (when (not= key s.input-image-key)
+             (set s.input-image-key key)
+             (vim.api.nvim_buf_clear_namespace s.buf input-image-ns 0 -1)
+             (set s.input-images [])
+             (each [_ [row paths] (ipairs rows)]
+               (show-images-of s row paths (prompt-image-rows s) input-image-ns s.input-images)))))))
 
 ;; Heading rules ----------------------------------------------------------------------
 ;; A faint line under the agent's # and ## headings, the chat's width, as a virtual
@@ -718,7 +780,7 @@
   (each [_ d (ipairs s.diagrams)]
     (when (and d.drawn d.image)
       (place-diagram s d (image-lines s d.image))))
-  (each [_ entry (ipairs s.images)]
+  (each [_ entry (ipairs (vim.list_extend (vim.list_extend [] s.images) (or s.input-images [])))]
     (when (> (length entry.images) 0)
       (place-images s entry))))
 
@@ -731,7 +793,7 @@
            (let [img d.image]
              (when (and d.drawn img img.id)
                (image.resend img.path img.id img.cols img.rows))))
-         (each [_ entry (ipairs s.images)]
+         (each [_ entry (ipairs (vim.list_extend (vim.list_extend [] s.images) (or s.input-images [])))]
            (each [_ img (ipairs entry.images)]
              (when img.id
                (image.resend img.path img.id img.cols img.rows)))))))
@@ -753,16 +815,53 @@
         (when (and after (< row after) (>= row (- after d.height)))
           (- after d.height))))))
 
+(fn grouped-row? [line]
+  ;; A tool row, or a permission you've answered: what a run of tool calls folds into.
+  ;; A permission still waiting isn't, nor is anything else, so a run never hides
+  ;; something that needs you.
+  (or (vim.startswith line "> tool: ")
+      (and (vim.startswith line "> permission: ")
+           (not (line:find "— awaiting" 1 true)))))
+
 (fn fold [lnum]
-  ;; The chat's 'foldexpr': thinking (">> " lines), and drawn diagrams' source.
+  ;; The chat's 'foldexpr': thinking (">> " lines), drawn diagrams' source, and runs of
+  ;; tool calls. A run starts a fold of its own at its first row, and grows as rows are
+  ;; added under it; 'foldminlines' keeps a run of one row open.
   (let [buf (vim.api.nvim_get_current_buf)
         s (. chats buf)
         row (- lnum 1)
+        line (vim.fn.getline lnum)
         top (when s (diagram-at s row))]
-    (if (vim.startswith (vim.fn.getline lnum) ">>") 1
+    (if (vim.startswith line ">>") 1
+        (grouped-row? line) (if (grouped-row? (vim.fn.getline (- lnum 1))) 1 ">1")
         (= top row) ">1"
         top 1
         0)))
+
+(fn foldtext []
+  ;; The chat's 'foldtext': what a closed fold is, as chunks.
+  (let [from vim.v.foldstart
+        to vim.v.foldend
+        first (vim.fn.getline from)]
+    (if (grouped-row? first)
+      ;; A run of tool calls: how many, and any failed or still running.
+      (let [count {:tools 0 :failed 0 :running 0}]
+        (for [l from to]
+          (let [line (vim.fn.getline l)]
+            (when (vim.startswith line "> tool: ")
+              (set count.tools (+ count.tools 1))
+              (let [status (line:match "— ([^—]-)$")]
+                (if (= status "failed") (set count.failed (+ count.failed 1))
+                    (not= status "done") (set count.running (+ count.running 1)))))))
+        (vim.list_extend [[(.. "▸ " count.tools (if (= count.tools 1) " tool call" " tool calls"))
+                           :AcpFolded]]
+                         (vim.list_extend
+                           (if (> count.failed 0) [[(.. " · " count.failed " failed") :AcpToolFailed]] [])
+                           (if (> count.running 0) [[(.. " · " count.running " running") :AcpToolRunning]] []))))
+      (vim.startswith first ">>")
+      ;; Thinking: its first words.
+      [[(.. "▸ thinking · " (vim.trim (first:sub 3))) :AcpFolded]]
+      [[(.. "▸ diagram source, " (+ (- to from) 1) " lines") :AcpFolded]])))
 
 ;; UI rows --------------------------------------------------------------------------
 ;; The tool, permission and other "> kind: " rows keep their text, which the log and
@@ -905,7 +1004,10 @@
                     (do
                       (when (not= (last-line s) "")
                         (append-after s [""]))
-                      (append-after s lines))))))))
+                      (append-after s lines)))
+                  ;; The prompt's rows, under its heading, for the images they name.
+                  (let [heading (- (last-row s) (length lines) -1)]
+                    (show-prompt-images s (+ heading 1) (- (+ heading (length lines)) 4))))))))
 
 (fn append-text [s text]
   (later s #(modify s
@@ -1553,7 +1655,8 @@
 (fn clear-prompt [s]
   ;; Your own edit, so it stays undoable.
   (vim.api.nvim_buf_set_lines s.buf (- (input-row s) 1) -1 false [""])
-  (cursor-to s (input-row s)))
+  (cursor-to s (input-row s))
+  (refresh-input-images s))
 
 (fn add-to-prompt [s line]
   ;; Adds a line to the end of the prompt, keeping an empty one after it to type in. A
@@ -1565,7 +1668,9 @@
                                (vim.fn.win_findbuf s.buf)))]
     (vim.api.nvim_buf_set_lines s.buf (if empty? row (+ row 1)) -1 false [line ""])
     (each [_ w (ipairs (or wins []))]
-      (vim.api.nvim_win_set_cursor w [(line-count s.buf) 0]))))
+      (vim.api.nvim_win_set_cursor w [(line-count s.buf) 0]))
+    ;; A screenshot shows in the prompt as soon as it's added.
+    (refresh-input-images s)))
 
 (fn wipe [s]
   (set s.activity nil)
@@ -1648,5 +1753,6 @@
  : add-to-prompt
  : wipe
  : fold
+ : foldtext
  : gutter
  : open-code-block}

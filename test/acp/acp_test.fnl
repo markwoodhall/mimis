@@ -20,6 +20,8 @@
 ;; Tests of asking mustn't pop up on the desktop of whoever runs them.
 (set vim.g.acp-notify false)
 (set vim.g.acp-config-cache (vim.fn.tempname))
+;; Thinking is hidden in the chat by default; these tests check how it's shown.
+(set vim.g.acp-thinking true)
 (local real-debug-log (.. (vim.fn.stdpath :log) "/acp-debug.log"))
 (local real-debug-size (vim.fn.getfsize real-debug-log))
 (local real-cache (.. (vim.fn.stdpath :data) "/acp-config.json"))

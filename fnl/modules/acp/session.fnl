@@ -100,6 +100,11 @@
       (and (= prev.type :text) (vim.endswith prev.text "\n")) "\n"
       "\n\n"))
 
+(fn thinking-shown? []
+  ;; Thinking is in the log, but in the chat only with vim.g.acp-thinking: it's mostly
+  ;; the agent talking to itself, and it splits runs of tool calls that would fold.
+  (= vim.g.acp-thinking true))
+
 (fn add-stream [s kind text]
   ;; kind is :text (the reply) or :thought. Thinking is quoted with ">> " on every
   ;; line, which keeps it out of the reply and lets the chat window fold it.
@@ -108,13 +113,23 @@
         body (if (= kind :thought)
                (pick-values 1 (string.gsub text "\n" (.. "\n" thought-prefix)))
                text)
-        text (if (and prev (= prev.type kind))
-               body
-               (.. (separator prev) (if (= kind :thought) thought-prefix "") body))]
+        joined (fn [before]
+                 (if (and before (= before.type kind))
+                   body
+                   (.. (separator before) (if (= kind :thought) thought-prefix "") body)))
+        text (joined prev)]
     (if (and prev (= prev.type kind))
       (set prev.text (.. prev.text text))
       (table.insert turn.blocks {:type kind : text}))
-    (render.append-text s text)))
+    (if (thinking-shown?)
+      (render.append-text s text)
+      ;; Without thinking in the chat, what's shown follows the last block that was
+      ;; shown, not the thinking between, so no blank lines are left for it.
+      (when (not= kind :thought)
+        (let [shown (accumulate [found nil i b (ipairs turn.blocks)]
+                      (if (and (not= b.type :thought) (< i (length turn.blocks))) b found))
+              same? (= prev (last-block turn))]
+          (render.append-text s (if same? body (.. (separator shown) body))))))))
 
 (fn add-text [s text]
   (when (running? s) (busy s "writing"))
