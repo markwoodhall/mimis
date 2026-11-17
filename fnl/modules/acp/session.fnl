@@ -161,7 +161,8 @@
     (render.status s "ignored a tool call with no id")
     (let [tool {:id u.id :title u.title :kind u.kind :status u.status
                 :updated (os.time) :details (or u.details {})}
-          block {:type :line}]
+          ;; The kind goes with the line, for the chat's icon.
+          block {:type :line :kind (or u.kind :other)}]
       (set block.line (tool-line s tool))
       (set tool.block block)
       (tset s.tools u.id tool)
@@ -178,7 +179,9 @@
       (on-tool s (vim.tbl_extend :force u {:status (or u.status :pending)}))
       (do
         (when u.title (set tool.title u.title))
-        (when u.kind (set tool.kind u.kind))
+        (when u.kind
+          (set tool.kind u.kind)
+          (set tool.block.kind u.kind))
         (when u.status (set tool.status u.status))
         (each [k v (pairs (or u.details {}))]
           (tset tool.details k v))
@@ -869,7 +872,12 @@
     (cancel-permissions s)
     (cancel-elicitations s)
     (note-unfinished s turn)
-    (add-line-block s {:type :line :line (.. "> stop: " reason)})
+    ;; The log records how every turn ended; the chat only shows it when that wasn't
+    ;; the usual end_turn.
+    (let [block {:type :line :line (.. "> stop: " reason)}]
+      (if (= reason "end_turn")
+        (table.insert turn.blocks block)
+        (add-line-block s block)))
     (set s.last-turn {:stop-reason reason
                       :reply (vim.trim (table.concat (icollect [_ b (ipairs turn.blocks)]
                                                        (when (= b.type :text) b.text))

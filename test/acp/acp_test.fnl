@@ -167,8 +167,8 @@
        (lines-of s.buf))
 (check "the reply lands above the input area"
        (let [chat (lines-of s.buf)
-             stop (accumulate [at nil i l (ipairs chat)] (if (= l "> stop: end_turn") i at))]
-         (and stop (< stop (- (render.input-row s) 1)))))
+             reply (accumulate [at nil i l (ipairs chat)] (if (= l "You said: hello there") i at))]
+         (and reply (< reply (- (render.input-row s) 1)))))
 (check "agent output can't be undone"
        (do
          (vim.api.nvim_set_current_win (chat-win))
@@ -181,7 +181,7 @@
   (check "reply streams in across split JSON lines" (has-line chat "You said: hello there"))
   (check "tool lines are rewritten in place" (has-line chat "> tool: Read /tmp/x/file.clj — done"))
   (check "permission choice is recorded" (has-line chat "> permission: Edit file.clj — Allow once"))
-  (check "stop reason is shown" (has-line chat "> stop: end_turn"))
+  (check "a usual end of turn isn't shown" (not (has-line chat "> stop: end_turn")))
   (check "thinking streams in as >> lines"
          (and (has-line chat ">> hmm") (has-line chat ">> let me think")) chat)
   (check "a blank line separates thinking from the reply"

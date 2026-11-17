@@ -51,8 +51,8 @@
 (check "tool lines and their expansions are plain"
        (and (has "-|> tool: Read x — done") (has "-|#### Input") (has "-|details")) got)
 (check "thinking is plain" (has "-|>> thinking") got)
-(check "the input area is shaded as yours"
-       (= "AcpYou|## You" (. got (- (render.input-row s) 1))) got)
+(check "the input area has a shade of its own"
+       (= "AcpInput|## You" (. got (- (render.input-row s) 1))) got)
 
 (render.detach-lines s tool)
 (check "collapsed details leave no shade behind"

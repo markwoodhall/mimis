@@ -374,21 +374,34 @@
 
 (fn shade-highlights []
   ;; Backgrounds for your prompts and the agent's replies in the chat: the editor's
-  ;; background with a little of blue and of mauve in it. Catppuccin's palette if it's
-  ;; there, else the colourscheme's Function and Statement colours.
+  ;; background with a little of blue and of mauve in it. The prompt you're writing
+  ;; is a plain grey (Catppuccin's surface0, else a little of the text colour), so it
+  ;; reads as the one being edited. Catppuccin's palette if it's there, else the colourscheme's Function,
+  ;; Statement and Normal colours. An egress you allowed has a green background, so a
+  ;; way out of the sandbox is never missed.
   (let [(ok? palettes) (pcall require :catppuccin.palettes)
         (_ c) (when ok? (pcall palettes.get_palette))
         group (fn [name] (vim.api.nvim_get_hl 0 {: name :link false}))
         bg (colour (or (?. c :base) (. (group :Normal) :bg)))
         you (colour (or (?. c :blue) (. (group :Function) :fg)))
-        agent (colour (or (?. c :mauve) (. (group :Statement) :fg)))]
+        agent (colour (or (?. c :mauve) (. (group :Statement) :fg)))
+        grey (colour (or (?. c :surface0) (. (group :Normal) :fg)))
+        green (colour (or (?. c :green) (. (group :DiagnosticOk) :fg)))]
     (if (and bg you agent)
       (do
         (vim.api.nvim_set_hl 0 :AcpYou {:bg (blend you bg 0.08) :default false})
         (vim.api.nvim_set_hl 0 :AcpAgent {:bg (blend agent bg 0.05) :default false}))
       (do
         (vim.api.nvim_set_hl 0 :AcpYou {:link :CursorLine :default false})
-        (vim.api.nvim_set_hl 0 :AcpAgent {:default false})))))
+        (vim.api.nvim_set_hl 0 :AcpAgent {:default false})))
+    (vim.api.nvim_set_hl 0 :AcpInput
+                         (if (and bg grey)
+                           {:bg (if c grey (blend grey bg 0.1)) :default false}
+                           {:link :CursorLine :default false}))
+    (vim.api.nvim_set_hl 0 :AcpEgressAllowed
+                         (if (and bg green)
+                           {:bg (blend green bg 0.25) :bold true :default false}
+                           {:link :DiffAdd :default false}))))
 
 (fn highlights []
   ;; Make added/removed lines in ```diff blocks visibly different. Linking to the
@@ -408,10 +421,27 @@
   (vim.api.nvim_set_hl 0 :AcpToolFailed {:link :DiagnosticError :default false})
   (vim.api.nvim_set_hl 0 :AcpToolRunning {:link :DiagnosticWarn :default false})
   (vim.api.nvim_set_hl 0 :AcpAttention {:link :WarningMsg :default false})
+  ;; A tool's diff counts, +4 -0.
+  (vim.api.nvim_set_hl 0 :AcpDiffAdded {:link :Added :default false})
+  (vim.api.nvim_set_hl 0 :AcpDiffRemoved {:link :Removed :default false})
   ;; Files the chat names.
   (vim.api.nvim_set_hl 0 :AcpPath {:bold true :underline true :default false})
   ;; Mermaid diagrams drawn in the chat.
   (vim.api.nvim_set_hl 0 :AcpDiagram {:link :Normal :default false})
+  ;; Headings in the chat, which maps markdownH1..6 to these: the colourscheme's
+  ;; heading colours (Title's if it has none), bold. Turn headings stay quiet, and a
+  ;; faint rule goes under the agent's # and ## headings.
+  (for [level 1 6]
+    (let [own (vim.api.nvim_get_hl 0 {:name (.. "markdownH" level) :link false})
+          title (vim.api.nvim_get_hl 0 {:name :Title :link false})]
+      (vim.api.nvim_set_hl 0 (.. "AcpH" level) {:fg (or own.fg title.fg) :bold true :default false})))
+  (vim.api.nvim_set_hl 0 :AcpTurn {:link :Comment :default false})
+  ;; The rule: a third of the way from the background to Comment, faint but there.
+  (let [bg (. (vim.api.nvim_get_hl 0 {:name :Normal :link false}) :bg)
+        fg (. (vim.api.nvim_get_hl 0 {:name :Comment :link false}) :fg)]
+    (vim.api.nvim_set_hl 0 :AcpHeadingRule (if (and bg fg)
+                                             {:fg (blend fg bg 0.35) :default false}
+                                             {:link :Comment :default false})))
   ;; Markdown tables in the chat.
   (vim.api.nvim_set_hl 0 :AcpTablePipe {:link :Comment :default false})
   (vim.api.nvim_set_hl 0 :AcpTableRule {:link :Comment :default false})

@@ -100,6 +100,7 @@
     (set s.tables [])
     (set s.diagrams [])
     (set s.images [])
+    (set s.rules [])
     (set s.attached-blocks {})
     (tset chats buf s)
     (watch-typing s buf)
@@ -121,6 +122,9 @@
   ;; For the UI rows' labels, see decorate; the cursor's line shows them in full.
   (tset (. vim.wo win) :conceallevel 2)
   (tset (. vim.wo win) :concealcursor "")
+  ;; Headings bold in their colours, here only, not in other markdown.
+  (tset (. vim.wo win) :winhighlight
+        (table.concat (fcollect [level 1 6] (.. "markdownH" level ":AcpH" level)) ","))
   ;; Thinking (">> " lines) folds closed; zo / zR open it.
   (tset (. vim.wo win) :foldmethod :expr)
   ;; Diagrams fold away their source too, see fold.
@@ -658,8 +662,35 @@
                     (table.insert entry.images {:path png : size :max-rows (image-rows s)})
                     (later s #(modify s #(place-images s entry)))))))))))))
 
+;; Heading rules ----------------------------------------------------------------------
+;; A faint line under the agent's # and ## headings, the chat's width, as a virtual
+;; line. Not under a turn's own ## You or ## Agent. s.rules holds a mark on each.
+
+(local rule-ns (vim.api.nvim_create_namespace "acp-rule"))
+
+(fn place-rule [s mark]
+  (let [[row] (vim.api.nvim_buf_get_extmark_by_id s.buf rule-ns mark {})]
+    (when row
+      (vim.api.nvim_buf_set_extmark s.buf rule-ns row 0
+                                    {:id mark
+                                     :virt_lines [[[(string.rep "─" (or (table-width s) 80))
+                                                    :AcpHeadingRule]]]}))))
+
+(fn rule-heading [s row]
+  ;; Rules the line at row (0-based) if it's one of the agent's # or ## headings.
+  (let [line (line-at s.buf row)]
+    (when (and (line:match "^ ? ? ?##? ")
+               (not (line:match "^## You"))
+               (not (line:match "^## Agent"))
+               (not (in-code-block? s.buf row)))
+      (let [mark (vim.api.nvim_buf_set_extmark s.buf rule-ns row 0 {})]
+        (table.insert s.rules mark)
+        (place-rule s mark)))))
+
 (fn refit-images [s]
-  ;; Images at the chat's new width.
+  ;; Images and heading rules at the chat's new width.
+  (each [_ mark (ipairs s.rules)]
+    (place-rule s mark))
   (each [_ d (ipairs s.diagrams)]
     (when (and d.drawn d.image)
       (place-diagram s d (image-lines s d.image))))
@@ -698,57 +729,105 @@
 ;; UI rows --------------------------------------------------------------------------
 ;; The tool, permission and other "> kind: " rows keep their text, which the log and
 ;; <CR> rely on, but show quieter: the label gives way to an icon, a finished tool
-;; loses its "— done", an answered permission shows only its answer under the tool,
-;; and a plain end of turn shows nothing. The cursor's line shows the text in full.
+;; loses its "— done", and an answered permission shows only its answer under the
+;; tool. The cursor's line shows the text in full.
 
 (local ui-ns (vim.api.nvim_create_namespace "acp-ui"))
 
-(fn ui-look [line]
-  ;; {: icon : hl :hide [from to]...} for a UI row, or nil. Ranges are 0-based bytes,
-  ;; end exclusive.
+;; A tool's icon by its ACP kind, from the Nerd Font symbols (kitty has them as a
+;; fallback whatever the font). vim.g.acp-tool-icons, kind to icon, changes any.
+(local tool-icons
+  {:read 0xF06E      ; eye
+   :edit 0xF040      ; pencil
+   :delete 0xF1F8    ; bin
+   :move 0xF0EC      ; arrows
+   :search 0xF002    ; magnifier
+   :execute 0xF120   ; terminal
+   :think 0xF0EB     ; light bulb
+   :fetch 0xF0AC     ; globe
+   :switch_mode 0xF0E7 ; bolt
+   :other 0xF0AD})   ; spanner
+
+(fn tool-icon [kind]
+  (or (?. vim.g.acp-tool-icons kind)
+      (vim.fn.nr2char (or (. tool-icons kind) tool-icons.other))))
+
+(fn ui-look [line kind]
+  ;; {: icon : hl :hide [from to]... :marks [[from to group]]...} for a UI row, or nil.
+  ;; Ranges are 0-based bytes, end exclusive. kind is a tool's ACP kind.
   (let [label (line:match "^> (%a+): ")
         start (when label (+ (length label) 4))
         (body-end status) (line:match "()%s—%s([^—]-)$")]
     (case label
-      :tool (let [hl (case status
-                       "done" :AcpToolDone
-                       "failed" :AcpToolFailed
-                       _ :AcpToolRunning)]
-              {:icon (case status "done" "✓ " "failed" "✗ " _ "• ")
-               : hl
-               :hide (if (= status "done")
-                       [[0 start] [(- body-end 1) (length line)]]
-                       [[0 start]])})
+      ;; The icon's colour is the status, so only "failed" is still said, and a diff's
+      ;; counts lose their brackets for a colour each.
+      :tool (let [(open added removed close) (line:match "() %(%+(%d+) %-(%d+)()%)%s—")
+                  ;; open and close are 1-based: of the space before "(", and of ")".
+                  ;; From the "(" on, 0-based: "(+4 -12)".
+                  stats (when open
+                          (let [paren open
+                                plus (+ paren 1)
+                                minus (+ plus 1 (length added) 1)]
+                            {:hide [[paren (+ paren 1)] [(- close 1) close]]
+                             :marks [[plus (+ plus 1 (length added)) :AcpDiffAdded]
+                                     [minus (+ minus 1 (length removed)) :AcpDiffRemoved]]}))
+                  hide (vim.list_extend [[0 start]]
+                                        (vim.list_extend (if (and body-end (not= status "failed"))
+                                                           [[(- body-end 1) (length line)]]
+                                                           [])
+                                                         (or (?. stats :hide) [])))]
+              ;; Two spaces: kitty draws Nerd Font icons a little over one cell wide.
+              {:icon (.. (tool-icon kind) "  ")
+               :hl (case status
+                     "done" :AcpToolDone
+                     "failed" :AcpToolFailed
+                     _ :AcpToolRunning)
+               : hide
+               :marks (or (?. stats :marks) [])})
       :permission (if (and status (not (vim.startswith status "awaiting")))
-                    {:icon "  ↳ " :hl :AcpUiPrefix
+                    {:icon "   ↳ " :hl :AcpUiPrefix
                      :hide [[0 (+ (- body-end 1) (length " — "))]]}
                     {:icon "? " :hl :AcpAttention :hide [[0 start]]})
-      :elicitation {:icon "? " :hl :AcpAttention :hide [[0 start]]}
-      :egress {:icon "⇄ " :hl :AcpAttention :hide [[0 start]]}
-      :stop (if (= line "> stop: end_turn")
-              {:icon "" :hl :AcpUiPrefix :hide [[0 (length line)]]}
-              {:icon "■ " :hl :AcpToolFailed :hide [[0 start]]})
+      ;; Waiting on you until answered, then the answer's colour.
+      :elicitation {:icon "? "
+                    :hl (if (and status (vim.startswith status "awaiting")) :AcpAttention :AcpUiPrefix)
+                    :hide [[0 start]]}
+      ;; An egress you allowed has the whole line in green: a way out of the sandbox.
+      :egress (let [allowed? (and status (vim.startswith status "allowed"))]
+                {:icon "⇄ "
+                 :hl (if allowed? :AcpToolDone
+                         (and status (vim.startswith status "refused")) :AcpToolFailed
+                         :AcpAttention)
+                 :line (when allowed? :AcpEgressAllowed)
+                 :hide [[0 start]]})
+      ;; Only an unusual end is in the chat, see session.end-turn.
+      :stop {:icon "■ " :hl :AcpToolFailed :hide [[0 start]]}
       :acp {:icon "· " :hl :AcpUiPrefix :hide [[0 start]]})))
 
-(fn decorate [buf row]
+(fn decorate [buf row kind]
   ;; Restyles the UI row at row (0-based), after it's written or rewritten.
   (vim.api.nvim_buf_clear_namespace buf ui-ns row (+ row 1))
-  (let [look (ui-look (line-at buf row))]
+  (let [look (ui-look (line-at buf row) kind)]
     (when look
       (each [_ [from to] (ipairs look.hide)]
         (vim.api.nvim_buf_set_extmark buf ui-ns row from {:end_col to :conceal ""}))
-      (when (not= look.icon "")
-        (vim.api.nvim_buf_set_extmark buf ui-ns row 0
-                                      {:virt_text [[look.icon look.hl]]
-                                       :virt_text_pos :inline})))))
+      (each [_ [from to group] (ipairs (or look.marks []))]
+        (vim.api.nvim_buf_set_extmark buf ui-ns row from {:end_col to :hl_group group :priority 200}))
+      (when look.line
+        (vim.api.nvim_buf_set_extmark buf ui-ns row 0 {:line_hl_group look.line :priority 50}))
+      ;; Combined, so a line's background goes behind the icon too.
+      (vim.api.nvim_buf_set_extmark buf ui-ns row 0
+                                    {:virt_text [[look.icon look.hl]]
+                                     :virt_text_pos :inline
+                                     :hl_mode :combine}))))
 
 (fn joins-previous? [line]
   ;; Quoted lines stack directly under headings and other quoted lines (not thinking).
   (or (= line nil) (= line "") (line:match "^>[^>]") (line:match "^#")))
 
-(fn put-line [s line]
+(fn put-line [s line kind]
   ;; Puts a standalone line at the end of the transcript, keeping an empty line after
-  ;; it for what comes next. Returns the 0-based row it landed on.
+  ;; it for what comes next. Returns the 0-based row it landed on. kind is a tool's.
   (align-table-above s (last-row s))
   (let [row (last-row s)
         previous (when (> row 0) (line-at s.buf (- row 1)))]
@@ -758,7 +837,7 @@
       (replace-last s [line ""])
       (replace-last s ["" line ""])))
   (let [row (- (last-row s) 1)]
-    (decorate s.buf row)
+    (decorate s.buf row kind)
     row))
 
 (fn status [s message]
@@ -793,12 +872,13 @@
                     (when (not (table-row? (line-at s.buf (+ r 1))))
                       (align-table-above s r))
                     (draw-diagram s r)
-                    (show-images s r)))))))
+                    (show-images s r)
+                    (rule-heading s r)))))))
 
 (fn add-line [s block]
   (later s #(modify s
               (fn []
-                (let [row (put-line s block.line)]
+                (let [row (put-line s block.line block.kind)]
                   (set block.mark (vim.api.nvim_buf_set_extmark s.buf ns row 0 {:right_gravity false})))))))
 
 (fn update-line [s block]
@@ -812,7 +892,7 @@
                     (when row
                       (let [current (. (vim.api.nvim_buf_get_lines s.buf row (+ row 1) false) 1)]
                         (vim.api.nvim_buf_set_text s.buf row 0 row (length current) [block.line])
-                        (decorate s.buf row)))))))))
+                        (decorate s.buf row block.kind)))))))))
 
 (fn line-row [s block]
   ;; 1-based row of a block's line in the chat, or nil.
@@ -1088,7 +1168,7 @@
             heading (heading-kind line)]
         (when heading (set section heading))
         (tset kinds row
-              (if (>= row (+ input 1)) :you
+              (if (>= row (+ input 1)) :input
                   (>= row input) nil
                   (= section :you) :you
                   (not= section :agent) nil
@@ -1110,6 +1190,8 @@
                              (and (< before top) (= start-section :agent))))
                 (tset result row :AcpAgent)))
             (= kind :you) (tset result row :AcpYou)
+            ;; The prompt you're writing, apart from the ones already sent.
+            (= kind :input) (tset result row :AcpInput)
             (= kind :agent) (tset result row :AcpAgent))))
       result)))
 

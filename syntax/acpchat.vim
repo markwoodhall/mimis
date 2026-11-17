@@ -23,6 +23,19 @@ syntax region markdownBoldItalic matchgroup=markdownBoldItalicDelimiter start="\
 syntax region markdownBoldItalic matchgroup=markdownBoldItalicDelimiter start="\w\@<!___\S\@=" end="\S\@<=___\w\@!\|^$" skip="\\_" contains=markdownLineStart,@Spell concealends
 syntax region markdownStrike matchgroup=markdownStrikeDelimiter start="\~\~\S\@=" end="\S\@<=\~\~\|^$" contains=markdownLineStart,@Spell concealends
 
+" Headings without their #s. The chat window shows them in AcpH1..6, see acp.fnl.
+syntax clear markdownH1 markdownH2 markdownH3 markdownH4 markdownH5 markdownH6
+syntax region markdownH1 matchgroup=markdownH1Delimiter start=" \{,3}#\s"      end="#*\s*$" keepend oneline contains=@markdownInline,markdownAutomaticLink contained concealends
+syntax region markdownH2 matchgroup=markdownH2Delimiter start=" \{,3}##\s"     end="#*\s*$" keepend oneline contains=@markdownInline,markdownAutomaticLink contained concealends
+syntax region markdownH3 matchgroup=markdownH3Delimiter start=" \{,3}###\s"    end="#*\s*$" keepend oneline contains=@markdownInline,markdownAutomaticLink contained concealends
+syntax region markdownH4 matchgroup=markdownH4Delimiter start=" \{,3}####\s"   end="#*\s*$" keepend oneline contains=@markdownInline,markdownAutomaticLink contained concealends
+syntax region markdownH5 matchgroup=markdownH5Delimiter start=" \{,3}#####\s"  end="#*\s*$" keepend oneline contains=@markdownInline,markdownAutomaticLink contained concealends
+syntax region markdownH6 matchgroup=markdownH6Delimiter start=" \{,3}######\s" end="#*\s*$" keepend oneline contains=@markdownInline,markdownAutomaticLink contained concealends
+
+" A turn's own heading (## You, ## Agent) is quiet, so the agent's headings stand out.
+syntax match AcpTurn /^## \%(You\|Agent\)\>.*$/ contains=AcpTurnMark
+syntax match AcpTurnMark /^## / contained conceal
+
 syntax clear markdownLinkText markdownLink
 syntax region markdownLinkText matchgroup=markdownLinkTextDelimiter
       \ start="!\=\[\%(\_[^][]*\%(\[\_[^][]*\]\_[^][]*\)*]\%( \=[[(]\)\)\@=" end="\]\%( \=[[(]\)\@="
