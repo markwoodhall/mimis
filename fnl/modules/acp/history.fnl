@@ -1,4 +1,7 @@
-;; Choosing a past session to resume: ordering, labels and the picker.
+;; Past sessions: reading their logs, ordering and labelling them, and the picker for
+;; resuming one.
+
+(local agents (require :modules.acp.agents))
 
 
 (fn parse-time [stamp]
@@ -60,9 +63,157 @@
                      (fn [chosen]
                        (if chosen (done chosen) (done nil "no session chosen")))))))
 
+;; Reading the session logs ------------------------------------------------------
+
+(local title-width 80)
+(local preview-width 240)
+(local preview-lines 4)
+
+(fn trim [text]
+  (vim.trim (or text "")))
+
+(fn shorten [text width]
+  ;; One line, whitespace collapsed, cut to width characters with "…".
+  (let [text (trim (pick-values 1 (string.gsub (or text "") "%s+" " ")))]
+    (if (> (vim.fn.strchars text) width)
+      (.. (vim.fn.strcharpart text 0 (- width 1)) "…")
+      text)))
+
+(fn frontmatter [lines]
+  ;; The "---" header of a log, as a table.
+  (let [meta {}]
+    (when (= "---" (trim (. lines 1)))
+      (var i 2)
+      (var done false)
+      (while (and (<= i (length lines)) (not done))
+        (let [line (. lines i)]
+          (if (= "---" (trim line))
+            (set done true)
+            (let [(key value) (string.match line "^(%w[%w_-]*):%s*(.*)$")]
+              (when key
+                (tset meta key (trim value)))))
+          (set i (+ i 1)))))
+    meta))
+
+(fn you-heading? [line]
+  (or (= line "## You") (not= nil (string.match line "^## You — %d%d:%d%d$"))))
+
+(fn turns [lines]
+  ;; The turns in a log: {:prompt [line...] :agent [line...]}.
+  (let [found []]
+    (var current nil)
+    (var in-agent false)
+    (each [_ line (ipairs lines)]
+      (if (you-heading? line)
+        (do
+          (set current {:prompt [] :agent []})
+          (table.insert found current)
+          (set in-agent false))
+        (and current (= line "## Agent"))
+        (set in-agent true)
+        current
+        (table.insert (if in-agent current.agent current.prompt) line)))
+    found))
+
+(fn first-nonblank [lines]
+  (var found "")
+  (each [_ line (ipairs (or lines [])) &until (not= found "")]
+    (set found (trim line)))
+  found)
+
+(fn agent-name [command]
+  ;; A log records the agent's command, not its configured name. Match it back to
+  ;; the profile it came from, so resuming starts the same agent.
+  (when (not= (trim command) "")
+    (accumulate [found nil _ name (ipairs (agents.names)) &until found]
+      (let [agent (agents.get name)]
+        (when (and agent (= command (table.concat agent.cmd " "))) name)))))
+
+(fn preview [turn]
+  ;; The first prose in the agent's reply, skipping tool lines, thinking and fences.
+  (let [parts []]
+    (each [_ line (ipairs (or (?. turn :agent) []))]
+      (let [text (trim line)]
+        (when (and (not= text "")
+                   (not (vim.startswith text ">"))
+                   (not (vim.startswith text "#"))
+                   (not (vim.startswith text "```"))
+                   (not (vim.startswith text "~~~")))
+          (table.insert parts text))))
+    (shorten (table.concat (vim.list_slice parts 1 (math.min preview-lines (length parts))) " ")
+             preview-width)))
+
+(fn agent-title [lines]
+  ;; The latest title the agent gave the session: in the header when the log began,
+  ;; and as a note each time it changed.
+  (accumulate [found nil _ line (ipairs lines)]
+    (or (line:match "^> acp: title: (.+)$") found)))
+
+(fn read [path]
+  ;; A thread's title is the name you gave it, else the agent's latest, else its first
+  ;; prompt.
+  (let [lines (vim.fn.readfile path)
+        meta (frontmatter lines)
+        parsed (turns lines)
+        first-turn (. parsed 1)
+        id (or meta.session "")
+        given (or (when (not= (or meta.name "") "") meta.name)
+                  (agent-title lines)
+                  (when (not= (or meta.title "") "") meta.title))
+        title (shorten (or given (first-nonblank (or (?. first-turn :prompt) []))) title-width)
+        date (or meta.date "")
+        updated (if (and (not= date "") (not (string.match date "T%d+:%d+:%d+")))
+                  (.. date ":00")
+                  date)]
+    {:path path
+     :id id
+     :key (if (= id "") path id)
+     :title (if (= title "")
+               (.. "(untitled " (if (= id "") (vim.fn.fnamemodify path ":t:r") (string.sub id 1 8)) ")")
+               title)
+     :preview (preview first-turn)
+     :turns (length parsed)
+     :date date
+     :updated updated
+     :cwd (or meta.cwd "")
+     :project (or meta.project (vim.fn.fnamemodify (or meta.cwd "") ":t"))
+     :agent (or meta.agent "")
+     :agent-name (or meta.agent-name (agent-name (or meta.agent "")))}))
+
+(fn normalize [path]
+  (when (not= (trim path) "")
+    (pick-values 1 (string.gsub (vim.fn.simplify (vim.fn.fnamemodify path ":p")) "/+$" ""))))
+
+(fn in-project? [root cwd]
+  (let [root (normalize root)
+        cwd (normalize cwd)]
+    (and root cwd
+         (or (= cwd root) (= root "") (vim.startswith cwd (.. root "/"))))))
+
+(fn sessions [dir root all?]
+  ;; The logged sessions for root (or every project's), newest first and one per id.
+  ;; Every log, whatever 'wildignore' leaves out of completion.
+  (let [found (icollect [_ path (ipairs (vim.fn.glob (.. dir "/*.md") true true))]
+                (let [(ok session) (pcall read path)]
+                  (when (and ok (or all? (in-project? root session.cwd)))
+                    session)))
+        sorted (sort-recent found)
+        seen {}
+        unique []]
+    (each [_ session (ipairs sorted)]
+      (when (not (. seen session.key))
+        (tset seen session.key true)
+        (table.insert unique session)))
+    unique))
+
 {: parse-time
  : age
  : sort-recent
  : label
  : find
- : select}
+ : select
+ : read
+ : sessions
+ : frontmatter
+ : turns
+ : in-project?}

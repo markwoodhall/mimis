@@ -6,7 +6,7 @@
 (local handoff (require :modules.acp.handoff))
 (local render (require :modules.acp.render))
 (local log (require :modules.acp.log))
-(local summary (require :modules.acp.summary))
+(local threads (require :modules.acp.threads))
 (local usage (require :modules.acp.usage))
 (local sandbox (require :modules.acp.sandbox))
 
@@ -176,8 +176,8 @@
     spec))
 
 (fn start-new [s name requested mods intent sandbox-flag paths]
-  ;; Ends the current session, if any, and starts one with the named agent; with none
-  ;; named, the current session's agent, else the default agent. intent says what the
+  ;; Ends s, if given, and starts a session with the named agent; with none named, s's
+  ;; agent, else the default agent. Other sessions keep running. intent says what the
   ;; session is for when it isn't just a new one, see session.start.
   (let [name (or name (and s s.agent.name) (agents.default-name))
         base (agents.get name)]
@@ -209,7 +209,12 @@
   ;; :Acp! ... end the current session and start a new one, with the same agent unless
   ;;   another is named.
   ;; New sessions start from vim.g.acp-config, with the arguments on top.
-  (let [s (session.current)
+  ;; Several sessions can run at once: this acts on the chat you're in, else on the one
+  ;; last used in this project. Another project's session is left running.
+  (let [here (session.here)
+        s (if (and here (= here.buf (vim.api.nvim_get_current_buf)))
+            here
+            (session.project-session (session.project-root)))
         (parsed problem) (parse-args opts.fargs)]
     (if (not parsed)
       (vim.notify problem vim.log.levels.WARN)
@@ -227,7 +232,7 @@
   ;; :AcpResume [agent] [session-id]  choose an earlier session of this project to
   ;; continue; the chat replays it. With an id (or the start of one) it is loaded directly.
   ;; :AcpResume!  choose from the sessions of every project
-  ;; The running session is only ended once a session is chosen.
+  ;; The chosen session runs alongside any others; one already running is just shown.
   (let [s (session.current)
         fargs opts.fargs
         agent-name (when (agents.get (or (. fargs 1) "")) (. fargs 1))
@@ -241,9 +246,12 @@
       (and (session.alive? s) s.ready (= name s.agent.name))
       (session.pick-live s intent
         (fn [chosen]
-          (start-new s name {} opts.mods
-                     {:kind :load :id chosen.id :cwd chosen.cwd :title chosen.title})))
-      (start-new s name {} opts.mods intent))))
+          (let [running (session.with-id chosen.id)]
+            (if running
+              (focus running opts.mods)
+              (start-new nil name {} opts.mods
+                         {:kind :load :id chosen.id :cwd chosen.cwd :title chosen.title})))))
+      (start-new nil name {} opts.mods intent))))
 
 (fn show-agents [opts]
   ;; :AcpAgents  choose between a session and the agents it delegated to, and jump there.
@@ -265,10 +273,32 @@
                      (fn [a]
                        (when a (focus a opts.mods)))))))
 
-(fn show-summary [opts]
-  ;; :AcpSummary  a markdown buffer of this project's logged sessions.
-  ;; :AcpSummary!  every project's sessions. Command modifiers choose the split.
-  (summary.open {:all? opts.bang :root (session.project-root) :mods opts.mods}))
+(fn jump-waiting []
+  ;; :AcpWaiting  goes to a chat waiting on you, with the cursor on what it asks: the
+  ;; next one after the chat you're in, so doing it again visits each in turn.
+  (let [all (session.waiting)
+        here (session.here)
+        at (accumulate [found nil i s (ipairs all) &until found]
+             (when (and (= s here) (= s.buf (vim.api.nvim_get_current_buf))) i))
+        target (. all (if at (+ (% at (length all)) 1) 1))]
+    (if target
+      (focus target "")
+      (vim.notify "acp: nothing is waiting on you"))))
+
+(fn show-threads []
+  ;; :AcpThreads  the sidebar of every thread; see modules.acp.threads. Each action runs
+  ;; in the window beside it, its directory already the thread's project.
+  (let [agent-for (fn [t]
+                    (or (?. t :live :agent :name)
+                        (when (agents.get (or t.agent-name "")) t.agent-name)
+                        (agents.default-name)))]
+    (threads.open
+      {:show (fn [s] (focus s ""))
+       :resume (fn [t]
+                 (start-new nil (agent-for t) {} ""
+                            {:kind :load :id t.id :cwd t.cwd :title t.title}))
+       :new (fn [t]
+              (start-new nil (agent-for t) {} "" {:kind :new :cwd t.cwd}))})))
 
 (fn pick-value [s option]
   (vim.ui.select option.values
@@ -417,6 +447,39 @@
                            {:bg (blend green bg 0.25) :bold true :default false}
                            {:link :DiffAdd :default false}))))
 
+(fn code-highlights []
+  ;; A code block's card: darker than the chat, Catppuccin's mantle; its language muted.
+  (let [(ok? palettes) (pcall require :catppuccin.palettes)
+        (_ c) (when ok? (pcall palettes.get_palette))
+        normal (. (vim.api.nvim_get_hl 0 {:name :Normal :link false}) :bg)]
+    (vim.api.nvim_set_hl 0 :AcpCodeBlock
+                         (if c {:bg (colour c.mantle) :default false}
+                             normal {:bg (blend 0 normal 0.25) :default false}
+                             {:link :ColorColumn :default false}))
+    (vim.api.nvim_set_hl 0 :AcpCodeLang {:link :AcpUiPrefix :default false})
+    ;; A quote: the same card, a bar in the accent colour, its text in italic.
+    (vim.api.nvim_set_hl 0 :AcpQuoteBlock {:link :AcpCodeBlock :default false})
+    (vim.api.nvim_set_hl 0 :AcpQuoteBar
+                         (if c {:fg (colour c.lavender) :default false} {:link :Function :default false}))
+    (vim.api.nvim_set_hl 0 :AcpQuoteText {:italic true :default false})))
+
+(fn thread-highlights []
+  ;; The threads sidebar's panel and its rows' tints, from the chat's shades.
+  (let [(ok? palettes) (pcall require :catppuccin.palettes)
+        (_ c) (when ok? (pcall palettes.get_palette))
+        bg (fn [name] (. (vim.api.nvim_get_hl 0 {: name :link false}) :bg))]
+    (vim.api.nvim_set_hl 0 :AcpThreadsNormal
+                         (if c {:bg (colour c.mantle) :default false} {:link :NormalFloat :default false}))
+    (vim.api.nvim_set_hl 0 :AcpThreadsSeparator
+                         (if c {:fg (colour c.mantle) :bg (colour c.mantle) :default false}
+                             {:link :WinSeparator :default false}))
+    (vim.api.nvim_set_hl 0 :AcpThreadsCursor {:bg (bg :AcpInput) :default false})
+    (vim.api.nvim_set_hl 0 :AcpThreadsShown {:bg (bg :AcpAgent) :default false})
+    ;; The chat's heading rule's colour, on the panel rather than a reply's shade.
+    (vim.api.nvim_set_hl 0 :AcpThreadsRule
+                         {:fg (. (vim.api.nvim_get_hl 0 {:name :AcpHeadingRule :link false}) :fg)
+                          :default false})))
+
 (fn highlights []
   ;; Make added/removed lines in ```diff blocks visibly different. Linking to the
   ;; DiffAdd/DiffDelete groups gives them green/red backgrounds in most colorschemes.
@@ -456,6 +519,20 @@
     (quiet :AcpFolded :Comment {:italic true}))
   ;; Files the chat names.
   (vim.api.nvim_set_hl 0 :AcpPath {:bold true :underline true :default false})
+  ;; The threads sidebar, in the chat's own colours: the heading like the agent's name
+  ;; in the input; projects like the agent's ## headings; ages muted like a prompt's
+  ;; time; the thread shown beside it in the agent's shade, its title in mauve; running
+  ;; dots like the tool rows' icons. The panel is the statusline's mantle, its cursor
+  ;; row the input's grey.
+  (vim.api.nvim_set_hl 0 :AcpThreadsHeading {:link :AcpTurnAgent :default false})
+  (vim.api.nvim_set_hl 0 :AcpThreadsGroup {:link :AcpH2 :default false})
+  (vim.api.nvim_set_hl 0 :AcpThreadsTitle {:link :Normal :default false})
+  (vim.api.nvim_set_hl 0 :AcpThreadsCurrent {:link :AcpTurnAgent :default false})
+  (vim.api.nvim_set_hl 0 :AcpThreadsMeta {:link :AcpUiPrefix :default false})
+  (vim.api.nvim_set_hl 0 :AcpThreadsMore {:link :AcpFolded :default false})
+  (vim.api.nvim_set_hl 0 :AcpThreadsLive {:link :AcpToolDone :default false})
+  (vim.api.nvim_set_hl 0 :AcpThreadsWorking {:link :AcpToolRunning :default false})
+  (vim.api.nvim_set_hl 0 :AcpThreadsWaiting {:link :AcpAttention :default false})
   ;; The choice the cursor is on, of a permission or question: the accent colour behind
   ;; the editor's background colour, as a pill.
   (let [(ok? palettes) (pcall require :catppuccin.palettes)
@@ -500,6 +577,9 @@
     (vim.api.nvim_set_hl 0 :AcpHeadingRule (if (and bg fg)
                                              {:fg (blend fg bg 0.35) :bg shade :default false}
                                              {:link :Comment :default false})))
+  ;; After the shades and the rule, which the sidebar's colours are made from.
+  (thread-highlights)
+  (code-highlights)
   (usage.highlights))
 
 (fn setup []
@@ -529,9 +609,13 @@
      :desc "Resume an earlier ACP session of this project; ! lists every project's; args are an optional agent and session id"})
   (vim.api.nvim_create_user_command "AcpAgents" show-agents
     {:desc "Choose between the ACP session and the agents it delegated to, and jump there"})
-  (vim.api.nvim_create_user_command "AcpSummary" show-summary
-    {:bang true
-     :desc "Show a markdown summary of this project's ACP session logs; ! includes every project"})
+  (vim.api.nvim_create_user_command "AcpWaiting" jump-waiting
+    {:desc "Go to an ACP chat waiting on you, its question under the cursor; again for the next"})
+  ;; "go to waiting"; Vim leaves gW unused (gw formats).
+  (vim.keymap.set :n "gW" "<Cmd>AcpWaiting<CR>"
+                  {:desc "Go to an ACP chat waiting on you"})
+  (vim.api.nvim_create_user_command "AcpThreads" show-threads
+    {:desc "Toggle a sidebar of every ACP thread: <CR> opens one in its project, n starts a new one there"})
   (vim.api.nvim_create_user_command "AcpUsage" usage.open
     {:nargs "*" :complete usage.complete
      :desc "Show the account's usage: spend, tokens, models, activity, tools and limits; args are an optional agent, today|N|all and project"})

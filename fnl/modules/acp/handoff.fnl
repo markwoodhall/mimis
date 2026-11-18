@@ -120,12 +120,13 @@
 
 (fn screenshot [source seconds]
   ;; source is :clipboard for the image you copied, else you select one on the screen.
-  ;; seconds is how long to wait before selecting, vim.g.acp-screenshot-seconds (3) if
+  ;; seconds is how long to wait before selecting, vim.g.acp-screenshot-seconds (10) if
   ;; not given: once the crosshair is up the window manager can't change workspace, and
-  ;; what you want to share is usually on another one. It says nothing on the way: with
-  ;; 'cmdheight' 0 a message is a prompt to dismiss, and the crosshair is cue enough.
+  ;; what you want to share is usually on another one, or in another thread to go to
+  ;; first. It says nothing on the way: with 'cmdheight' 0 a message is a prompt to
+  ;; dismiss, and the crosshair is cue enough.
   (let [target (session.here)
-        seconds (or seconds vim.g.acp-screenshot-seconds 3)
+        seconds (or seconds vim.g.acp-screenshot-seconds 10)
         path (output-file (project-for target) "screenshot" "png")
         (ok problem) (pcall vim.system (screenshot-argv source path seconds) {}
                             (vim.schedule_wrap #(screenshot-taken target path $1)))]

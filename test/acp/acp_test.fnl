@@ -2148,9 +2148,8 @@
 (set vim.ui.select original-select)
 (set vim.g.acp-agents {:opencode ["python3" (.. here "/fake_agent.py") "opencode"]})
 
-;; Session summary --------------------------------------------------------------------
+;; Reading session logs (the threads sidebar's list) ----------------------------------
 
-(local summary (require :modules.acp.summary))
 (local summary-logs (vim.fn.tempname))
 (local summary-elsewhere (vim.fn.tempname))
 (vim.fn.mkdir summary-logs :p)
@@ -2187,66 +2186,17 @@
 (write-summary-log "elsewhere" summary-elsewhere "sum-3" "2026-10-23T10:00"
                    "Another project's chat" "Elsewhere.")
 
-(let [found (summary.sessions summary-logs (vim.fn.getcwd) false)]
-  (check "the summary gathers this project's logs"
+(let [found (history.sessions summary-logs (vim.fn.getcwd) false)]
+  (check "this project's logs are gathered"
          (and (= 2 (length found))
               (vim.deep_equal ["sum-2" "sum-1"] (icollect [_ s (ipairs found)] s.id)))
          (icollect [_ s (ipairs found)] s.id))
   (check "a session's title is its first prompt" (= "A newer chat" (. found 1 :title)))
-  (check "the summary previews the first reply"
+  (check "the first reply is kept as a preview"
          (= "Newer reply." (. found 1 :preview))))
-(check "the summary can include every project's sessions"
-       (= 3 (length (summary.sessions summary-logs (vim.fn.getcwd) true))))
+(check "every project's sessions can be gathered"
+       (= 3 (length (history.sessions summary-logs (vim.fn.getcwd) true))))
 
-(let [real-log-dir vim.g.acp-log-dir
-      before-tabs (length (vim.fn.gettabinfo))
-      before-wins (length (vim.api.nvim_list_wins))]
-  (set vim.g.acp-log-dir summary-logs)
-  (vim.cmd "AcpSummary")
-  (check "AcpSummary opens a split, not a tab" (= before-tabs (length (vim.fn.gettabinfo))))
-  (let [buf (vim.api.nvim_get_current_buf)
-        chat (lines-of buf)
-        path (.. summary-logs "/newer.md")
-        path-line (.. "`" (vim.fn.fnamemodify path ":~") "`")]
-    (var row nil)
-    (each [i l (ipairs chat) &until row]
-      (when (= l path-line) (set row i)))
-    (check "AcpSummary opens a markdown buffer" (= "markdown" (. vim.bo buf :filetype)))
-    (check "the summary lists the project's sessions, newest first"
-           (and (has-line chat "## 1. A newer chat")
-                (has-line chat "## 2. Fix the session summary"))
-           chat)
-    (check "each session names its log" (has-line chat path-line) chat)
-    (check "the resume link carries the session id"
-           (has-line chat "[Resume this session](acp://resume/sum-2)") chat)
-    (check "the first reply is previewed" (has-line chat "> Newer reply.") chat)
-    (check "the summary has a resume mapping"
-           (= "function" (type (?. (vim.fn.maparg "<CR>" "n" false true) :callback))))
-    (when row
-      (vim.api.nvim_win_set_cursor 0 [row 2])
-      (check "gf on a log line finds the log file"
-             (= (vim.fn.fnamemodify path ":p")
-                (vim.fn.fnamemodify (vim.fn.expand "<cfile>") ":p"))
-             (vim.fn.expand "<cfile>")))
-    (vim.cmd "AcpSummary!")
-    (let [all-chat (lines-of (vim.api.nvim_get_current_buf))]
-      (check "AcpSummary! lists every project's sessions"
-             (and (has-line all-chat "## 1. Another project's chat")
-                  (has-line all-chat "## 2. A newer chat"))
-             all-chat))
-    (each [_ name (ipairs [(.. "acp://summary/" (vim.fn.fnamemodify (vim.fn.getcwd) ":t"))
-                           "acp://summary/all"])]
-      (let [b (vim.fn.bufnr name)]
-        (when (> b 0)
-          (each [_ w (ipairs (vim.fn.win_findbuf b))]
-            (vim.api.nvim_win_close w true))
-          (vim.api.nvim_buf_delete b {:force true}))))
-    (check "the summary splits close cleanly"
-           (and (= before-tabs (length (vim.fn.gettabinfo)))
-                (= before-wins (length (vim.api.nvim_list_wins))))
-           [before-tabs (length (vim.fn.gettabinfo))
-            before-wins (length (vim.api.nvim_list_wins))])
-    (set vim.g.acp-log-dir real-log-dir)))
 (vim.fn.delete summary-logs "rf")
 (vim.fn.delete summary-elsewhere "rf")
 

@@ -1383,6 +1383,18 @@
     (table.insert sessions.all s)
     (log.init s)
     (render.create-buffers s)
+    ;; Several sessions can run at once; entering one's chat makes it the current one,
+    ;; the one commands act on from elsewhere.
+    (set s.used (vim.uv.hrtime))
+    (when (not s.parent)
+      (vim.api.nvim_create_autocmd :BufEnter
+        {:buffer s.buf
+         :desc "Make this ACP session the current one"
+         :callback (fn []
+                     (when (not s.ended)
+                       (set sessions.current s)
+                       (set s.used (vim.uv.hrtime)))
+                     nil)}))
     (set s.rpc (rpc.new {:send (fn [line] (transport.send s.agent.proc line))
                          :on-request (fn [method params id] (on-request s method params id))
                          :on-notification (fn [method params] (on-notification s method params))}))
@@ -1442,7 +1454,30 @@
       (vim.notify "acp: session ended"))))
 
 (fn current []
+  ;; The session last used: the one whose chat was entered last, or started last.
   sessions.current)
+
+(fn live []
+  ;; The sessions running now that aren't delegated agents, most recently used first.
+  (let [found (vim.tbl_filter #(and (not $1.parent) (not $1.ended)) sessions.all)]
+    (table.sort found (fn [a b] (> (or a.used 0) (or b.used 0))))
+    found))
+
+(fn waiting []
+  ;; Every session waiting on you to answer something, delegated agents' too, oldest first.
+  (vim.tbl_filter #(and (not $1.ended) (waiting-on-you? $1)) sessions.all))
+
+(fn project-session [cwd]
+  ;; The live session most recently used in cwd's project, if any.
+  (let [cwd (vim.fs.normalize cwd)]
+    (accumulate [found nil _ s (ipairs (live)) &until found]
+      (when (= (vim.fs.normalize s.session.cwd) cwd) s))))
+
+(fn with-id [id]
+  ;; The live session with the agent's session id, if any.
+  (when id
+    (accumulate [found nil _ s (ipairs (live)) &until found]
+      (when (= s.session.id id) s))))
 
 (fn here []
   ;; The session whose chat is the current buffer, else the current session.
@@ -1692,6 +1727,11 @@
 
 {: start
  : here
+ : live
+ : waiting
+ : project-session
+ : with-id
+ : waiting-on-you?
  : children
  : state
  : waiting-for

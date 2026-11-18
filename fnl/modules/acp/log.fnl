@@ -44,6 +44,9 @@
     ;; The title when the log was started; later changes are notes in the body.
     (when s.session.title
       (table.insert lines (.. "title: " s.session.title)))
+    ;; A name you gave the thread before its first prompt; see set-name.
+    (when s.session.name
+      (table.insert lines (.. "name: " s.session.name)))
     (vim.list_extend lines [(.. "session: " (or s.session.id ""))
                             (.. "git: " s.log.git)
                             "---"
@@ -95,8 +98,9 @@
 (fn adopt [s]
   ;; A resumed session carries on in the log it already has, found by its id. Returns
   ;; whether there was one; the newest wins, as a resumed copy holds the whole history.
+  ;; Every log, whatever 'wildignore' leaves out of completion.
   (var found nil)
-  (each [_ path (ipairs (vim.fn.glob (.. (log-dir) "/*.md") false true))]
+  (each [_ path (ipairs (vim.fn.glob (.. (log-dir) "/*.md") true true))]
     (when (vim.tbl_contains (vim.fn.readfile path "" 20) (.. "session: " s.session.id))
       (set found path)))
   (when found
@@ -110,8 +114,27 @@
   (when s.log.path
     (vim.fn.writefile [line ""] s.log.path "a")))
 
+(fn set-name [path name]
+  ;; Names the thread logged at path: a "name:" line in its header, replacing one it
+  ;; had. It's the thread's title from then on, over the agent's. Returns whether it
+  ;; could.
+  (let [lines (vim.fn.readfile path)
+        line (.. "name: " (vim.trim (pick-values 1 (name:gsub "\n" " "))))]
+    (when (= "---" (. lines 1))
+      (var close nil)
+      (var existing nil)
+      (for [i 2 (length lines) &until close]
+        (if (= "---" (. lines i)) (set close i)
+            (vim.startswith (. lines i) "name: ") (set existing i)))
+      (when close
+        (if existing
+          (tset lines existing line)
+          (table.insert lines close line))
+        (= 0 (vim.fn.writefile lines path))))))
+
 {: init
  : adopt
+ : set-name
  : append-turn
  : append-note
  : log-dir

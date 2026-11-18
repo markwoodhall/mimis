@@ -117,6 +117,17 @@
       (vim.keymap.set [:i :n] "<C-c>" #(do (vim.cmd :stopinsert) (finish nil)) {:buffer buf})
       (vim.keymap.set :n "q" #(finish nil) {:buffer buf :nowait true})
       (vim.keymap.set :n "<Esc>" #(finish nil) {:buffer buf :nowait true})
+      ;; With opts.completion (as for input()), <Tab> offers what completes the text.
+      (when opts.completion
+        (vim.keymap.set :i "<Tab>"
+                        (fn []
+                          (let [line (vim.api.nvim_get_current_line)
+                                text (if (vim.startswith line "> ") (string.sub line 3) line)
+                                matches (vim.fn.getcompletion text opts.completion)]
+                            (when (> (length matches) 0)
+                              (vim.fn.complete 3 matches))
+                            ""))
+                        {:buffer buf :expr true}))
       (vim.api.nvim_win_set_cursor win [(length lines) (length (. lines (length lines)))])
       (vim.cmd "startinsert!"))))
 

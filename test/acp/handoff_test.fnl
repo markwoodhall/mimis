@@ -211,7 +211,8 @@
 (check ":AcpScreenshot waits by default, to get to another workspace"
        (= 0 (length (shots))) (shots))
 (set vim.g.acp-screenshot-seconds 0)
-(wait #(= 2 (length (prompt s))) 5000)
+;; The default wait, 10 seconds, has begun already.
+(wait #(= 2 (length (prompt s))) 13000)
 (check ":AcpScreenshot selects after the default wait" (= 1 (length (shots))) (shots))
 (each [_ saved (ipairs (shots))]
   (vim.fn.delete saved))

@@ -33,9 +33,15 @@
   (.. "acp://chat/" s.session.project (if s.label (.. "/" s.label) "")))
 
 (local chats {})
-;; Shades worked out for each chat buffer in its current redraw, and its attached rows.
+;; Shades worked out for each chat buffer in its current redraw, its attached rows, and
+;; its code blocks' rows.
 (local drawing {})
 (local drawing-attached {})
+(local drawing-code {})
+
+(fn card-group [card]
+  ;; A card's background: a code block's or a quote's.
+  (if (= card.kind :quote) :AcpQuoteBlock :AcpCodeBlock))
 ;; Lays the chat's tables out again for its window's width; see Tables below.
 (var fit-tables nil)
 ;; Shows which choice the cursor is on; see Choices below.
@@ -103,7 +109,11 @@
 
 (fn create-buffers [s]
   (let [buf (vim.api.nvim_create_buf false true)]
-    (vim.api.nvim_buf_set_name buf (chat-name s))
+    ;; Another thread in the same project has the name already: number this one.
+    (let [name (chat-name s)]
+      (var n 1)
+      (while (not (pcall vim.api.nvim_buf_set_name buf (if (= n 1) name (.. name "#" n))))
+        (set n (+ n 1))))
     (tset (. vim.bo buf) :swapfile false)
     (tset (. vim.bo buf) :bufhidden :hide)
     (markdown buf)
@@ -157,9 +167,9 @@
     (setlocal :foldminlines 1)
     (setlocal :foldlevel 0)
     (setlocal :foldenable true)
-    ;; A bar beside your prompts, see gutter: a three-column fold column gives the
+    ;; A bar beside your prompts, see gutter: a four-column fold column gives the
     ;; status column its width, and gutter draws it instead.
-    (setlocal :foldcolumn "3")
+    (setlocal :foldcolumn "4")
     (setlocal :statuscolumn "%!v:lua.require'modules.acp.render'.gutter()")))
 
 (fn line-count [buf]
@@ -1406,14 +1416,22 @@
   ;; redraw. A virtual line (a block's padding, a heading's rule, a drawing, an image)
   ;; is counted as the line it hangs from, so it has that line's bar.
   (let [buf (vim.api.nvim_win_get_buf vim.g.statusline_winid)
-        group (?. drawing buf (- vim.v.lnum 1))]
-    ;; Three columns: the bar, then two of padding in the block's own shade, so its
-    ;; text sits inside the block rather than against its edge.
+        row (- vim.v.lnum 1)
+        group (?. drawing buf row)
+        ;; A card's own rows; of the virtual lines hanging from them, only a quote's,
+        ;; its padding.
+        card (?. drawing-code buf row)
+        code? (and card (or (>= vim.v.virtnum 0) (= card.kind :quote)))
+        ;; Its last two columns: the card's, so the card starts a column after the bar
+        ;; and its text sits two in; else the block's, as padding.
+        inner (if code? (.. "%#" (card-group card) "#  ") (.. "%#" (or group "Normal") "#  "))]
+    ;; Four columns: the bar, a column of the block's shade, and two of padding, so
+    ;; text sits inside its block rather than against its edge.
     (case group
-      :AcpYou "%#AcpYouBar#▎%#AcpYou#  "
-      :AcpInput "%#AcpInputBar#▎%#AcpInput#  "
-      :AcpAgent "%#AcpAgentBar#▎%#AcpAgent#  "
-      _ "   ")))
+      :AcpYou (.. "%#AcpYouBar#▎%#AcpYou# " inner)
+      :AcpInput (.. "%#AcpInputBar#▎%#AcpInput# " inner)
+      :AcpAgent (.. "%#AcpAgentBar#▎%#AcpAgent# " inner)
+      _ (if code? (.. "  " inner) "    "))))
 
 ;; File names ------------------------------------------------------------------------
 ;; A word naming a file or directory that's there, under the session's directory or as
@@ -1510,25 +1528,51 @@
   ;; A block's padding: a row of its shade.
   [[[(string.rep " " width) group]]])
 
-(fn pad-blocks [s top bot shaded]
-  (let [edges (block-edges s.buf shaded top bot)
-        width (or (table-width s) 80)
-        key (.. (table.concat (icollect [_ [row above? group] (ipairs edges)]
-                                (.. row (if above? "^" "v") group))
-                              " ")
-                width)]
-    (when (not= key s.pad-key)
-      (set s.pad-key key)
-      (vim.schedule
-        (fn []
-          (when (vim.api.nvim_buf_is_loaded s.buf)
-            (let [last (- (line-count s.buf) 1)]
-              (vim.api.nvim_buf_clear_namespace s.buf pad-ns (math.max 0 (- top 1)) (+ bot 2))
-              (each [_ [row above? group] (ipairs edges)]
-                (when (<= row last)
-                  (vim.api.nvim_buf_set_extmark s.buf pad-ns row 0
-                                                {:virt_lines (pad-lines s above? group width)
-                                                 :virt_lines_above above?}))))))))))
+(fn quote-edges [code top bot]
+  ;; [row above? :AcpQuoteBlock] for each edge of a run of quote lines in top..bot.
+  (let [quote? (fn [row] (= :quote (?. code row :kind)))
+        edges []]
+    (for [row top bot]
+      (when (quote? row)
+        (when (not (quote? (- row 1))) (table.insert edges [row true :AcpQuoteBlock]))
+        (when (not (quote? (+ row 1))) (table.insert edges [row false :AcpQuoteBlock]))))
+    edges))
+
+(fn pad-blocks [s top bot shaded code]
+  ;; A row's padding, above or below it, as one mark: a block's outermost, so a quote's
+  ;; padding sits inside its block's.
+  (let [edges (vim.list_extend (block-edges s.buf shaded top bot) (quote-edges code top bot))
+        sides {}
+        order []]
+    (each [_ [row above? group] (ipairs edges)]
+      (let [side (.. row (if above? "^" "v"))]
+        (when (not (. sides side))
+          (tset sides side {: row : above? :groups []})
+          (table.insert order side))
+        (let [groups (. sides side :groups)]
+          (if (= group :AcpQuoteBlock)
+            (if above? (table.insert groups group) (table.insert groups 1 group))
+            (if above? (table.insert groups 1 group) (table.insert groups group))))))
+    (let [width (or (table-width s) 80)
+          key (.. (table.concat (icollect [_ side (ipairs order)]
+                                  (.. side (table.concat (. sides side :groups) ",")))
+                                " ")
+                  width)]
+      (when (not= key s.pad-key)
+        (set s.pad-key key)
+        (vim.schedule
+          (fn []
+            (when (vim.api.nvim_buf_is_loaded s.buf)
+              (let [last (- (line-count s.buf) 1)]
+                (vim.api.nvim_buf_clear_namespace s.buf pad-ns (math.max 0 (- top 1)) (+ bot 2))
+                (each [_ side (ipairs order)]
+                  (let [{: row : above? : groups} (. sides side)]
+                    (when (<= row last)
+                      (vim.api.nvim_buf_set_extmark
+                        s.buf pad-ns row 0
+                        {:virt_lines (accumulate [lines [] _ g (ipairs groups)]
+                                       (vim.list_extend lines (pad-lines s above? g width)))
+                         :virt_lines_above above?}))))))))))))
 
 ;; Whole-line shades -------------------------------------------------------------------
 ;; Concealed markers still count where 'linebreak' wraps a line, so a wrapped row can end
@@ -1539,8 +1583,64 @@
 
 (local line-ns (vim.api.nvim_create_namespace "acp-line-shade"))
 
-(fn sync-line-shades [s from to shaded]
-  (let [key (table.concat (fcollect [row from to] (or (. shaded row) "-")) " ")]
+;; Code blocks ------------------------------------------------------------------------
+;; A fenced block is a card of its own shade (AcpCodeBlock), in a reply, a prompt or the
+;; diff or command under a request: its ``` lines hidden, so they're its top and bottom
+;; rows, and its language at the top right. The fences are worked out as the chat is
+;; drawn, for the rows around the view.
+
+(fn fence-depth-before [buf row]
+  ;; Whether row (0-based) is inside a fenced block: the fences back to the turn's
+  ;; heading, odd or even.
+  (var open false)
+  (var r (- row 1))
+  (var done false)
+  (while (and (not done) (>= r 0))
+    (let [line (line-at buf r)]
+      (if (or (vim.startswith line "## You") (vim.startswith line "## Agent")) (set done true)
+          (line:match "^%s*```") (set open (not open))))
+    (set r (- r 1)))
+  open)
+
+(local ui-labels {:tool true :permission true :elicitation true :egress true :stop true
+                  :acp true :turn true})
+
+(fn quote-line? [line]
+  ;; A markdown quote ("> text"), not one of the chat's own "> kind: " rows or ">>"
+  ;; thinking.
+  (let [label (line:match "^> (%a+): ")]
+    (and (or (vim.startswith line "> ") (= line ">"))
+         (not (vim.startswith line ">>"))
+         (not (and label (. ui-labels label))))))
+
+(fn code-rows [buf from to]
+  ;; {row {:kind :open|:close|:in :lang}} for the fenced blocks' rows in from..to, and
+  ;; {:kind :quote} for markdown quotes outside them, which are cards too.
+  (let [rows {}
+        last (- (line-count buf) 1)]
+    (var open (fence-depth-before buf from))
+    (for [row from (math.min to last)]
+      (let [line (line-at buf row)
+            fence (line:match "^%s*```+%s*(%S*)")]
+        (if (and fence (not open))
+          (do (set open true) (tset rows row {:kind :open :lang fence}))
+          fence
+          (do (set open false) (tset rows row {:kind :close}))
+          (and open (or (vim.startswith line "## You") (vim.startswith line "## Agent")))
+          (set open false)
+          open
+          (tset rows row {:kind :in})
+          (quote-line? line)
+          (tset rows row {:kind :quote}))))
+    rows))
+
+(fn line-group [shaded code row]
+  ;; The background for row: a code or quote card's, else its block's shade.
+  (let [card (. code row)]
+    (if card (card-group card) (. shaded row))))
+
+(fn sync-line-shades [s from to shaded code]
+  (let [key (table.concat (fcollect [row from to] (or (line-group shaded code row) "-")) " ")]
     (when (or (not= key s.line-key) (not= from s.line-from))
       (set s.line-key key)
       (set s.line-from from)
@@ -1550,7 +1650,7 @@
             (let [last (- (line-count s.buf) 1)]
               (vim.api.nvim_buf_clear_namespace s.buf line-ns from (+ to 1))
               (for [row from (math.min to last)]
-                (let [group (. shaded row)]
+                (let [group (line-group shaded code row)]
                   (when group
                     (vim.api.nvim_buf_set_extmark s.buf line-ns row 0
                                                   {:line_hl_group group :priority 1})))))))))))
@@ -1565,15 +1665,18 @@
                  ;; changed the padding, which moved it back, and the window flickered.
                  (let [from (math.max 0 (- top lookahead))
                        to (+ top (vim.api.nvim_win_get_height win) lookahead)
-                       shaded (shades s (math.max 0 (- from 1)) (+ to 1))]
+                       shaded (shades s (math.max 0 (- from 1)) (+ to 1))
+                       code (code-rows buf (math.max 0 (- from 1)) (+ to 1))]
                    (tset drawing buf shaded)
+                   (tset drawing-code buf code)
                    (tset drawing-attached buf (attached-rows s))
-                   (pad-blocks s from to shaded)
-                   (sync-line-shades s from to shaded)
+                   (pad-blocks s from to shaded code)
+                   (sync-line-shades s from to shaded code)
                    true)
                  false)))
    :on_line (fn [_ _ buf row]
-              (let [group (?. drawing buf row)
+              (let [code (?. drawing-code buf row)
+                    group (if code (card-group code) (?. drawing buf row))
                     s (. chats buf)]
                 ;; Its text and on to the window's edge, at once; the cells a wrapped
                 ;; row leaves where its concealed markers would have been are filled by
@@ -1582,10 +1685,39 @@
                   (vim.api.nvim_buf_set_extmark buf shade-ns row 0
                                                 {:end_row (+ row 1) :end_col 0 :hl_group group
                                                  :hl_eol true :ephemeral true :priority 1}))
+                ;; A quote: a bar over its ">", and its text in italic.
+                (when (and code (= code.kind :quote))
+                  (let [line (line-at buf row)]
+                    (vim.api.nvim_buf_set_extmark buf shade-ns row 0
+                                                  {:virt_text [["▎" :AcpQuoteBar]]
+                                                   :virt_text_pos :overlay
+                                                   ;; On the card, not a hole in it.
+                                                   :hl_mode :combine
+                                                   :ephemeral true})
+                    (when (> (length line) 2)
+                      (vim.api.nvim_buf_set_extmark buf shade-ns row 2
+                                                    {:end_col (length line) :hl_group :AcpQuoteText
+                                                     :ephemeral true :priority 150}))))
+                ;; A code card's fences are hidden, its empty top and bottom rows, and
+                ;; its language goes at the top right.
+                (when (and code (or (= code.kind :open) (= code.kind :close)))
+                  (let [line (line-at buf row)]
+                    (vim.api.nvim_buf_set_extmark buf shade-ns row 0
+                                                  {:end_col (length line) :conceal ""
+                                                   :ephemeral true})
+                    (when (and code.lang (not= code.lang ""))
+                      (vim.api.nvim_buf_set_extmark buf shade-ns row 0
+                                                    {:virt_text [[code.lang :AcpCodeLang]]
+                                                     :virt_text_pos :right_align
+                                                     :hl_mode :combine
+                                                     :ephemeral true}))))
                 (when s
                   (let [line (line-at buf row)
                         ;; In a tool, note or thinking row, as quiet as the row.
-                        path-group (if (vim.startswith line ">") :AcpPathQuiet :AcpPath)]
+                        path-group (if (and (vim.startswith line ">")
+                                            (not (and code (= code.kind :quote))))
+                                     :AcpPathQuiet
+                                     :AcpPath)]
                     (each [_ [from to] (ipairs (path-ranges s line))]
                       (vim.api.nvim_buf_set_extmark buf shade-ns row from
                                                     {:end_col to :hl_group path-group
