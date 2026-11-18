@@ -130,6 +130,7 @@
     (set s.input-images [])
     (set s.rules [])
     (set s.attached-blocks {})
+    (set s.comments [])
     (tset chats buf s)
     (watch-typing s buf)
     (set s.buf buf)))
@@ -957,6 +958,11 @@
                  :hide [[0 start]]})
       ;; Only an unusual end is in the chat, see session.end-turn.
       :stop {:icon "■ " :hl :AcpToolFailed :hide [[0 start]]}
+      ;; Your comment on a reply (see Comments), dimmed once it's sent. kind is :sent
+      ;; then. Its text is coloured to the line's end, so it stays coloured as you type.
+      :comment (let [group (if (= kind :sent) :AcpCommentSent :AcpComment)]
+                 {:icon (.. (vim.fn.nr2char 0xF075) "  ") :hl group
+                  :hide [[0 start]] :text group})
       ;; The line under a reply: agent · model · time · speed, the agent in its colour.
       :turn (let [name-end (or (line:find " · " start true) (+ (length line) 1))]
               {:icon "" :hl :AcpUiPrefix
@@ -975,6 +981,9 @@
         (vim.api.nvim_buf_set_extmark buf ui-ns row from {:end_col to :hl_group group :priority 200}))
       (when look.line
         (vim.api.nvim_buf_set_extmark buf ui-ns row 0 {:line_hl_group look.line :priority 50}))
+      (when look.text
+        (vim.api.nvim_buf_set_extmark buf ui-ns row 0 {:end_row (+ row 1) :end_col 0
+                                                       :hl_group look.text :priority 200}))
       ;; Combined, so a line's background goes behind the icon too.
       (when (not= look.icon "")
         (vim.api.nvim_buf_set_extmark buf ui-ns row 0
@@ -1275,6 +1284,9 @@
             (set block.attached nil)
             (tset s.attached-blocks block nil)))))))
 
+;; What the lines of a reply to your comment start with, see Comments.
+(local reply-bar "│ ")
+
 (fn attached-index [s block row]
   ;; row is 1-based. 0 on the block's own line, 1..n on its attached lines, else nil.
   (let [start (line-row s block)]
@@ -1308,13 +1320,13 @@
   found)
 
 (fn attached-rows [s]
-  ;; 0-based rows of lines attached under blocks, as a set.
+  ;; 0-based rows of lines attached under blocks, to the block each is under.
   (let [rows {}]
     (each [block _ (pairs s.attached-blocks)]
       (let [start (line-row s block)]
         (when start
           (for [r start (+ start (or block.attached 0) -1)]
-            (tset rows r true)))))
+            (tset rows r block)))))
     rows))
 
 ;; Choices ----------------------------------------------------------------------------
@@ -1607,7 +1619,7 @@
   open)
 
 (local ui-labels {:tool true :permission true :elicitation true :egress true :stop true
-                  :acp true :turn true})
+                  :acp true :turn true :comment true})
 
 (fn quote-line? [line]
   ;; A markdown quote ("> text"), not one of the chat's own "> kind: " rows or ">>"
@@ -1756,7 +1768,13 @@
                       (when number
                         (vim.api.nvim_buf_set_extmark buf shade-ns row 2
                                                       {:end_col (length number) :conceal ""
-                                                       :ephemeral true})))))))})
+                                                       :ephemeral true})))
+                    ;; A reply under your comment has a bar of the comment's colour.
+                    (when (and (= :comment (?. drawing-attached buf row :type))
+                               (vim.startswith line reply-bar))
+                      (vim.api.nvim_buf_set_extmark buf shade-ns row 0
+                                                    {:end_col (length reply-bar) :hl_group :AcpCommentBar
+                                                     :ephemeral true :priority 200}))))))})
 
 (fn expansion-lines [s tool]
   (let [sections (tool-sections s tool "####")]
@@ -1790,6 +1808,91 @@
     (vim.api.nvim_buf_set_lines buf 0 -1 false (tool-detail-lines s tool status-name))
     (tset (. vim.bo buf) :modifiable false)
     (markdown buf)))
+
+;; Comments ---------------------------------------------------------------------------
+;; gc puts a line "> comment: " under the line the cursor is on, or under a selection,
+;; to write a comment on what's above it in. <CR> on it sends the comment with the
+;; lines it's about, and it dims. Once that turn ends, the reply goes under the comment
+;; as well as at the end of the chat, its lines starting with reply-bar, and <CR> on
+;; the comment or its reply hides or shows it. Each comment is a block with a mark,
+;; like a tool's line, in s.comments, with the lines it's about, whether it's sent, and
+;; its reply.
+
+(local comment-prefix "> comment: ")
+;; How many lines a comment without a selection is about: its line's and those above
+;; it in the same paragraph, up to this many.
+(local comment-lines 5)
+
+(fn comment-alive? [s c]
+  ;; Its line is still there and still a comment: you may have deleted or changed it.
+  (let [[row _ details] (vim.api.nvim_buf_get_extmark_by_id s.buf ns c.mark {:details true})]
+    (and row (not details.invalid) (vim.startswith (line-at s.buf row) comment-prefix))))
+
+(fn comment-at [s row]
+  ;; The comment whose line, or reply under it, is on row (1-based), or nil.
+  (accumulate [found nil _ c (ipairs (or s.comments [])) &until found]
+    (when (and (comment-alive? s c) (attached-index s c row)) c)))
+
+(fn commentable? [s row]
+  ;; Whether row (0-based) is a line of the transcript there's something to say about:
+  ;; not blank, a turn's heading, one of the chat's own rows, or under a block.
+  (let [line (line-at s.buf row)]
+    (and (< row (input-start s))
+         (not= (vim.trim line) "")
+         (not (heading-kind line))
+         (not (vim.startswith line ">>"))
+         (not (. ui-labels (or (line:match "^> (%a+): ") "")))
+         (not (. (attached-rows s) row)))))
+
+(fn add-comment [s from to]
+  ;; Opens a comment under rows from..to (1-based): a selection's, else the cursor's
+  ;; row, with the lines above it in its paragraph. Your edit, so u takes it away
+  ;; again. Returns the comment's row (1-based), or nil and why there isn't one.
+  (let [rows (if (= from to)
+               (let [rows []]
+                 (var r (- to 1))
+                 (while (and (>= r 0) (< (length rows) comment-lines) (commentable? s r))
+                   (table.insert rows 1 r)
+                   (set r (- r 1)))
+                 rows)
+               (fcollect [r (- from 1) (- to 1)]
+                 (when (commentable? s r) r)))
+        after (. rows (length rows))]
+    (if (not after)
+      (values nil "nothing to comment on here")
+      ;; Under the line being written, it would be written onto.
+      (and (>= after (last-row s)) (= (?. s.turn :state) :running))
+      (values nil "the reply is still being written here")
+      (let [row (+ after 1)]
+        (vim.api.nvim_buf_set_lines s.buf row row false [comment-prefix])
+        (table.insert s.comments
+                      {:type :comment
+                       :about (icollect [_ r (ipairs rows)] (line-at s.buf r))
+                       :section (section-above s.buf row)
+                       :mark (vim.api.nvim_buf_set_extmark s.buf ns row 0
+                                                           {:right_gravity false :invalidate true})})
+        (decorate s.buf row)
+        (+ row 1)))))
+
+(fn comment-text [s c]
+  (let [row (line-row s c)]
+    (vim.trim (: (line-at s.buf (- row 1)) :sub (+ (length comment-prefix) 1)))))
+
+(fn comment-sent [s c]
+  (set c.sent true)
+  (let [row (line-row s c)]
+    (when row (decorate s.buf (- row 1) :sent))))
+
+(fn reply-to-comment [s c text]
+  (set c.reply (icollect [_ line (ipairs (vim.split text "\n" {:plain true}))]
+                 (.. reply-bar line)))
+  (when (comment-alive? s c)
+    (attach-lines s c c.reply)))
+
+(fn toggle-reply [s c]
+  (if (attached? c)
+    (detach-lines s c)
+    (attach-lines s c c.reply)))
 
 (fn prompt-text [s]
   (let [lines (vim.api.nvim_buf_get_lines s.buf (- (input-row s) 1) -1 false)]
@@ -1894,6 +1997,12 @@
  : prompt-text
  : clear-prompt
  : add-to-prompt
+ : add-comment
+ : comment-at
+ : comment-text
+ : comment-sent
+ : reply-to-comment
+ : toggle-reply
  : wipe
  : fold
  : foldtext

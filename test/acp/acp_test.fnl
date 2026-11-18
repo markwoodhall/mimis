@@ -259,6 +259,47 @@
 (press-enter-on edit-row)
 (check "a tool still collapses after more turns" (not (has-line (lines-of s.buf) "#### Files")))
 
+;; Comments: gc under a line of a reply, <CR> on it sends it with that line, and the
+;; reply goes under it as well as at the end, hidden and shown with <CR>.
+(let [row-of (fn [text]
+               (accumulate [found nil i l (ipairs (lines-of s.buf))]
+                 (if (= l text) i found)))
+      reply-row (row-of "Plain reply.")]
+  (vim.api.nvim_set_current_win (. (vim.fn.win_findbuf s.buf) 1))
+  (vim.api.nvim_win_set_cursor 0 [reply-row 0])
+  (vim.api.nvim_feedkeys (.. "gcplease explain" (vim.keycode "<Esc>")) :x false)
+  (check "gc opens a comment under the line"
+         (= "> comment: please explain" (. (lines-of s.buf) (+ reply-row 1)))
+         (lines-after (- reply-row 1) 3))
+  (press-enter-on (+ reply-row 1))
+  (wait #(= s.turn.state :idle))
+  (let [lines (lines-of s.buf)]
+    (check "the comment is sent with the line it's about"
+           (and (has-line lines "About this part of your reply:")
+                (has-line lines "> Plain reply."))
+           lines)
+    (check "the reply goes under the comment"
+           (vim.deep_equal ["> comment: please explain" "│ Noted." "│ Second line."]
+                           (lines-after reply-row 3))
+           (lines-after reply-row 3))
+    (check "and at the end of the chat as usual" (has-line lines "Second line.")))
+  (let [ui (vim.api.nvim_get_namespaces)
+        marks (vim.api.nvim_buf_get_extmarks s.buf (. ui :acp-ui) [reply-row 0] [reply-row -1]
+                                             {:details true})]
+    (check "a sent comment is dimmed"
+           (accumulate [found false _ [_ _ _ d] (ipairs marks)]
+             (or found (= d.hl_group :AcpCommentSent)))
+           marks))
+  (press-enter-on (+ reply-row 2))
+  (check "<CR> on the reply hides it"
+         (and (= "> comment: please explain" (. (lines-of s.buf) (+ reply-row 1)))
+              (not (has-line (lines-after reply-row 3) "│ " true)))
+         (lines-after reply-row 3))
+  (press-enter-on (+ reply-row 1))
+  (check "<CR> on the comment shows it again"
+         (= "│ Noted." (. (lines-of s.buf) (+ reply-row 2)))
+         (lines-after reply-row 3)))
+
 ;; Long tool titles are shortened, with the full title in the details
 (session.send-prompt s "long titles")
 (wait #(= s.turn.state :idle))

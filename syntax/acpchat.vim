@@ -45,9 +45,10 @@ syntax region markdownLink matchgroup=markdownLinkDelimiter start="(" end=")" ke
 
 " The tool, permission, elicitation, egress, stop, acp and turn rows carry agent-supplied
 " titles. Left to markdown, a stray backtick or fence in a title opens syntax that
-" colours every line below it, so those rows (and the folded >> thinking) stay out of it.
+" colours every line below it, so those rows (and the folded >> thinking) stay out of it,
+" as do your comments.
 syntax region AcpUiLine matchgroup=AcpUiPrefix
-      \ start=/^>\%(>\| \%(tool\|permission\|elicitation\|egress\|stop\|acp\|turn\):\)/
+      \ start=/^>\%(>\| \%(tool\|permission\|elicitation\|egress\|stop\|acp\|turn\|comment\):\)/
       \ end=/$/ contains=NONE
 
 " Where to start parsing when the chat is drawn part-way down. Languages included for

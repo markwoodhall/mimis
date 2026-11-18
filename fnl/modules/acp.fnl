@@ -137,9 +137,26 @@
                         (do (vim.schedule #(session.answer-open s)) "")
                         (session.tool-at s row)
                         "<Cmd>AcpTool<CR>"
+                        (session.comment-action s row)
+                        (do (vim.schedule (session.comment-action s row)) "")
                         "<CR>")))
                   {:buffer s.buf :expr true
-                   :desc "ACP send, answer permission, answer a question or toggle tool details"}))
+                   :desc "ACP send, answer permission, answer a question, toggle tool details or send a comment"})
+  ;; gc comments on the line under the cursor (and the lines above it in its paragraph)
+  ;; or on the lines selected, on a line of its own under them, in insert mode.
+  (let [open-comment (fn [from to]
+                       (let [(row why) (render.add-comment s from to)]
+                         (if row
+                           (do (vim.api.nvim_win_set_cursor 0 [row 0])
+                               (vim.cmd "startinsert!"))
+                           (vim.notify (.. "acp: " why) vim.log.levels.WARN))))]
+    (vim.keymap.set :n "gc" #(let [row (chat-row s)] (open-comment row row))
+                    {:buffer s.buf :nowait true :desc "ACP comment on this line of the chat"})
+    (vim.keymap.set :x "gc" #(let [a (vim.fn.line "v")
+                                   b (vim.fn.line ".")]
+                               (vim.api.nvim_feedkeys (vim.keycode "<Esc>") :nx false)
+                               (open-comment (math.min a b) (math.max a b)))
+                    {:buffer s.buf :nowait true :desc "ACP comment on the selected lines of the chat"})))
 
 (fn focus [s mods]
   ;; Shows the chat with the cursor on a waiting permission choice or question,
@@ -519,7 +536,12 @@
     ;; File names in those rows: underlined, but not bold, in their muted colour.
     (quiet :AcpPathQuiet :Normal {:underline true})
     ;; Folded thinking, the chat's Folded.
-    (quiet :AcpFolded :Comment {:italic true}))
+    (quiet :AcpFolded :Comment {:italic true})
+    ;; Your comments on a reply: in colour until sent, then dimmed. The bar beside the
+    ;; reply under one is in the comment's colour.
+    (vim.api.nvim_set_hl 0 :AcpComment {:link :DiagnosticInfo :default false})
+    (quiet :AcpCommentSent :DiagnosticInfo {:italic true})
+    (vim.api.nvim_set_hl 0 :AcpCommentBar {:link :AcpCommentSent :default false}))
   ;; Files the chat names.
   (vim.api.nvim_set_hl 0 :AcpPath {:bold true :underline true :default false})
   ;; The threads sidebar, in the chat's own colours: the heading like the agent's name

@@ -143,6 +143,10 @@ for line in sys.stdin:
             text("Plain reply.")
             send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
             continue
+        if prompt.startswith("About this part of "):
+            text("Noted.\nSecond line.")
+            send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
+            continue
         if prompt == "long titles":
             long = "cd /tmp/x && " + " && ".join("echo step-%d" % i for i in range(20))
             update({"sessionUpdate": "tool_call", "toolCallId": "long1", "title": long, "kind": "execute", "status": "completed"})

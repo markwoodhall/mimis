@@ -939,6 +939,11 @@
                       :tools (icollect [_ id (ipairs (or turn.tool-ids []))]
                                (let [tool (. s.tools id)]
                                  (when tool {:title tool.title :status tool.status})))})
+    ;; A comment's reply goes under it too; with no reply, how the turn ended.
+    (when turn.comment
+      (render.reply-to-comment s turn.comment (if (= s.last-turn.reply "")
+                                                (.. "_no reply: " reason "_")
+                                                s.last-turn.reply)))
     (set s.turns-finished (+ (or s.turns-finished 0) 1))
     (set s.turn {:state :idle})
     (idle s)
@@ -991,6 +996,28 @@
                      (when (= s.turn turn)
                        (end-turn s err result))))
       true)))
+
+(fn send-comment [s c]
+  ;; Sends your comment with the lines it's about, quoted. Its reply goes under it when
+  ;; the turn ends, see end-turn.
+  (let [text (render.comment-text s c)]
+    (if (= text "")
+      (vim.notify "acp: write the comment first" vim.log.levels.WARN)
+      (when (send-prompt s (.. "About this part of " (if (= c.section :you) "my prompt" "your reply") ":\n\n"
+                               (table.concat (icollect [_ line (ipairs c.about)] (.. "> " line)) "\n")
+                               "\n\n" text))
+        (set s.turn.comment c)
+        (render.comment-sent s c)))))
+
+(fn comment-action [s row]
+  ;; What <CR> does on a comment or its reply on row (1-based): sends a comment not yet
+  ;; sent, else hides or shows its reply. nil if there's no comment there.
+  (let [c (render.comment-at s row)]
+    (when c
+      (fn []
+        (if (not c.sent) (send-comment s c)
+            c.reply (render.toggle-reply s c)
+            (vim.notify "acp: the reply to this comment isn't in yet" vim.log.levels.INFO))))))
 
 (fn cancel [s]
   (if (and s (= s.turn.state :running))
@@ -1765,6 +1792,7 @@
  : configure
  : stop
  : send-prompt
+ : comment-action
  : cancel
  : current
  : alive?}
