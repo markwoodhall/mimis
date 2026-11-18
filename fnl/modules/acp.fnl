@@ -457,6 +457,9 @@
                              normal {:bg (blend 0 normal 0.25) :default false}
                              {:link :ColorColumn :default false}))
     (vim.api.nvim_set_hl 0 :AcpCodeLang {:link :AcpUiPrefix :default false})
+    ;; A diff's added and removed lines, the whole row, over the card.
+    (vim.api.nvim_set_hl 0 :AcpDiffAddLine {:link :DiffAdd :default false})
+    (vim.api.nvim_set_hl 0 :AcpDiffDelLine {:link :DiffDelete :default false})
     ;; A quote: the same card, a bar in the accent colour, its text in italic.
     (vim.api.nvim_set_hl 0 :AcpQuoteBlock {:link :AcpCodeBlock :default false})
     (vim.api.nvim_set_hl 0 :AcpQuoteBar

@@ -40,8 +40,12 @@
 (local drawing-code {})
 
 (fn card-group [card]
-  ;; A card's background: a code block's or a quote's.
-  (if (= card.kind :quote) :AcpQuoteBlock :AcpCodeBlock))
+  ;; A card's background: a code block's or a quote's; an added or removed line of a
+  ;; diff, the diff's.
+  (if (= card.kind :quote) :AcpQuoteBlock
+      (= card.diff :add) :AcpDiffAddLine
+      (= card.diff :del) :AcpDiffDelLine
+      :AcpCodeBlock))
 ;; Lays the chat's tables out again for its window's width; see Tables below.
 (var fit-tables nil)
 ;; Shows which choice the cursor is on; see Choices below.
@@ -1616,20 +1620,27 @@
 (fn code-rows [buf from to]
   ;; {row {:kind :open|:close|:in :lang}} for the fenced blocks' rows in from..to, and
   ;; {:kind :quote} for markdown quotes outside them, which are cards too.
+  ;; In a diff, an added or removed line keeps the diff's colours: :diff :add or :del.
   (let [rows {}
         last (- (line-count buf) 1)]
     (var open (fence-depth-before buf from))
+    (var lang nil)
     (for [row from (math.min to last)]
       (let [line (line-at buf row)
             fence (line:match "^%s*```+%s*(%S*)")]
         (if (and fence (not open))
-          (do (set open true) (tset rows row {:kind :open :lang fence}))
+          (do (set open true) (set lang fence) (tset rows row {:kind :open :lang fence}))
           fence
           (do (set open false) (tset rows row {:kind :close}))
           (and open (or (vim.startswith line "## You") (vim.startswith line "## Agent")))
           (set open false)
           open
-          (tset rows row {:kind :in})
+          (tset rows row {:kind :in
+                          :diff (when (= lang "diff")
+                                  (if (vim.startswith line "+++") nil
+                                      (vim.startswith line "---") nil
+                                      (vim.startswith line "+") :add
+                                      (vim.startswith line "-") :del))})
           (quote-line? line)
           (tset rows row {:kind :quote}))))
     rows))
