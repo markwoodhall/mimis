@@ -129,9 +129,16 @@
                             {:kind :new :cwd parent.session.cwd}
                             {: parent
                              :label id
-                             :on-ready (fn [s] (session.send-prompt s prompt))}))
+                             :on-ready (fn [s] (session.send-prompt s prompt))
+                             :on-turn-end (fn [_ reason]
+                                            (child.say (if (= reason "end_turn")
+                                                         "finished (:AcpAgents to read it)"
+                                                         (.. "stopped: " reason " (:AcpAgents to see why)"))))}))
         (b.on-child child.session)
-        (session.note parent (.. "> acp: started " id " (:AcpAgents to watch it)"))
+        ;; The parent's line about it, where it was started (in a comment's thread, if
+        ;; that's where), says how it's getting on.
+        (let [note (session.note parent (.. "> acp: started " id " (:AcpAgents to watch it)"))]
+          (set child.say #(session.update-note parent note (.. "> acp: " id " " $1))))
         (done (status child))))))
 
 (fn hold [b args settled? finish]
@@ -173,6 +180,7 @@
       (fail (.. child.id " is " state ", it takes a prompt when idle"))
       (do
         (session.send-prompt s args.prompt)
+        (child.say "is working on a follow-up (:AcpAgents to watch it)")
         (done (status child))))))
 
 (fn cancel-child [child done]

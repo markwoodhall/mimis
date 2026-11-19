@@ -8,7 +8,10 @@
 ;; is otherwise the agent's, or its first prompt), d deletes one, or on a project's
 ;; heading all of its threads (not running ones), R
 ;; reads the logs again, q closes. Running threads are marked: ● idle, ● working, and
-;; ● waiting on you, kept up to date while the sidebar is open.
+;; ● waiting on you, kept up to date while the sidebar is open. Under a running thread
+;; are the agents it delegated to, while their sessions are open, with how each is
+;; getting on; <CR> on one goes to its chat (gW goes to whichever chat waits on you).
+;; A thread one of them is waiting in is marked as waiting on you too.
 ;;
 ;; A project shows its running threads and its 3 newest others; "… N more" under them
 ;; shows the rest on <CR>, and "… show fewer" hides them again.
@@ -64,10 +67,13 @@
 
 (fn marker [t]
   ;; A running thread's dot, in the colours of the chat's tool rows: idle, working, or
-  ;; waiting on you. nil for one that isn't running.
+  ;; waiting on you, itself or an agent it delegated to. nil for one that isn't running.
   (let [s t.live]
     (when s
-      (if (session.waiting-on-you? s) :AcpThreadsWaiting
+      (if (or (session.waiting-on-you? s)
+              (accumulate [waiting false _ child (ipairs (session.children s))]
+                (or waiting (and (not child.ended) (session.waiting-on-you? child)))))
+        :AcpThreadsWaiting
           (= s.turn.state :running) :AcpThreadsWorking
           :AcpThreadsLive))))
 
@@ -169,7 +175,38 @@
             (table.insert marks [row (length head) (+ (length head) (length title))
                                  (if current? :AcpThreadsCurrent :AcpThreadsTitle)])
             (table.insert marks [row (- (length (. lines (+ row 1))) (length age)) -1 :AcpThreadsMeta])
-            (when current? (table.insert line-marks [row :AcpThreadsShown]))))
+            (when current? (table.insert line-marks [row :AcpThreadsShown]))
+            ;; The agents it delegated to, under it while their sessions are open: <CR>
+            ;; on one goes to its chat, where it may be waiting on you.
+            (each [_ child (ipairs (if t.live (session.children t.live) []))]
+              (when (not child.ended)
+                (let [dot (marker {:live child})
+                      (glyph glyph-group) (agent-glyph child.agent.name)
+                      st (session.state child)
+                      word (case st
+                             :waiting_for_user "waiting on you"
+                             :running "working"
+                             :starting "starting"
+                             :idle "done"
+                             other (tostring other))
+                      indent (.. margin "  ↳ ")
+                      before (.. indent (if dot "● " "  "))
+                      head (.. before glyph " ")
+                      room (- inner 4 2 (vim.fn.strdisplaywidth glyph) 1 (vim.fn.strdisplaywidth word) 2)
+                      title child.session.title
+                      label (shorten (.. (or child.label child.agent.name)
+                                         (if title (.. " · " title) ""))
+                                     room)
+                      gap (string.rep " " (math.max 1 (- room (vim.fn.strdisplaywidth label) -2)))
+                      row (add (.. head label gap word))]
+                  (tset rows (+ row 1) {: child :cwd child.session.cwd})
+                  (table.insert marks [row (length margin) (length indent) :AcpThreadsMeta])
+                  (when dot
+                    (table.insert marks [row (length indent) (+ (length indent) (length "●")) dot]))
+                  (table.insert marks [row (length before) (+ (length before) (length glyph)) glyph-group])
+                  (table.insert marks [row (length head) (+ (length head) (length label)) :AcpThreadsTitle])
+                  (table.insert marks [row (- (length (. lines (+ row 1))) (length word)) -1
+                                       (if (= st :waiting_for_user) :AcpThreadsWaiting :AcpThreadsMeta)]))))))
         ;; <CR> on it shows the rest, or fewer again.
         (when (or (> g.hidden 0) (. state.expanded g.project))
           (let [row (add (.. margin "  " (if (> g.hidden 0) (.. "… " g.hidden " more") "… show fewer")))]
@@ -234,6 +271,8 @@
           (draw))
         t.live
         (in-project t #(state.actions.show t.live))
+        t.child
+        (in-project t #(state.actions.show t.child))
         (= (or t.id "") "")
         (vim.notify "acp: this thread's log has no session id, so it can't be resumed"
                     vim.log.levels.WARN)
@@ -243,7 +282,7 @@
   ;; On a thread or its project's heading: a new thread in that project.
   (let [t (under-cursor)
         t (if (?. t :heading) (. t.heading.threads 1) t)]
-    (when (and t (not t.toggle))
+    (when (and t (not t.toggle) (not t.child))
       (in-project t #(state.actions.new t)))))
 
 (fn log-paths [threads]
@@ -280,7 +319,7 @@
   ;; d: the thread under the cursor, or on a heading every thread of its project. A
   ;; running thread is left alone: its log is still being written.
   (let [t (under-cursor)]
-    (when (and t (not t.toggle))
+    (when (and t (not t.toggle) (not t.child))
       (if t.heading
         (let [g t.heading
               done (vim.tbl_filter #(not $1.live) g.threads)
@@ -299,7 +338,7 @@
   ;; Names the thread under the cursor: in its log, so the name lasts and wins over the
   ;; agent's titles. A running thread not logged yet takes it into its log's header.
   (let [t (under-cursor)]
-    (when (and t (not t.toggle) (not t.heading))
+    (when (and t (not t.toggle) (not t.heading) (not t.child))
       (vim.ui.input {:prompt "Rename thread" :default (or t.title "")}
         (fn [answer]
           (let [name (when answer (vim.trim answer))]

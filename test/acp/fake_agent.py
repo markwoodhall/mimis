@@ -58,6 +58,10 @@ def replay(session_id):
         # A comment on the first reply, made inline: it goes back under "Hi there.".
         user("Inline comment on this part of your reply:\n\n> Hi there.\n\nwhy so brief?")
         text("Inline answer.")
+        # And a follow-up in that comment's thread.
+        user("Follow-up to my inline comment on this part of your reply:\n\n> Hi there.\n\n"
+             "About this part of your answer:\n\n> Inline answer.\n\nand then?")
+        text("Follow-up answer.")
     update({"sessionUpdate": "usage_update", "used": 5000, "size": 100000})
     update({"sessionUpdate": "config_option_update", "configOptions": config_options()})
 
@@ -147,7 +151,7 @@ for line in sys.stdin:
             text("Plain reply.")
             send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
             continue
-        if prompt.startswith("Inline comment on this part of "):
+        if prompt.startswith(("Inline comment on this part of ", "Follow-up to my inline comment")):
             text("Noted.\nSecond line.")
             send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
             continue

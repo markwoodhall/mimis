@@ -1878,8 +1878,11 @@
 
 ;; Comments ---------------------------------------------------------------------------
 ;; gc opens a comment on the block under the cursor (a paragraph, list, table or code
-;; block, or a heading's whole section), or on the lines selected: a thread under the
-;; end of their block, to write the comment in, with a bar beside the lines it's about.
+;; block, or a heading's whole section): a thread under the block. Or on the lines
+;; selected: a thread just under them, splitting a paragraph or list there (not a code
+;; block or table, which it goes under). A bar beside the lines it's about.
+;; In a thread, gc follows it up instead, at the thread's end, quoting the part of a
+;; reply in it that it's on.
 ;; <CR> on the comment sends it with the lines it's about (queued, while a turn runs),
 ;; and the reply is written in the thread, under the comment, the way a reply is at
 ;; the end of the chat. <CR> on the comment then hides or shows its reply.
@@ -1898,10 +1901,10 @@
 ;; it's in, and its state: :draft, :queued, :sent (being replied to) or :done. A
 ;; resumed session puts comments back where they were made, see restore-comment.
 
-;; The section's own functions are kept to this one local, as a chunk can have at
-;; most 200.
+;; The section's own functions are in a function of their own, called once: a
+;; function can have at most 200 locals at once, and the chunk's are near that.
 (local comments
-  (do
+  ((fn []
     (local comment-ns (vim.api.nvim_create_namespace "acp-comment"))
     ;; The headings that open each section again under a thread.
     (local section-headings {:you (.. "## You" reopen-mark) :agent (.. "## Agent" reopen-mark)
@@ -2094,6 +2097,42 @@
         (table.insert s.comments c)
         c))
 
+    ;; A follow-up is a comment at the end of a thread, in the same thread: it shares
+    ;; the thread's end and the lines its first comment is about, and its :root is that
+    ;; first comment.
+
+    (fn thread-at [s row]
+      ;; The comment of the innermost thread row (0-based) is in, the latest of the
+      ;; thread's if it has follow-ups, or nil.
+      (var found nil)
+      (each [_ c (ipairs (or s.comments []))]
+        (when (comment-alive? s c)
+          (let [start (mark-row s c.start)]
+            (when (and (>= row start) (< row (mark-row s c.end))
+                       (or (not found) (> start (mark-row s found.start))))
+              (set found c)))))
+      found)
+
+    (fn open-follow-up [s f root lines time]
+      ;; Puts comment f at the end of root's thread, with its lines.
+      (let [row (mark-row s root.end)
+            heading (if time (.. comment-heading " — " time) comment-heading)]
+        (vim.api.nvim_buf_set_lines s.buf row row false
+                                    (vim.list_extend (if (= (line-at s.buf (- row 1)) "")
+                                                       [heading]
+                                                       ["" heading])
+                                                     lines))
+        (set f.root root)
+        (set f.section root.section)
+        (set f.about root.about)
+        (set f.from root.from)
+        (set f.to root.to)
+        (set f.end root.end)
+        (set f.start (vim.api.nvim_buf_set_extmark s.buf ns (- (mark-row s root.end) (length lines) 1) 0
+                                                   {:invalidate true}))
+        (table.insert s.comments f)
+        f))
+
     (fn about-block [s row]
       ;; The rows (0-based) with text that a comment from row is about, and the row its
       ;; thread goes under: the block row is in, or the section, if the block starts with
@@ -2110,29 +2149,71 @@
                         (when (not= (vim.trim (line-at s.buf r)) "") r))
                       bottom))))))
 
+    (fn split-after [s row]
+      ;; The row (0-based) a thread on lines ending at row goes under: row itself, so it
+      ;; splits a paragraph or list there, but the end of a code block or table row is
+      ;; in, which a split would break.
+      (let [line (line-at s.buf row)
+            code? #(or (in-code-block? s.buf $1) (: (line-at s.buf $1) :match "^%s*```"))]
+        (var r row)
+        (if (code? row)
+          ;; To the closing fence: rows inside count as in the block, and so does it.
+          (while (and (< (+ r 1) (input-start s)) (in-code-block? s.buf (+ r 1)))
+            (set r (+ r 1)))
+          (table-row? line)
+          (while (and (< (+ r 1) (input-start s)) (table-row? (line-at s.buf (+ r 1))))
+            (set r (+ r 1))))
+        r))
+
     (fn about-selection [s from to]
       ;; The rows (0-based) of from..to there's something to say about, and the row the
-      ;; thread goes under: the end of the last one's block.
+      ;; thread goes under: just after them, see split-after.
       (let [rows (fcollect [r from to]
                    (when (commentable? s r) r))
             last (. rows (length rows))]
-        (values rows (when last (block-end s last)))))
+        (values rows (when last (split-after s last)))))
 
     (fn mark-about [s c first last]
       ;; Marks the lines c is about, first..last (0-based), for the gutter.
       (set c.from (vim.api.nvim_buf_set_extmark s.buf ns first 0 {:invalidate true}))
       (set c.to (vim.api.nvim_buf_set_extmark s.buf ns last 0 {:invalidate true})))
 
+    (fn add-follow-up [s c from to]
+      ;; A follow-up at the end of c's thread, once its last comment is answered. On
+      ;; lines of a reply in it (the block under the cursor, or a selection), it quotes
+      ;; them; on your own comment, nothing more.
+      (if (let [root (or c.root c)
+                ;; The thread's latest comment, the one answered last.
+                last (accumulate [last root _ f (ipairs s.comments)]
+                       (if (and (= f.root root) (comment-alive? s f)
+                                (> (mark-row s f.start) (mark-row s last.start)))
+                         f
+                         last))]
+            (not= last.state :done))
+        (values nil "this thread's last comment isn't answered yet")
+        (let [rows (if (= from to)
+                     (about-block s (- to 1))
+                     (about-selection s (- from 1) (- to 1)))
+              f (open-follow-up s {:state :draft
+                                   :quote (when (and rows (> (length rows) 0))
+                                            (icollect [_ r (ipairs rows)] (line-at s.buf r)))}
+                                (or c.root c) [""] (os.date "%H:%M"))]
+          (+ (mark-row s f.start) 2))))
+
     (fn add-comment [s from to]
       ;; Opens a comment on rows from..to (1-based): a selection's; else the block the
-      ;; cursor's row is in, or the section a heading opens. Your edit, so u takes it away
-      ;; again. Returns the row (1-based) to write it on, or nil and why there isn't one.
-      (let [(rows end) (if (= from to)
-                         (about-block s (- to 1))
-                         (about-selection s (- from 1) (- to 1)))
+      ;; cursor's row is in, or the section a heading opens. In a comment's thread, it's
+      ;; a follow-up in that thread instead. Your edit, so u takes it away again. Returns
+      ;; the row (1-based) to write it on, or nil and why there isn't one.
+      (let [thread (thread-at s (- from 1))
+            (rows end) (if thread nil
+                           (= from to) (about-block s (- to 1))
+                           (about-selection s (- from 1) (- to 1)))
             after (when (and rows (> (length rows) 0) end) (under-threads s (past-footer s end)))
             section (when after (section-above s.buf (+ after 1)))]
-        (if (not (. section-headings (or section "")))
+        (if thread
+          (add-follow-up s thread from to)
+          (not (. section-headings (or section "")))
           (values nil "nothing to comment on here")
           ;; Under the line being written, it would be written onto.
           (and (= after (last-row s)) (= (?. s.turn :state) :running))
@@ -2167,14 +2248,26 @@
       ;; A comment of a resumed session, {:about :text}, put back under the lines it's
       ;; about for its reply to be written there, held like the turn's other writes. If
       ;; they can't be found, its turn goes at the end like any other.
-      (let [c {:state :sent :about replayed.about}]
-        (later s #(let [(first last) (find-about s replayed.about)
-                        after (when last (under-threads s (past-footer s (block-end s last))))
+      (let [c {:state :sent :about replayed.about}
+            same (fn [a b] (= (table.concat (icollect [_ l (ipairs a)] (squash l)))
+                              (table.concat (icollect [_ l (ipairs b)] (squash l)))))
+            root (fn []
+                   ;; The last thread about the same lines, for a follow-up.
+                   (accumulate [found nil _ r (ipairs s.comments)]
+                     (if (and (not r.root) (comment-alive? s r) (same r.about replayed.about))
+                       r
+                       found)))]
+        (later s #(let [r (when replayed.follow-up (root))
+                        (first last) (when (not r) (find-about s replayed.about))
+                        after (when last (under-threads s (past-footer s (split-after s last))))
                         section (when after (section-above s.buf (+ after 1)))]
-                    (when (. section-headings (or section ""))
-                      (set c.section section)
-                      (mark-about s c first last)
-                      (modify s #(open-thread s c after (vim.split replayed.text "\n" {:plain true}) nil)))))
+                    (if r
+                      (modify s #(open-follow-up s c r (vim.split replayed.text "\n" {:plain true}) nil))
+                      (. section-headings (or section ""))
+                      (do
+                        (set c.section section)
+                        (mark-about s c first last)
+                        (modify s #(open-thread s c after (vim.split replayed.text "\n" {:plain true}) nil))))))
         c))
 
     (set about-rows
@@ -2202,7 +2295,7 @@
                                                         {:end_row (- rows.end 1) :conceal_lines ""})))))
       (pcall vim.api.nvim__redraw {:buf s.buf :valid false}))
     {: add-comment : comment-at : comment-text : comment-state : comment-footer
-     : restore-comment : toggle-reply}))
+     : restore-comment : toggle-reply})))
 
 (fn prompt-text [s]
   (let [lines (vim.api.nvim_buf_get_lines s.buf (- (input-row s) 1) -1 false)]

@@ -143,13 +143,14 @@
                   {:buffer s.buf :expr true
                    :desc "ACP send, answer permission, answer a question, toggle tool details or send a comment"})
   ;; gc comments on the block under the cursor (or a heading's section) or on the lines
-  ;; selected: a thread opens under their block, in insert mode.
-  (let [open-comment (fn [from to]
-                       (let [(row why) (render.add-comment s from to)]
-                         (if row
-                           (do (vim.api.nvim_win_set_cursor 0 [row 0])
-                               (vim.cmd "startinsert!"))
-                           (vim.notify (.. "acp: " why) vim.log.levels.WARN))))]
+  ;; selected: a thread opens under their block, in insert mode. In a thread, it's a
+  ;; follow-up at the thread's end.
+  (let [write-at (fn [row why]
+                   (if row
+                     (do (vim.api.nvim_win_set_cursor 0 [row 0])
+                         (vim.cmd "startinsert!"))
+                     (vim.notify (.. "acp: " why) vim.log.levels.WARN)))
+        open-comment (fn [from to] (write-at (render.add-comment s from to)))]
     (vim.keymap.set :n "gc" #(let [row (chat-row s)] (open-comment row row))
                     {:buffer s.buf :nowait true :desc "ACP comment on this line of the chat"})
     (vim.keymap.set :x "gc" #(let [a (vim.fn.line "v")

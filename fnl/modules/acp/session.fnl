@@ -28,8 +28,9 @@
   (if s.label (.. "acp[" s.label "]: ") "acp: "))
 
 (fn find-it [s how]
-  ;; How to get to a session's question: :AcpAgents for a delegated one.
-  (if s.parent " (:AcpAgents to find it)" how))
+  ;; How to get to a session's question: for a delegated one, gW (:AcpWaiting), or its
+  ;; row under its parent in :AcpThreads.
+  (if s.parent " (gW goes to it, or :AcpThreads)" how))
 
 ;; Summary lines -------------------------------------------------------------
 
@@ -253,12 +254,23 @@
                 " · "))
 
 (fn note [s line]
-  ;; A session event worth keeping: part of the turn if one is running, else straight to the log.
-  (if (turn-active? s)
-    (add-line-block s {:type :line : line})
-    (do
-      (render.add-line s {:type :line : line})
-      (log.append-note s line))))
+  ;; A session event worth keeping: part of the turn if one is running, else straight to
+  ;; the log. Returns its block, for update-note.
+  (let [block {:type :line : line}]
+    (if (turn-active? s)
+      (add-line-block s block)
+      (do
+        (render.add-line s block)
+        (log.append-note s line)))
+    block))
+
+(fn update-note [s block line]
+  ;; Says something else on a note's line. Its turn's log has the line it ends with; a
+  ;; note from a turn that's over, or from none, is logged again as it is now.
+  (set block.line line)
+  (render.update-line s block)
+  (when (not (and (turn-active? s) (vim.tbl_contains s.turn.blocks block)))
+    (log.append-note s line)))
 
 ;; The settings and values each agent last offered, kept on disk so :Acp can complete
 ;; them before a session exists.
@@ -371,25 +383,47 @@
 ;; How a comment on a reply is put to the agent, see Comments.
 
 (local comment-intro "Inline comment on this part of ")
+;; A follow-up in a comment's thread, which goes on in the same thread.
+(local follow-up-intro "Follow-up to my inline comment on this part of ")
 
-(fn comment-prompt [about section text]
-  (.. comment-intro (if (= section :you) "my prompt" "your reply") ":\n\n"
-      (table.concat (icollect [_ line (ipairs about)] (.. "> " line)) "\n")
-      "\n\n" text))
+(local quote-intro "About this part of your answer:")
+
+(fn quoted [lines]
+  (table.concat (icollect [_ line (ipairs lines)] (.. "> " line)) "\n"))
+
+(fn comment-prompt [about section text follow-up? answer]
+  ;; A follow-up quotes what its thread is about, and the part of an answer in the
+  ;; thread it's about, if it's on one.
+  (.. (if follow-up? follow-up-intro comment-intro)
+      (if (= section :you) "my prompt" "your reply") ":\n\n"
+      (quoted about) "\n\n"
+      (if answer (.. quote-intro "\n\n" (quoted answer) "\n\n") "")
+      text))
 
 (fn parse-comment-prompt [prompt]
-  ;; {:about :text} for a prompt comment-prompt made, or nil. What the client told the
-  ;; agent first (egress news) may come before it.
-  (let [at (string.find prompt comment-intro 1 true)]
-    (when (and at (or (= at 1) (= "\n" (prompt:sub (- at 1) (- at 1)))))
+  ;; {:about :text :follow-up} for a prompt comment-prompt made, or nil. What the client
+  ;; told the agent first (egress news) may come before it.
+  (let [starts (fn [intro]
+                 (let [at (string.find prompt intro 1 true)]
+                   (when (and at (or (= at 1) (= "\n" (prompt:sub (- at 1) (- at 1)))))
+                     at)))
+        follow-up (starts follow-up-intro)
+        at (or follow-up (starts comment-intro))]
+    (when at
       (let [lines (vim.split (prompt:sub at) "\n" {:plain true})
             about []]
         (var i 3)
         (while (vim.startswith (or (. lines i) "") "> ")
           (table.insert about (: (. lines i) :sub 3))
           (set i (+ i 1)))
+        ;; A follow-up's quote of an answer, which a replay doesn't need.
+        (when (and follow-up (= (. lines (+ i 1)) quote-intro) (= (. lines (+ i 2)) ""))
+          (set i (+ i 3))
+          (while (vim.startswith (or (. lines i) "") "> ")
+            (set i (+ i 1))))
         (when (and (= (. lines 2) "") (> (length about) 0) (= (. lines i) ""))
-          {: about :text (vim.trim (table.concat (vim.list_slice lines (+ i 1)) "\n"))})))))
+          {: about :text (vim.trim (table.concat (vim.list_slice lines (+ i 1)) "\n"))
+           :follow-up (not= nil follow-up)})))))
 
 ;; Replay ------------------------------------------------------------------------------
 ;; session/load streams the old conversation back as updates. Your prompts open turns
@@ -993,6 +1027,8 @@
     (let [(ok e) (pcall log.append-turn s turn)]
       (when (not ok)
         (vim.notify (.. "acp: could not write session log: " (tostring e)) vim.log.levels.ERROR)))
+    (when s.on-turn-end
+      (s.on-turn-end s reason))
     (vim.schedule #(send-queued-comment s))))
 
 (fn take-egress-news [s]
@@ -1053,7 +1089,7 @@
         (when (not (vim.tbl_contains s.comment-queue c))
           (table.insert s.comment-queue c))
         (render.comment-state s c :queued))
-      (when (send-prompt s (comment-prompt c.about c.section text) c)
+      (when (send-prompt s (comment-prompt c.about c.section text (not= nil c.root) c.quote) c)
         (render.comment-state s c :sent)))))
 
 (set send-queued-comment
@@ -1099,6 +1135,8 @@
   (sandbox.stop s.sandbox)
   (when (and (not s.ended) (= vim.v.exiting vim.NIL))
     (rpc.fail-all s.rpc (.. "agent exited with code " code))
+    (when s.on-turn-end
+      (s.on-turn-end s (.. "exited with code " code)))
     (abandon-replay s)
     (when s.permission (dismiss-alert s.permission))
     (when s.elicitation (dismiss-alert s.elicitation))
@@ -1435,8 +1473,8 @@
   ;; once the agent is up, or {:kind :load :id :cwd :title} for one already chosen.
   ;; opts, all optional: :mcp-servers to give the agent, :on-stop to call as the session
   ;; ends, and for a delegated session (see modules.acp.broker) its :parent, its :label
-  ;; and :on-ready to call once it takes prompts. A delegated session never becomes
-  ;; the current one.
+  ;; :on-ready to call once it takes prompts, and :on-turn-end to call with how each
+  ;; turn ended. A delegated session never becomes the current one.
   (let [opts (or opts {})
         intent (or intent {:kind :new})
         cwd (or intent.cwd (project-root))
@@ -1448,6 +1486,7 @@
            :mcp-servers (or opts.mcp-servers [])
            :on-stop opts.on-stop
            :on-ready opts.on-ready
+           :on-turn-end opts.on-turn-end
            :session {:id nil
                      : cwd
                      :project (vim.fn.fnamemodify cwd ":t")
@@ -1831,6 +1870,7 @@
  : waiting-for
  : running-tools
  : note
+ : update-note
  : project-root
  : list-sessions
  : pick-live
