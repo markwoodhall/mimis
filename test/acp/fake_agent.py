@@ -151,6 +151,13 @@ for line in sys.stdin:
             text("Plain reply.")
             send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
             continue
+        if prompt in ("shell card", "script card", "python card"):
+            card = {"shell card": "```sh\n$ aws logs filter-log-events --start-time 5% \\\n    --x '#y'\n```",
+                    "script card": "```bash\ncat <<EOF\n{\"n\": 1}\nEOF\n```",
+                    "python card": "```python\nprint(1)\n```"}[prompt]
+            text("Run this yourself:\n\n" + card + "\n")
+            send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
+            continue
         if prompt.startswith(("Inline comment on this part of ", "Follow-up to my inline comment")):
             text("Noted.\nSecond line.")
             send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})

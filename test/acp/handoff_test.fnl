@@ -1,4 +1,4 @@
-;; End-to-end tests for :Aws!, handing a command's output to the agent, with a fake aws
+;; End-to-end tests for :AcpRun and g!, handing a command's output to the agent, with a fake aws
 ;; on the path and test/acp/fake_agent.py as the agent.
 ;; Run from anywhere:
 ;;   nvim --headless -c "lua require('fennel').dofile(vim.fn.stdpath('config') .. '/test/acp/handoff_test.fnl')"
@@ -77,22 +77,22 @@
 (wait #s.ready)
 
 (set-prompt s ["why?"])
-(run "Aws! logs filter-log-events --start-time `echo 5`\\%")
+(run "AcpRun aws logs filter-log-events --start-time `echo 5`\\%")
 (let [saved (. (files) 1)
       lines (prompt s)]
-  (check ":Aws! saves stdout, without stderr, as readable JSON"
-         (and saved (= "{\"args\": \"--no-cli-pager logs filter-log-events --start-time 5%\"}"
+  (check ":AcpRun aws saves stdout, without stderr, as readable JSON"
+         (and saved (= "{\"args\": \"logs filter-log-events --start-time 5%\"}"
                        (table.concat (vim.fn.readfile saved) "\n")))
          (when saved (vim.fn.readfile saved)))
-  (check ":Aws! adds the file to the prompt, after what you'd typed, with room to carry on"
+  (check ":AcpRun adds the file to the prompt, after what you'd typed, with room to carry on"
          (and saved (= 3 (length lines)) (= "why?" (. lines 1)) (= "" (. lines 3))
               (not= nil (string.find (. lines 2) saved 1 true)))
          lines)
-  (check ":Aws! tells the agent the command as the shell ran it"
+  (check ":AcpRun tells the agent the command as the shell ran it"
          (not= nil (string.find (or (. lines 2) "")
                                 "Output of: aws logs filter-log-events --start-time `echo 5`% " 1 true))
          lines)
-  (check ":Aws! sends nothing by itself" (= s.turn.state :idle) s.turn.state)
+  (check ":AcpRun sends nothing by itself" (= s.turn.state :idle) s.turn.state)
   (check "the output directory ignores itself in git"
          (vim.deep_equal ["*"] (vim.fn.readfile (.. vim.g.acp-output-dir "/.gitignore"))))
   (when saved (vim.fn.delete saved)))
@@ -109,12 +109,12 @@
        (prompt s))
 
 (set-prompt s [""])
-(run "Aws! fail")
-(check ":Aws! with no output leaves no file" (= 0 (length (files))) (files))
-(check ":Aws! with no output leaves the prompt alone" (vim.deep_equal [""] (prompt s)) (prompt s))
+(run "AcpRun aws fail")
+(check ":AcpRun with no output leaves no file" (= 0 (length (files))) (files))
+(check ":AcpRun with no output leaves the prompt alone" (vim.deep_equal [""] (prompt s)) (prompt s))
 
 (run "Aws logs plain")
-(check ":Aws without the bang hands nothing over"
+(check ":Aws hands nothing over"
        (and (= 0 (length (files))) (vim.deep_equal [""] (prompt s)))
        (files))
 
@@ -124,30 +124,132 @@
   (vim.fn.glob (.. vim.g.acp-output-dir "/insights-*.json") true true))
 
 (set vim.env.AWS_INSIGHTS_POLL "0")
-(run "Aws! --profile p logs start-query --log-group-name g --query-string 'fields @message | limit 5'")
+(run "AcpRun aws --profile p logs start-query --log-group-name g --query-string 'fields @message | limit 5'")
 (let [saved (. (insights-files) 1)
       lines (prompt s)]
-  (check ":Aws! start-query waits for the query and saves its results as rows"
+  (check ":AcpRun aws start-query waits for the query and saves its results as rows"
          (and saved (vim.deep_equal {:statistics {:recordsMatched 1}
                                      :results [{"@timestamp" "t" "@message" "m"}]}
                                     (vim.json.decode (table.concat (vim.fn.readfile saved) "\n"))))
          (when saved (vim.fn.readfile saved)))
-  (check ":Aws! start-query polls until the query is complete"
+  (check ":AcpRun aws start-query polls until the query is complete"
          (= 1 (vim.fn.filereadable (.. bin "/aws.polled"))))
-  (check ":Aws! start-query asks for the results with the same profile"
+  (check ":AcpRun aws start-query asks for the results with the same profile"
          (vim.startswith (or (?. (vim.fn.readfile (.. bin "/aws.results-args")) 1) "")
                          "--no-cli-pager --profile p logs get-query-results --query-id q1")
          (vim.fn.readfile (.. bin "/aws.results-args")))
-  (check ":Aws! start-query adds the file to the prompt"
+  (check ":AcpRun aws start-query adds the file to the prompt"
          (and saved (not= nil (string.find (or (. lines 1) "") saved 1 true))
               (not= nil (string.find (. lines 1) "Output of: aws --profile p logs start-query" 1 true)))
          lines)
   (when saved (vim.fn.delete saved)))
 
 (set-prompt s [""])
-(run "Aws! logs start-query --query-string badquery")
-(check ":Aws! start-query whose query fails leaves no file" (= 0 (length (insights-files))) (insights-files))
-(check ":Aws! start-query whose query fails leaves the prompt alone" (vim.deep_equal [""] (prompt s)) (prompt s))
+(run "AcpRun aws logs start-query --query-string badquery")
+(check ":AcpRun aws start-query whose query fails leaves no file" (= 0 (length (insights-files))) (insights-files))
+(check ":AcpRun aws start-query whose query fails leaves the prompt alone" (vim.deep_equal [""] (prompt s)) (prompt s))
+
+;; Code cards -------------------------------------------------------------------------
+;; g! on a shell card the agent wrote runs it once you've seen it, and its output goes
+;; back as a comment on the card, sent straight away.
+
+(fn chat-lines []
+  (vim.api.nvim_buf_get_lines s.buf 0 -1 false))
+
+(fn last-row-of [text]
+  (accumulate [found nil i l (ipairs (chat-lines))]
+    (if (vim.startswith l text) i found)))
+
+(fn card-reply [prompt-text]
+  (session.send-prompt s prompt-text)
+  (wait #(= s.turn.state :idle)))
+
+(fn press-g! [row]
+  ;; Returns the terminal it opened, once its command has finished, or nil.
+  (vim.api.nvim_set_current_win (. (vim.fn.win_findbuf s.buf) 1))
+  (vim.api.nvim_win_set_cursor 0 [row 0])
+  (vim.api.nvim_feedkeys "g!" :x false)
+  (let [buf (vim.api.nvim_get_current_buf)]
+    (when (not= buf s.buf)
+      (vim.fn.jobwait [(. vim.bo buf :channel)] 5000)
+      (vim.wait 100)
+      buf)))
+
+(fn close [buf]
+  (when buf (vim.api.nvim_buf_delete buf {:force true})))
+
+(local real-input vim.ui.input)
+(local real-confirm vim.fn.confirm)
+(var asked nil)
+(fn answer-with [f]
+  (set vim.ui.input (fn [opts on-done] (set asked opts.default) (on-done (f opts.default)))))
+
+(set-prompt s [""])
+(card-reply "shell card")
+(answer-with #$)
+(let [term (press-g! (+ (last-row-of "$ aws logs filter-log-events") 1))]
+  (check "g! asks first, the card's lines as one command, without the prompt"
+         (= asked "aws logs filter-log-events --start-time 5% --x '#y'") asked)
+  (wait #(and (= s.turn.state :idle) (last-row-of "Noted.")))
+  (let [saved (. (files) 1)
+        log (table.concat (vim.fn.readfile s.log.path) "\n")]
+    (check "g! runs the command as written, % and # untouched"
+           (and saved (= "{\"args\": \"logs filter-log-events --start-time 5% --x #y\"}"
+                         (table.concat (vim.fn.readfile saved) "\n")))
+           (when saved (vim.fn.readfile saved)))
+    (check "g! comments on the card with where the output is, and sends it"
+           (and saved (string.find log "Inline comment on this part of" 1 true)
+                (string.find log (.. "I ran it, its output is saved to " saved) 1 true))
+           log)
+    (check "the reply is in a thread under the card"
+           (let [card (last-row-of "$ aws logs filter-log-events")
+                 reply (last-row-of "Noted.")]
+             (and card reply (> reply card)
+                  (vim.startswith (or (. (chat-lines) (- reply 1)) "") "## Agent ↳")))
+           (chat-lines))
+    (check "and the prompt is left alone" (vim.deep_equal [""] (prompt s)) (prompt s))
+    (when saved (vim.fn.delete saved)))
+  (close term))
+
+(answer-with #(.. $1 " --more"))
+(let [term (press-g! (last-row-of "$ aws logs filter-log-events"))]
+  (wait #(= s.turn.state :idle))
+  (let [saved (. (files) 1)
+        log (table.concat (vim.fn.readfile s.log.path) "\n")]
+    (check "a command changed before it runs is the one that runs"
+           (and saved (string.find (table.concat (vim.fn.readfile saved)) "--more" 1 true))
+           (when saved (vim.fn.readfile saved)))
+    (check "and the comment says how it was run"
+           (string.find log "I ran it as `aws logs filter-log-events --start-time 5% --x '#y' --more`" 1 true)
+           log)
+    (when saved (vim.fn.delete saved)))
+  (close term))
+
+(answer-with #nil)
+(let [term (press-g! (last-row-of "$ aws logs filter-log-events"))]
+  (check "g! cancelled runs nothing" (and (= nil term) (= 0 (length (files)))) (files)))
+
+(card-reply "script card")
+(var confirmed nil)
+(set vim.fn.confirm (fn [message] (set confirmed message) 1))
+(let [term (press-g! (+ (last-row-of "cat <<EOF") 1))]
+  (check "a card of several lines is shown whole to confirm"
+         (= confirmed "Run this?\n\ncat <<EOF\n{\"n\": 1}\nEOF") confirmed)
+  (wait #(= s.turn.state :idle))
+  (let [saved (. (vim.fn.glob (.. vim.g.acp-output-dir "/cat-*.txt") true true) 1)]
+    (check "and runs as a script, a heredoc and all"
+           (and saved (vim.deep_equal ["{\"n\": 1}"] (vim.fn.readfile saved)))
+           (when saved (vim.fn.readfile saved)))
+    (when saved (vim.fn.delete saved)))
+  (close term))
+(set vim.fn.confirm real-confirm)
+
+(card-reply "python card")
+(set asked nil)
+(let [term (press-g! (last-row-of "print(1)"))]
+  (check "g! on a card that isn't shell runs nothing" (and (= nil term) (= nil asked)) asked))
+(set vim.ui.input real-input)
+(set-prompt s [""])
 
 ;; Screenshots ------------------------------------------------------------------------
 
@@ -262,7 +364,7 @@
 
 ;; With no session --------------------------------------------------------------------
 
-(run "Aws! logs waiting")
+(run "AcpRun aws logs waiting")
 (check "with no session no agent is started" (= nil (session.current)))
 (let [saved (. (files) 1)]
   (vim.cmd "Acp")

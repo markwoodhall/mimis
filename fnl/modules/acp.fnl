@@ -159,7 +159,11 @@
                                ;; ahead (the comment) before insert mode starts.
                                (vim.cmd.normal {:args [(vim.keycode "<Esc>")] :bang true})
                                (open-comment (math.min a b) (math.max a b) true))
-                    {:buffer s.buf :nowait true :desc "ACP comment on the selected lines of the chat"})))
+                    {:buffer s.buf :nowait true :desc "ACP comment on the selected lines of the chat"}))
+  ;; g! runs the shell code card under the cursor here, as :! would, and sends its
+  ;; output back as a comment on the card: for a command you'd rather run yourself.
+  (vim.keymap.set :n "g!" #(handoff.run-card s (chat-row s))
+                  {:buffer s.buf :desc "ACP run the shell code card here and send its output to the agent"}))
 
 (fn focus [s mods]
   ;; Shows the chat with the cursor on a waiting permission choice or question,

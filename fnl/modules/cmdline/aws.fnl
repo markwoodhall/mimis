@@ -1,13 +1,10 @@
 (local commands (require :commands))
 (local nvim (require "nvim"))
 (local mimis (require :mimis))
-(local handoff (require :modules.acp.handoff))
 
 (fn enable [])
 
 (local aws-command "aws --no-cli-pager ")
-(local insights-command
-  (.. (vim.fn.shellescape (.. (vim.fn.stdpath :config) "/bin/aws-insights")) " "))
 
 (local get-profile (partial commands.get-command-value "--profile"))
 
@@ -64,7 +61,7 @@
     (mimis.split lgs "\n")))
 
 (fn completer [command]
-  (let [command (string.match (vim.fn.substitute command "Aws!\\?" "aws" "") "aws.*")
+  (let [command (string.match (vim.fn.substitute command "Aws" "aws" "") "aws.*")
         lgs (vim.fn.system (.. "COMMAND_LINE='" command "' aws_completer"))
         col (mimis.split lgs "\n")]
     (accumulate 
@@ -137,18 +134,13 @@
     (vim.api.nvim_create_user_command
       "Aws"
       (fn [opts]
-        (let [args (accumulate 
+        (let [args (accumulate
                      [s ""
                       _ v (ipairs (?. opts :fargs))]
                      (.. s " " v))]
-          ;; An Insights query hands over its results once it's done, not its id.
-          (if (and opts.bang (insights? args))
-            (handoff.run opts "insights" (.. insights-command args) (.. "aws" args))
-            opts.bang
-            (handoff.run opts "aws" (.. aws-command args) (.. "aws" args))
-            (mimis.shell opts (.. aws-command args)))
+          (mimis.shell opts (.. aws-command args))
           (set nvim.bo.syntax :json)))
-      {:bang true :desc "AWS command line wrapper; ! also hands the output to the ACP agent" :nargs "*"
+      {:desc "AWS command line wrapper" :nargs "*"
        :complete completion}))
 
   {: enable

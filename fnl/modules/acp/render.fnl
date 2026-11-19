@@ -2415,4 +2415,6 @@
  : fold
  : foldtext
  : gutter
+ : fence-at
+ : filetype-aliases
  : open-code-block}
