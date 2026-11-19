@@ -150,7 +150,7 @@
                      (do (vim.api.nvim_win_set_cursor 0 [row 0])
                          (vim.cmd "startinsert!"))
                      (vim.notify (.. "acp: " why) vim.log.levels.WARN)))
-        open-comment (fn [from to] (write-at (render.add-comment s from to)))]
+        open-comment (fn [from to selected?] (write-at (render.add-comment s from to selected?)))]
     (vim.keymap.set :n "gc" #(let [row (chat-row s)] (open-comment row row))
                     {:buffer s.buf :nowait true :desc "ACP comment on this line of the chat"})
     (vim.keymap.set :x "gc" #(let [a (vim.fn.line "v")
@@ -158,7 +158,7 @@
                                ;; :normal!, not feedkeys, which would run what's typed
                                ;; ahead (the comment) before insert mode starts.
                                (vim.cmd.normal {:args [(vim.keycode "<Esc>")] :bang true})
-                               (open-comment (math.min a b) (math.max a b)))
+                               (open-comment (math.min a b) (math.max a b) true))
                     {:buffer s.buf :nowait true :desc "ACP comment on the selected lines of the chat"})))
 
 (fn focus [s mods]

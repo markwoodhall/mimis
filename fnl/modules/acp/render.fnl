@@ -2178,7 +2178,7 @@
       (set c.from (vim.api.nvim_buf_set_extmark s.buf ns first 0 {:invalidate true}))
       (set c.to (vim.api.nvim_buf_set_extmark s.buf ns last 0 {:invalidate true})))
 
-    (fn add-follow-up [s c from to]
+    (fn add-follow-up [s c from to selected?]
       ;; A follow-up at the end of c's thread, once its last comment is answered. On
       ;; lines of a reply in it (the block under the cursor, or a selection), it quotes
       ;; them; on your own comment, nothing more.
@@ -2191,28 +2191,29 @@
                          last))]
             (not= last.state :done))
         (values nil "this thread's last comment isn't answered yet")
-        (let [rows (if (= from to)
-                     (about-block s (- to 1))
-                     (about-selection s (- from 1) (- to 1)))
+        (let [rows (if selected?
+                     (about-selection s (- from 1) (- to 1))
+                     (about-block s (- to 1)))
               f (open-follow-up s {:state :draft
                                    :quote (when (and rows (> (length rows) 0))
                                             (icollect [_ r (ipairs rows)] (line-at s.buf r)))}
                                 (or c.root c) [""] (os.date "%H:%M"))]
           (+ (mark-row s f.start) 2))))
 
-    (fn add-comment [s from to]
-      ;; Opens a comment on rows from..to (1-based): a selection's; else the block the
-      ;; cursor's row is in, or the section a heading opens. In a comment's thread, it's
+    (fn add-comment [s from to selected?]
+      ;; Opens a comment on rows from..to (1-based), selected? if they're a selection's
+      ;; (even of one line); else on the block the cursor's row is in, or the section a
+      ;; heading opens. In a comment's thread, it's
       ;; a follow-up in that thread instead. Your edit, so u takes it away again. Returns
       ;; the row (1-based) to write it on, or nil and why there isn't one.
       (let [thread (thread-at s (- from 1))
             (rows end) (if thread nil
-                           (= from to) (about-block s (- to 1))
-                           (about-selection s (- from 1) (- to 1)))
+                           selected? (about-selection s (- from 1) (- to 1))
+                           (about-block s (- to 1)))
             after (when (and rows (> (length rows) 0) end) (under-threads s (past-footer s end)))
             section (when after (section-above s.buf (+ after 1)))]
         (if thread
-          (add-follow-up s thread from to)
+          (add-follow-up s thread from to selected?)
           (not (. section-headings (or section "")))
           (values nil "nothing to comment on here")
           ;; Under the line being written, it would be written onto.
