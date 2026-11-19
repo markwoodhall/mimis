@@ -5,7 +5,8 @@
 ;; the thread's project: a running one is shown, an earlier one resumed, and the others
 ;; keep running. n starts a new thread in the project of the one under the cursor, N
 ;; in a directory you choose (one with no threads yet, say), r renames one (its title
-;; is otherwise the agent's, or its first prompt), R
+;; is otherwise the agent's, or its first prompt), d deletes one, or on a project's
+;; heading all of its threads (not running ones), R
 ;; reads the logs again, q closes. Running threads are marked: ● idle, ● working, and
 ;; ● waiting on you, kept up to date while the sidebar is open.
 ;;
@@ -89,6 +90,25 @@
 
 (local margin "  ")
 
+;; Each agent's glyph, before its threads' titles in its colour: Claude's starburst
+;; and OpenCode's square; any other agent's first letter. vim.g.acp-agent-icons, agent
+;; name to {:glyph :colour}, changes them.
+(local agent-glyphs {:claude {:glyph "✻" :colour "#D97757"}
+                     :opencode {:glyph "▣" :colour "#A6ADC8"}})
+
+(fn agent-glyph [name]
+  ;; The glyph for agent name, and its highlight group.
+  (let [name (or name "")
+        look (vim.tbl_extend :force
+                             {:glyph (string.upper (or (name:match "%w") "?"))}
+                             (or (. agent-glyphs name) {})
+                             (or (?. vim.g.acp-agent-icons name) {}))
+        group (.. "AcpThreadsAgent" (pick-values 1 (name:gsub "%W" "")))]
+    (vim.api.nvim_set_hl 0 group (if look.colour
+                                   {:fg look.colour :bold true :default false}
+                                   {:link :AcpThreadsMeta :default false}))
+    (values look.glyph group)))
+
 (fn draw []
   ;; The sidebar's lines, with what each row stands for in state.rows. Laid out as the
   ;; chat is: projects as headings with a rule under them, like the agent's ## headings;
@@ -124,6 +144,8 @@
         ;; The project, its count, and a rule.
         (add "")
         (let [row (add (.. margin g.project "  " (length g.threads)))]
+          ;; The heading stands for the project: d there deletes its threads.
+          (tset rows (+ row 1) {:heading g})
           (table.insert marks [row (length margin) (+ (length margin) (length g.project)) :AcpThreadsGroup])
           (table.insert marks [row (+ (length margin) (length g.project)) -1 :AcpThreadsMeta]))
         (let [row (add (.. margin (string.rep "─" inner)))]
@@ -131,13 +153,17 @@
         (each [i t (ipairs g.threads) &until (> i g.showing)]
           (let [dot (marker t)
                 age (when-short t now)
-                room (- inner 2 (vim.fn.strdisplaywidth age) 2)
+                (glyph glyph-group) (agent-glyph (or (?. t :live :agent :name) t.agent-name))
+                ;; Room for the agent's glyph too, and a space.
+                room (- inner 2 (vim.fn.strdisplaywidth glyph) 1 (vim.fn.strdisplaywidth age) 2)
                 title (shorten (vim.trim (or t.title "")) room)
                 gap (string.rep " " (math.max 1 (- room (vim.fn.strdisplaywidth title) -2)))
-                head (.. margin (if dot "● " "  "))
+                before (.. margin (if dot "● " "  "))
+                head (.. before glyph " ")
                 row (add (.. head title gap age))
                 current? (and t.live (= t.live.buf shown))]
             (tset rows (+ row 1) t)
+            (table.insert marks [row (length before) (+ (length before) (length glyph)) glyph-group])
             (when dot
               (table.insert marks [row (length margin) (+ (length margin) (length "●")) dot]))
             (table.insert marks [row (length head) (+ (length head) (length title))
@@ -201,9 +227,11 @@
 (fn open-thread []
   (let [t (under-cursor)]
     (when t
-      (if t.toggle
-        (do (tset state.expanded t.toggle (not (. state.expanded t.toggle)))
-            (draw))
+      (if (or t.toggle t.heading)
+        ;; Its "… more" line, or its heading: all of a project's threads, or fewer.
+        (let [name (or t.toggle t.heading.project)]
+          (tset state.expanded name (not (. state.expanded name)))
+          (draw))
         t.live
         (in-project t #(state.actions.show t.live))
         (= (or t.id "") "")
@@ -212,15 +240,66 @@
         (in-project t #(state.actions.resume t))))))
 
 (fn new-thread []
-  (let [t (under-cursor)]
+  ;; On a thread or its project's heading: a new thread in that project.
+  (let [t (under-cursor)
+        t (if (?. t :heading) (. t.heading.threads 1) t)]
     (when (and t (not t.toggle))
       (in-project t #(state.actions.new t)))))
+
+(fn log-paths [threads]
+  ;; Every log of these threads: a resumed one can have several, so by session id (by
+  ;; path for one without).
+  (let [ids {}
+        paths {}]
+    (each [_ t (ipairs threads)]
+      (if (not= (or t.id "") "") (tset ids t.id true))
+      (when t.path (tset paths t.path true)))
+    (icollect [_ path (ipairs (vim.fn.glob (.. (log.log-dir) "/*.md") true true))]
+      (let [meta (history.frontmatter (vim.fn.readfile path "" 30))]
+        (when (or (. paths path) (. ids (or meta.session ""))) path)))))
+
+(fn delete-threads [threads what]
+  ;; Deletes the threads' logs, once you've said so: they're gone for good, from the
+  ;; sidebar and :AcpResume's history. The agent's own record of the session, if it
+  ;; keeps one, stays.
+  (let [paths (log-paths threads)]
+    (vim.ui.select ["Delete" "Keep"]
+                   {:prompt (.. "Delete " what "? Its log"
+                                (if (= 1 (length paths)) "" "s")
+                                " can't be brought back")}
+      (fn [choice]
+        (when (= choice "Delete")
+          (each [_ path (ipairs paths)]
+            (vim.fn.delete path))
+          (read-logs)
+          (draw)
+          (vim.notify (.. "acp: deleted " (length paths)
+                          (if (= 1 (length paths)) " log" " logs"))))))))
+
+(fn delete-under-cursor []
+  ;; d: the thread under the cursor, or on a heading every thread of its project. A
+  ;; running thread is left alone: its log is still being written.
+  (let [t (under-cursor)]
+    (when (and t (not t.toggle))
+      (if t.heading
+        (let [g t.heading
+              done (vim.tbl_filter #(not $1.live) g.threads)
+              running (- (length g.threads) (length done))]
+          (if (= 0 (length done))
+            (vim.notify (.. "acp: every thread in " g.project " is running; :AcpStop one to delete it"))
+            (delete-threads done (.. (length done) (if (= 1 (length done)) " thread" " threads")
+                                     " in " g.project
+                                     (if (> running 0) (.. " (not the " running " running)") "")))))
+        t.live
+        (vim.notify "acp: that thread is running; :AcpStop it, then delete it"
+                    vim.log.levels.WARN)
+        (delete-threads [t] (.. "\"" (or t.title "this thread") "\""))))))
 
 (fn rename-thread []
   ;; Names the thread under the cursor: in its log, so the name lasts and wins over the
   ;; agent's titles. A running thread not logged yet takes it into its log's header.
   (let [t (under-cursor)]
-    (when (and t (not t.toggle))
+    (when (and t (not t.toggle) (not t.heading))
       (vim.ui.input {:prompt "Rename thread" :default (or t.title "")}
         (fn [answer]
           (let [name (when answer (vim.trim answer))]
@@ -270,6 +349,7 @@
       (map "n" new-thread "Start a new ACP thread in this thread's project")
       (map "N" new-thread-in "Start a new ACP thread in a directory you choose")
       (map "r" rename-thread "Rename the ACP thread under the cursor")
+      (map "d" delete-under-cursor "Delete the ACP thread, or on a heading the project's threads")
       (map "R" #(do (read-logs) (draw)) "Read the ACP session logs again")
       (map "q" close "Close the ACP threads sidebar")
       (vim.api.nvim_create_autocmd :BufEnter

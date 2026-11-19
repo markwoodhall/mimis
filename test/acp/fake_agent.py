@@ -54,6 +54,10 @@ def replay(session_id):
             "rawOutput": "contents"})
     user("second question")
     text("Second answer.")
+    if os.environ.get("FAKE_REPLAY_COMMENT"):
+        # A comment on the first reply, made inline: it goes back under "Hi there.".
+        user("Inline comment on this part of your reply:\n\n> Hi there.\n\nwhy so brief?")
+        text("Inline answer.")
     update({"sessionUpdate": "usage_update", "used": 5000, "size": 100000})
     update({"sessionUpdate": "config_option_update", "configOptions": config_options()})
 
@@ -143,7 +147,7 @@ for line in sys.stdin:
             text("Plain reply.")
             send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
             continue
-        if prompt.startswith("About this part of "):
+        if prompt.startswith("Inline comment on this part of "):
             text("Noted.\nSecond line.")
             send({"id": pending_prompt, "result": {"stopReason": "end_turn"}})
             continue

@@ -142,8 +142,8 @@
                         "<CR>")))
                   {:buffer s.buf :expr true
                    :desc "ACP send, answer permission, answer a question, toggle tool details or send a comment"})
-  ;; gc comments on the line under the cursor (and the lines above it in its paragraph)
-  ;; or on the lines selected, on a line of its own under them, in insert mode.
+  ;; gc comments on the block under the cursor (or a heading's section) or on the lines
+  ;; selected: a thread opens under their block, in insert mode.
   (let [open-comment (fn [from to]
                        (let [(row why) (render.add-comment s from to)]
                          (if row
@@ -154,7 +154,9 @@
                     {:buffer s.buf :nowait true :desc "ACP comment on this line of the chat"})
     (vim.keymap.set :x "gc" #(let [a (vim.fn.line "v")
                                    b (vim.fn.line ".")]
-                               (vim.api.nvim_feedkeys (vim.keycode "<Esc>") :nx false)
+                               ;; :normal!, not feedkeys, which would run what's typed
+                               ;; ahead (the comment) before insert mode starts.
+                               (vim.cmd.normal {:args [(vim.keycode "<Esc>")] :bang true})
                                (open-comment (math.min a b) (math.max a b)))
                     {:buffer s.buf :nowait true :desc "ACP comment on the selected lines of the chat"})))
 
@@ -433,6 +435,7 @@
         you (colour (or (?. c :blue) (. (group :Function) :fg)))
         agent (colour (or (?. c :mauve) (. (group :Statement) :fg)))
         grey (colour (or (?. c :surface0) (. (group :Normal) :fg)))
+        thread (colour (or (?. c :teal) (. (group :DiagnosticInfo) :fg)))
         green (colour (or (?. c :green) (. (group :DiagnosticOk) :fg)))]
     (if (and bg you agent)
       (do
@@ -442,8 +445,28 @@
         ;; beside the agent's replies, mauve.
         (vim.api.nvim_set_hl 0 :AcpYouBar {:fg (blend you bg 0.6) :default false})
         (vim.api.nvim_set_hl 0 :AcpInputBar {:fg you :default false})
-        (vim.api.nvim_set_hl 0 :AcpAgentBar {:fg (blend agent bg 0.6) :default false}))
+        (vim.api.nvim_set_hl 0 :AcpAgentBar {:fg (blend agent bg 0.6) :default false})
+        ;; A comment's thread, inline in a reply: your comment in your prompts' shade
+        ;; and the reply to it in the agent's, so who said what reads as it does in
+        ;; the rest of the chat; the bars beside both in teal, for a thread.
+        (let [thread (or thread agent)]
+          (vim.api.nvim_set_hl 0 :AcpCommentYou {:bg (blend you bg 0.14) :default false})
+          (vim.api.nvim_set_hl 0 :AcpCommentAgent {:bg (blend agent bg 0.05) :default false})
+          (vim.api.nvim_set_hl 0 :AcpCommentYouBar {:fg thread :default false})
+          (vim.api.nvim_set_hl 0 :AcpCommentAgentBar {:fg (blend thread bg 0.6) :default false})
+          ;; The labels at the top of your comment and of the reply.
+          (vim.api.nvim_set_hl 0 :AcpCommentLabel {:fg thread :bold true :default false})
+          ;; The bar beside the lines a comment is about.
+          (vim.api.nvim_set_hl 0 :AcpCommentMark {:fg thread :default false})
+          (vim.api.nvim_set_hl 0 :AcpCommentMarkYou {:fg thread :default false})))
       (do
+        (vim.api.nvim_set_hl 0 :AcpCommentYou {:link :CursorLine :default false})
+        (vim.api.nvim_set_hl 0 :AcpCommentAgent {:default false})
+        (vim.api.nvim_set_hl 0 :AcpCommentYouBar {:link :DiagnosticInfo :default false})
+        (vim.api.nvim_set_hl 0 :AcpCommentAgentBar {:link :DiagnosticInfo :default false})
+        (vim.api.nvim_set_hl 0 :AcpCommentMark {:link :DiagnosticInfo :default false})
+        (vim.api.nvim_set_hl 0 :AcpCommentLabel {:link :DiagnosticInfo :default false})
+        (vim.api.nvim_set_hl 0 :AcpCommentMarkYou {:link :DiagnosticInfo :default false})
         (vim.api.nvim_set_hl 0 :AcpYou {:link :CursorLine :default false})
         (vim.api.nvim_set_hl 0 :AcpAgent {:default false})
         (vim.api.nvim_set_hl 0 :AcpYouBar {:link :Comment :default false})
@@ -455,7 +478,9 @@
                            {:link :CursorLine :default false}))
     ;; Each bar is drawn on its block's shade, as the gutter's padding is, so the block
     ;; starts at the bar and its text sits inside it.
-    (each [bar block (pairs {:AcpYouBar :AcpYou :AcpInputBar :AcpInput :AcpAgentBar :AcpAgent})]
+    (each [bar block (pairs {:AcpYouBar :AcpYou :AcpInputBar :AcpInput :AcpAgentBar :AcpAgent
+                             :AcpCommentYouBar :AcpCommentYou :AcpCommentAgentBar :AcpCommentAgent
+                             :AcpCommentMark :AcpAgent :AcpCommentMarkYou :AcpYou})]
       (let [look (vim.api.nvim_get_hl 0 {:name bar :link false})
             shade (. (vim.api.nvim_get_hl 0 {:name block :link false}) :bg)]
         (vim.api.nvim_set_hl 0 bar (vim.tbl_extend :force look {:bg shade :default false}))))
@@ -537,11 +562,8 @@
     (quiet :AcpPathQuiet :Normal {:underline true})
     ;; Folded thinking, the chat's Folded.
     (quiet :AcpFolded :Comment {:italic true})
-    ;; Your comments on a reply: in colour until sent, then dimmed. The bar beside the
-    ;; reply under one is in the comment's colour.
-    (vim.api.nvim_set_hl 0 :AcpComment {:link :DiagnosticInfo :default false})
-    (quiet :AcpCommentSent :DiagnosticInfo {:italic true})
-    (vim.api.nvim_set_hl 0 :AcpCommentBar {:link :AcpCommentSent :default false}))
+    ;; What a comment's heading says about it: <CR> sends, queued, replying.
+    (vim.api.nvim_set_hl 0 :AcpComment {:link :DiagnosticInfo :default false}))
   ;; Files the chat names.
   (vim.api.nvim_set_hl 0 :AcpPath {:bold true :underline true :default false})
   ;; The threads sidebar, in the chat's own colours: the heading like the agent's name

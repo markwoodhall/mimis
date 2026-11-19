@@ -259,46 +259,45 @@
 (press-enter-on edit-row)
 (check "a tool still collapses after more turns" (not (has-line (lines-of s.buf) "#### Files")))
 
-;; Comments: gc under a line of a reply, <CR> on it sends it with that line, and the
-;; reply goes under it as well as at the end, hidden and shown with <CR>.
+;; Comments: gc opens a thread under the line's block (under the turn's footer, for
+;; its last block), <CR> on it sends it with that block, and the reply is written in
+;; the thread, not at the end, with no footer line of its own; <CR> on the comment then
+;; hides and shows the reply.
 (let [row-of (fn [text]
                (accumulate [found nil i l (ipairs (lines-of s.buf))]
                  (if (= l text) i found)))
-      reply-row (row-of "Plain reply.")]
+      reply-row (row-of "Plain reply.")
+      footer-row (+ reply-row 2)
+      height #(. (vim.api.nvim_win_text_height 0 {}) :all)]
   (vim.api.nvim_set_current_win (. (vim.fn.win_findbuf s.buf) 1))
   (vim.api.nvim_win_set_cursor 0 [reply-row 0])
   (vim.api.nvim_feedkeys (.. "gcplease explain" (vim.keycode "<Esc>")) :x false)
-  (check "gc opens a comment under the line"
-         (= "> comment: please explain" (. (lines-of s.buf) (+ reply-row 1)))
-         (lines-after (- reply-row 1) 3))
-  (press-enter-on (+ reply-row 1))
+  (local comment-row (row-of "please explain"))
+  (check "gc opens a thread under the turn's footer"
+         (and (vim.startswith (. (lines-of s.buf) footer-row) "> turn: ")
+              (vim.startswith (. (lines-of s.buf) (- comment-row 1)) "## You ↳ — ")
+              (> comment-row footer-row))
+         (lines-after (- reply-row 1) 8))
+  (press-enter-on comment-row)
   (wait #(= s.turn.state :idle))
   (let [lines (lines-of s.buf)]
     (check "the comment is sent with the line it's about"
-           (and (has-line lines "About this part of your reply:")
-                (has-line lines "> Plain reply."))
-           lines)
-    (check "the reply goes under the comment"
-           (vim.deep_equal ["> comment: please explain" "│ Noted." "│ Second line."]
-                           (lines-after reply-row 3))
-           (lines-after reply-row 3))
-    (check "and at the end of the chat as usual" (has-line lines "Second line.")))
-  (let [ui (vim.api.nvim_get_namespaces)
-        marks (vim.api.nvim_buf_get_extmarks s.buf (. ui :acp-ui) [reply-row 0] [reply-row -1]
-                                             {:details true})]
-    (check "a sent comment is dimmed"
-           (accumulate [found false _ [_ _ _ d] (ipairs marks)]
-             (or found (= d.hl_group :AcpCommentSent)))
-           marks))
-  (press-enter-on (+ reply-row 2))
-  (check "<CR> on the reply hides it"
-         (and (= "> comment: please explain" (. (lines-of s.buf) (+ reply-row 1)))
-              (not (has-line (lines-after reply-row 3) "│ " true)))
-         (lines-after reply-row 3))
-  (press-enter-on (+ reply-row 1))
-  (check "<CR> on the comment shows it again"
-         (= "│ Noted." (. (lines-of s.buf) (+ reply-row 2)))
-         (lines-after reply-row 3)))
+           (has-line (vim.fn.readfile s.log.path) "Inline comment on this part of your reply:")
+           (vim.fn.readfile s.log.path))
+    (check "the reply is written in the thread, with no footer line"
+           (vim.deep_equal ["please explain" "" "## Agent ↳" "Noted." "Second line." "## Agent ↩"]
+                           (lines-after (- comment-row 1) 6))
+           (lines-after (- comment-row 1) 8))
+    (check "and not at the end of the chat"
+           (= 1 (length (icollect [_ l (ipairs lines)] (when (= l "Noted.") l))))
+           lines))
+  (let [before (height)]
+    (press-enter-on comment-row)
+    (wait #(< (height) before) 500)
+    (check "<CR> on the comment hides its reply" (< (height) before))
+    (press-enter-on comment-row)
+    (wait #(= (height) before) 500)
+    (check "and shows it again" (= (height) before))))
 
 ;; Long tool titles are shortened, with the full title in the details
 (session.send-prompt s "long titles")

@@ -7,12 +7,22 @@
 ;;   ## You         <- the input heading
 ;;   <your prompt>  <- everything below the heading is the prompt
 ;;
-;; Agent output is always written at the end of the transcript, so you can type
-;; the next prompt while a reply streams in.
+;; Agent output is written at the end of the transcript, so you can type the next
+;; prompt while a reply streams in; or, for a comment on a reply, at the end of the
+;; comment's thread, inline (see Comments). s.write-mark marks the line under where a
+;; turn writes: the input mark, unless it's a comment's.
 
 (local image (require :modules.acp.image))
 
 (local ns (vim.api.nvim_create_namespace "acp"))
+
+;; A comment's thread opens with the first, hidden like a turn's ## You, and its reply
+;; with the second, like ## Agent; see Comments.
+(local comment-heading "## You ↳")
+(local reply-heading "## Agent ↳")
+;; After a thread, the section it's in opens again with its heading and this: a line
+;; that's never shown or shaded, there only so what follows is in its section.
+(local reopen-mark " ↩")
 
 (fn markdown [buf]
   ;; The bundled markdown ftplugin starts treesitter, which leaves ```diff blocks
@@ -38,6 +48,8 @@
 (local drawing {})
 (local drawing-attached {})
 (local drawing-code {})
+;; And the rows comments are about.
+(local drawing-about {})
 
 (fn card-group [card]
   ;; A card's background: a code block's or a quote's; an added or removed line of a
@@ -189,8 +201,12 @@
     (or row (line-count s.buf))))
 
 (fn last-row [s]
-  ;; 0-based row of the transcript's last line.
-  (- (input-start s) 1))
+  ;; 0-based row of the line being written: the transcript's last, or a comment
+  ;; thread's.
+  (let [[row] (if s.write-mark
+                (vim.api.nvim_buf_get_extmark_by_id s.buf ns s.write-mark {})
+                [])]
+    (- (or row (input-start s)) 1)))
 
 (fn last-line [s]
   (line-at s.buf (last-row s)))
@@ -958,11 +974,6 @@
                  :hide [[0 start]]})
       ;; Only an unusual end is in the chat, see session.end-turn.
       :stop {:icon "■ " :hl :AcpToolFailed :hide [[0 start]]}
-      ;; Your comment on a reply (see Comments), dimmed once it's sent. kind is :sent
-      ;; then. Its text is coloured to the line's end, so it stays coloured as you type.
-      :comment (let [group (if (= kind :sent) :AcpCommentSent :AcpComment)]
-                 {:icon (.. (vim.fn.nr2char 0xF075) "  ") :hl group
-                  :hide [[0 start]] :text group})
       ;; The line under a reply: agent · model · time · speed, the agent in its colour.
       :turn (let [name-end (or (line:find " · " start true) (+ (length line) 1))]
               {:icon "" :hl :AcpUiPrefix
@@ -980,11 +991,7 @@
       (each [_ [from to group] (ipairs (or look.marks []))]
         (vim.api.nvim_buf_set_extmark buf ui-ns row from {:end_col to :hl_group group :priority 200}))
       (when look.line
-        (vim.api.nvim_buf_set_extmark buf ui-ns row 0 {:line_hl_group look.line :priority 50}))
-      (when look.text
-        (vim.api.nvim_buf_set_extmark buf ui-ns row 0 {:end_row (+ row 1) :end_col 0
-                                                       :hl_group look.text :priority 200}))
-      ;; Combined, so a line's background goes behind the icon too.
+        (vim.api.nvim_buf_set_extmark buf ui-ns row 0 {:line_hl_group look.line :priority 50}))      ;; Combined, so a line's background goes behind the icon too.
       (when (not= look.icon "")
         (vim.api.nvim_buf_set_extmark buf ui-ns row 0
                                       {:virt_text [[look.icon look.hl]]
@@ -1013,6 +1020,11 @@
 (fn status [s message]
   (later s (fn [] (modify s #(put-line s (.. "> acp: " message))))))
 
+;; See Comments.
+(var comment-alive? nil)
+(var comment-status nil)
+(var about-rows nil)
+
 (fn begin-turn [s turn]
   ;; Files may have come or gone since the names were looked up.
   (set s.paths nil)
@@ -1020,17 +1032,36 @@
                 [(if turn.time (.. "## You — " turn.time) "## You")]
                 (vim.split turn.prompt "\n" {:plain true}))]
     (vim.list_extend lines ["" "## Agent" ""])
-    (later s #(modify s
-                (fn []
-                  (if (pristine? s)
-                    (replace-last s lines)
-                    (do
-                      (when (not= (last-line s) "")
-                        (append-after s [""]))
-                      (append-after s lines)))
-                  ;; The prompt's rows, under its heading, for the images they name.
-                  (let [heading (- (last-row s) (length lines) -1)]
-                    (show-prompt-images s (+ heading 1) (- (+ heading (length lines)) 4))))))))
+    (later s #(let [c turn.comment]
+                ;; A comment's reply goes under it, in its thread, the comment already
+                ;; being there; one whose thread is gone (or never found, replayed) is
+                ;; a turn like any other.
+                (if (and c (comment-alive? s c))
+                  (do
+                    (set s.write-mark c.end)
+                    (modify s #(if (= (last-line s) "")
+                                 (replace-last s ["" reply-heading ""])
+                                 (append-after s ["" reply-heading ""]))))
+                  (do
+                    (set s.write-mark nil)
+                    (modify s
+                      (fn []
+                        (if (pristine? s)
+                          (replace-last s lines)
+                          (do
+                            (when (not= (last-line s) "")
+                              (append-after s [""]))
+                            (append-after s lines)))
+                        ;; The prompt's rows, under its heading, for the images they name.
+                        (let [heading (- (last-row s) (length lines) -1)]
+                          (show-prompt-images s (+ heading 1) (- (+ heading (length lines)) 4)))))))))))
+
+(fn end-turn [s]
+  ;; What's written next goes to the end of the transcript again, once what the turn
+  ;; wrote is in.
+  (later s #(when s.write-mark
+              (set s.write-mark nil)
+              (draw-activity s))))
 
 (fn append-text [s text]
   (later s #(modify s
@@ -1284,9 +1315,6 @@
             (set block.attached nil)
             (tset s.attached-blocks block nil)))))))
 
-;; What the lines of a reply to your comment start with, see Comments.
-(local reply-bar "│ ")
-
 (fn attached-index [s block row]
   ;; row is 1-based. 0 on the block's own line, 1..n on its attached lines, else nil.
   (let [start (line-row s block)]
@@ -1304,8 +1332,15 @@
 (local lookahead 50)
 
 (fn heading-kind [line]
-  (if (vim.startswith line "## You") :you
+  ;; A comment's thread headings start like a turn's, so whatever stops at a turn's
+  ;; heading (a fence count, a rule) stops at theirs too.
+  (if (vim.startswith line comment-heading) :comment
+      (vim.startswith line reply-heading) :reply
+      (vim.startswith line "## You") :you
       (vim.startswith line "## Agent") :agent))
+
+;; A comment's thread is shaded as a prompt and a reply are, in shades of its own.
+(local thread-groups {:AcpYou :AcpCommentYou :AcpAgent :AcpCommentAgent})
 
 (fn section-above [buf row]
   ;; The section row (0-based) is in, from the nearest heading above it.
@@ -1320,13 +1355,13 @@
   found)
 
 (fn attached-rows [s]
-  ;; 0-based rows of lines attached under blocks, to the block each is under.
+  ;; 0-based rows of lines attached under blocks, as a set.
   (let [rows {}]
     (each [block _ (pairs s.attached-blocks)]
       (let [start (line-row s block)]
         (when start
           (for [r start (+ start (or block.attached 0) -1)]
-            (tset rows r block)))))
+            (tset rows r true)))))
     rows))
 
 ;; Choices ----------------------------------------------------------------------------
@@ -1368,17 +1403,26 @@
         lines (vim.api.nvim_buf_get_lines buf top (+ last 1) false)
         attached (attached-rows s)
         kinds {}
-        start-section (section-above buf top)]
-    (var section start-section)
+        ;; Rows in a comment's thread: shaded as yours and the agent's are, as :you
+        ;; and :agent, in the thread's shades.
+        threaded {}
+        plain {:comment :you :reply :agent}
+        above (section-above buf top)
+        start-section (or (. plain above) above)]
+    (var section above)
     (each [i line (ipairs lines)]
       (let [row (+ top i -1)
-            heading (heading-kind line)]
-        (when heading (set section heading))
+            kind (heading-kind line)
+            heading (or (. plain kind) kind)]
+        (when kind (set section kind))
+        (tset threaded row (not= nil (. plain section)))
         (tset kinds row
               (if (>= row (+ input 1)) :input
                   (>= row input) nil
-                  (= section :you) (if (= line "") :you-blank :you)
-                  (not= section :agent) nil
+                  ;; The hidden line opening a section again after a thread.
+                  (and kind (vim.endswith line reopen-mark)) nil
+                  (= (or (. plain section) section) :you) (if (= line "") :you-blank :you)
+                  (not= (or (. plain section) section) :agent) nil
                   (or (vim.startswith line ">") (. attached row)) nil
                   (= line "") :blank
                   ;; The turn's own hidden ## Agent line, shaded only with text after it.
@@ -1424,6 +1468,9 @@
             ;; The prompt you're writing, apart from the ones already sent.
             (= kind :input) (tset result row :AcpInput)
             (text? kind) (tset result row :AcpAgent))))
+      (each [row group (pairs result)]
+        (when (. threaded row)
+          (tset result row (or (. thread-groups group) group))))
       result)))
 
 (fn gutter []
@@ -1442,11 +1489,16 @@
         ;; and its text sits two in; else the block's, as padding.
         inner (if code? (.. "%#" (card-group card) "#  ") (.. "%#" (or group "Normal") "#  "))]
     ;; Four columns: the bar, a column of the block's shade, and two of padding, so
-    ;; text sits inside its block rather than against its edge.
+    ;; text sits inside its block rather than against its edge. Beside lines a comment
+    ;; is about, the bar is a thicker one in the comment's colour.
     (case group
-      :AcpYou (.. "%#AcpYouBar#▎%#AcpYou# " inner)
+      :AcpYou (.. (if (?. drawing-about buf row) "%#AcpCommentMarkYou#▌" "%#AcpYouBar#▎")
+                  "%#AcpYou# " inner)
       :AcpInput (.. "%#AcpInputBar#▎%#AcpInput# " inner)
-      :AcpAgent (.. "%#AcpAgentBar#▎%#AcpAgent# " inner)
+      :AcpAgent (.. (if (?. drawing-about buf row) "%#AcpCommentMark#▌" "%#AcpAgentBar#▎")
+                    "%#AcpAgent# " inner)
+      :AcpCommentYou (.. "%#AcpCommentYouBar#▎%#AcpCommentYou# " inner)
+      :AcpCommentAgent (.. "%#AcpCommentAgentBar#▎%#AcpCommentAgent# " inner)
       _ (if code? (.. "  " inner) "    "))))
 
 ;; File names ------------------------------------------------------------------------
@@ -1619,7 +1671,7 @@
   open)
 
 (local ui-labels {:tool true :permission true :elicitation true :egress true :stop true
-                  :acp true :turn true :comment true})
+                  :acp true :turn true})
 
 (fn quote-line? [line]
   ;; A markdown quote ("> text"), not one of the chat's own "> kind: " rows or ">>"
@@ -1693,6 +1745,7 @@
                    (tset drawing buf shaded)
                    (tset drawing-code buf code)
                    (tset drawing-attached buf (attached-rows s))
+                   (tset drawing-about buf (about-rows s))
                    (pad-blocks s from to shaded code)
                    (sync-line-shades s from to shaded code)
                    true)
@@ -1753,6 +1806,26 @@
                                                        :virt_text_pos :right_align
                                                        :hl_mode :combine
                                                        :ephemeral true})))
+                    ;; A comment's hidden heading: whose it is, its time, and how it's
+                    ;; getting on. Its reply's: whose that is.
+                    (let [label (if (vim.endswith line reopen-mark) nil
+                                    (vim.startswith line comment-heading) "↳ your comment"
+                                    (vim.startswith line reply-heading)
+                                    (.. "↳ " (or s.label (?. s :agent :name) "agent")))]
+                      (when label
+                        (vim.api.nvim_buf_set_extmark buf shade-ns row 0
+                                                      {:virt_text [[label :AcpCommentLabel]]
+                                                       :virt_text_pos :eol
+                                                       :hl_mode :combine
+                                                       :ephemeral true})))
+                    (when (and (or (vim.startswith line comment-heading)
+                                   (vim.startswith line reply-heading))
+                               (not (vim.endswith line reopen-mark)))
+                      (vim.api.nvim_buf_set_extmark buf shade-ns row 0
+                                                    {:virt_text (comment-status s row)
+                                                     :virt_text_pos :right_align
+                                                     :hl_mode :combine
+                                                     :ephemeral true}))
                     ;; The input's hidden ## You line: the agent, its model and the git
                     ;; branch, at the right. On its top row, not under it, as the input
                     ;; ends the buffer and lines under the last aren't scrolled into view.
@@ -1768,13 +1841,7 @@
                       (when number
                         (vim.api.nvim_buf_set_extmark buf shade-ns row 2
                                                       {:end_col (length number) :conceal ""
-                                                       :ephemeral true})))
-                    ;; A reply under your comment has a bar of the comment's colour.
-                    (when (and (= :comment (?. drawing-attached buf row :type))
-                               (vim.startswith line reply-bar))
-                      (vim.api.nvim_buf_set_extmark buf shade-ns row 0
-                                                    {:end_col (length reply-bar) :hl_group :AcpCommentBar
-                                                     :ephemeral true :priority 200}))))))})
+                                                       :ephemeral true})))))))})
 
 (fn expansion-lines [s tool]
   (let [sections (tool-sections s tool "####")]
@@ -1810,89 +1877,332 @@
     (markdown buf)))
 
 ;; Comments ---------------------------------------------------------------------------
-;; gc puts a line "> comment: " under the line the cursor is on, or under a selection,
-;; to write a comment on what's above it in. <CR> on it sends the comment with the
-;; lines it's about, and it dims. Once that turn ends, the reply goes under the comment
-;; as well as at the end of the chat, its lines starting with reply-bar, and <CR> on
-;; the comment or its reply hides or shows it. Each comment is a block with a mark,
-;; like a tool's line, in s.comments, with the lines it's about, whether it's sent, and
-;; its reply.
+;; gc opens a comment on the block under the cursor (a paragraph, list, table or code
+;; block, or a heading's whole section), or on the lines selected: a thread under the
+;; end of their block, to write the comment in, with a bar beside the lines it's about.
+;; <CR> on the comment sends it with the lines it's about (queued, while a turn runs),
+;; and the reply is written in the thread, under the comment, the way a reply is at
+;; the end of the chat. <CR> on the comment then hides or shows its reply.
+;;
+;;   ...the block commented on
+;;   <blank>
+;;   ## You ↳ — 14:32     <- comment-heading, hidden; the comment's start mark
+;;   your comment
+;;   <blank>
+;;   ## Agent ↳           <- reply-heading, hidden
+;;   the reply
+;;   ## Agent             <- the heading of the section the thread is in, again, so
+;;                           what's under it is as it was; the comment's end mark
+;;
+;; Each comment in s.comments has the two marks, the lines it's about, the section
+;; it's in, and its state: :draft, :queued, :sent (being replied to) or :done. A
+;; resumed session puts comments back where they were made, see restore-comment.
 
-(local comment-prefix "> comment: ")
-;; How many lines a comment without a selection is about: its line's and those above
-;; it in the same paragraph, up to this many.
-(local comment-lines 5)
+;; The section's own functions are kept to this one local, as a chunk can have at
+;; most 200.
+(local comments
+  (do
+    (local comment-ns (vim.api.nvim_create_namespace "acp-comment"))
+    ;; The headings that open each section again under a thread.
+    (local section-headings {:you (.. "## You" reopen-mark) :agent (.. "## Agent" reopen-mark)
+                             :reply (.. reply-heading reopen-mark)})
 
-(fn comment-alive? [s c]
-  ;; Its line is still there and still a comment: you may have deleted or changed it.
-  (let [[row _ details] (vim.api.nvim_buf_get_extmark_by_id s.buf ns c.mark {:details true})]
-    (and row (not details.invalid) (vim.startswith (line-at s.buf row) comment-prefix))))
+    (fn mark-row [s mark]
+      ;; 0-based row of a comment's mark, or nil if its line was deleted.
+      (let [[row _ details] (vim.api.nvim_buf_get_extmark_by_id s.buf ns mark {:details true})]
+        (when (and row (not details.invalid)) row)))
 
-(fn comment-at [s row]
-  ;; The comment whose line, or reply under it, is on row (1-based), or nil.
-  (accumulate [found nil _ c (ipairs (or s.comments [])) &until found]
-    (when (and (comment-alive? s c) (attached-index s c row)) c)))
+    (set comment-alive?
+         (fn [s c]
+           ;; Its thread is still there: you may have deleted it, or undone opening it.
+           (let [start (when c.start (mark-row s c.start))
+                 end (when c.end (mark-row s c.end))]
+             (and start end (< start end)
+                  (vim.startswith (line-at s.buf start) comment-heading)))))
 
-(fn commentable? [s row]
-  ;; Whether row (0-based) is a line of the transcript there's something to say about:
-  ;; not blank, a turn's heading, one of the chat's own rows, or under a block.
-  (let [line (line-at s.buf row)]
-    (and (< row (input-start s))
-         (not= (vim.trim line) "")
-         (not (heading-kind line))
-         (not (vim.startswith line ">>"))
-         (not (. ui-labels (or (line:match "^> (%a+): ") "")))
-         (not (. (attached-rows s) row)))))
+    (fn comment-rows [s c]
+      ;; 0-based rows of a live comment's heading, its first line, its reply's heading (nil
+      ;; until there's a reply) and the line under its thread.
+      (let [start (mark-row s c.start)
+            end (mark-row s c.end)]
+        (var reply nil)
+        (for [r (+ start 1) (- end 1) &until reply]
+          (when (vim.startswith (line-at s.buf r) reply-heading)
+            (set reply r)))
+        {: start :text (+ start 1) : reply : end}))
 
-(fn add-comment [s from to]
-  ;; Opens a comment under rows from..to (1-based): a selection's, else the cursor's
-  ;; row, with the lines above it in its paragraph. Your edit, so u takes it away
-  ;; again. Returns the comment's row (1-based), or nil and why there isn't one.
-  (let [rows (if (= from to)
-               (let [rows []]
-                 (var r (- to 1))
-                 (while (and (>= r 0) (< (length rows) comment-lines) (commentable? s r))
-                   (table.insert rows 1 r)
-                   (set r (- r 1)))
-                 rows)
-               (fcollect [r (- from 1) (- to 1)]
-                 (when (commentable? s r) r)))
-        after (. rows (length rows))]
-    (if (not after)
-      (values nil "nothing to comment on here")
-      ;; Under the line being written, it would be written onto.
-      (and (>= after (last-row s)) (= (?. s.turn :state) :running))
-      (values nil "the reply is still being written here")
-      (let [row (+ after 1)]
-        (vim.api.nvim_buf_set_lines s.buf row row false [comment-prefix])
-        (table.insert s.comments
-                      {:type :comment
-                       :about (icollect [_ r (ipairs rows)] (line-at s.buf r))
-                       :section (section-above s.buf row)
-                       :mark (vim.api.nvim_buf_set_extmark s.buf ns row 0
-                                                           {:right_gravity false :invalidate true})})
-        (decorate s.buf row)
-        (+ row 1)))))
+    (fn comment-at [s row]
+      ;; The comment whose own rows, its heading and text but not its reply, take in row
+      ;; (1-based), or nil.
+      (let [r (- row 1)]
+        (accumulate [found nil _ c (ipairs (or s.comments [])) &until found]
+          (when (comment-alive? s c)
+            (let [rows (comment-rows s c)]
+              (when (and (>= r rows.start) (< r (or rows.reply rows.end))) c))))))
 
-(fn comment-text [s c]
-  (let [row (line-row s c)]
-    (vim.trim (: (line-at s.buf (- row 1)) :sub (+ (length comment-prefix) 1)))))
+    (fn comment-text [s c]
+      (let [rows (comment-rows s c)]
+        (vim.trim (table.concat (vim.api.nvim_buf_get_lines s.buf rows.text (or rows.reply rows.end) false)
+                                "\n"))))
 
-(fn comment-sent [s c]
-  (set c.sent true)
-  (let [row (line-row s c)]
-    (when row (decorate s.buf (- row 1) :sent))))
+    (fn comment-state [s c state]
+      (set c.state state)
+      (pcall vim.api.nvim__redraw {:buf s.buf :valid false}))
 
-(fn reply-to-comment [s c text]
-  (set c.reply (icollect [_ line (ipairs (vim.split text "\n" {:plain true}))]
-                 (.. reply-bar line)))
-  (when (comment-alive? s c)
-    (attach-lines s c c.reply)))
+    (fn comment-footer [s c line]
+      ;; A reply's footer, "> turn: agent · model · time · speed", for the right of its
+      ;; heading's row, without the agent: its label has that.
+      (set c.footer (pick-values 1 (line:gsub "^> turn: [^·]*· ?" "")))
+      (pcall vim.api.nvim__redraw {:buf s.buf :valid false}))
 
-(fn toggle-reply [s c]
-  (if (attached? c)
-    (detach-lines s c)
-    (attach-lines s c c.reply)))
+    (fn heading-status [s row]
+      ;; Chunks for the right of a comment's heading at row (0-based): its time, and
+      ;; what <CR> does or what it's waiting for.
+      (let [time (: (line-at s.buf row) :match "— (%d+:%d+)$")
+            c (accumulate [found nil _ c (ipairs (or s.comments [])) &until found]
+                (when (= row (mark-row s c.start)) c))
+            state (case (?. c :state)
+                    :draft "<CR> sends"
+                    :queued "queued"
+                    :sent "replying"
+                    _ (when (?. c :hidden) "reply hidden, <CR> shows it"))]
+        (vim.list_extend [[(or time "") :AcpTurn]]
+                         (if state [[(.. (if time " · " "") state) :AcpComment]] []))))
+
+    (set comment-status
+         (fn [s row]
+           ;; Chunks for the right of a comment's heading at row (0-based), or of its
+           ;; reply's: the reply's footer.
+           (if (vim.startswith (line-at s.buf row) reply-heading)
+             (let [c (accumulate [found nil _ c (ipairs (or s.comments [])) &until found]
+                       (when (and c.footer (comment-alive? s c)
+                                  (= row (. (comment-rows s c) :reply)))
+                         c))]
+               (if c [[c.footer :AcpTurn]] []))
+             (heading-status s row))))
+
+    (fn commentable? [s row]
+      ;; Whether row (0-based) is a line of the transcript there's something to say about:
+      ;; not blank, a turn's or thread's heading, one of the chat's own rows, under a
+      ;; block, or a comment itself.
+      (let [line (line-at s.buf row)]
+        (and (< row (input-start s))
+             (not= (vim.trim line) "")
+             (not (heading-kind line))
+             (not (vim.startswith line ">>"))
+             (not (. ui-labels (or (line:match "^> (%a+): ") "")))
+             (not (. (attached-rows s) row))
+             (not= :comment (section-above s.buf (+ row 1))))))
+
+    (fn block-row? [s row]
+      ;; Whether row (0-based) carries on the paragraph, list, table or code block of a
+      ;; row next to it.
+      (let [line (line-at s.buf row)]
+        (and (>= row 0) (< row (input-start s))
+             (not (heading-kind line))
+             (or (in-code-block? s.buf row)
+                 (and (not= (vim.trim line) "")
+                      (not (vim.startswith line ">>"))
+                      (not (. ui-labels (or (line:match "^> (%a+): ") ""))))))))
+
+    (fn block-end [s row]
+      ;; The last row (0-based) of the block row is in: a thread under it leaves it whole.
+      (var r row)
+      (while (block-row? s (+ r 1))
+        (set r (+ r 1)))
+      r)
+
+    (fn block-start [s row]
+      (var r row)
+      (while (block-row? s (- r 1))
+        (set r (- r 1)))
+      r)
+
+    (fn heading-level [s row]
+      ;; The level of the agent's own markdown heading at row (0-based), or nil.
+      (let [line (line-at s.buf row)
+            hashes (line:match "^ ? ? ?(#+)%s")]
+        (when (and hashes (not (heading-kind line)) (not (in-code-block? s.buf row)))
+          (length hashes))))
+
+    (fn thread-starting [s row]
+      ;; The comment whose thread's heading is at row (0-based), or nil.
+      (accumulate [found nil _ c (ipairs (or s.comments [])) &until found]
+        (when (and (comment-alive? s c) (= (mark-row s c.start) row)) c)))
+
+    (fn section-rows [s top level]
+      ;; The rows (0-based) with text in the section the heading at top, of level, opens:
+      ;; to the next heading of its level or above, or to anything that isn't the agent's
+      ;; text. Threads in it are passed over. Also returns the section's last row, a
+      ;; thread's last if it ends with one.
+      (let [rows [top]]
+        (var last top)
+        (var r (+ top 1))
+        (var done false)
+        (while (not done)
+          (let [line (line-at s.buf r)
+                c (thread-starting s r)
+                other (heading-level s r)]
+            (if c
+              (let [end (mark-row s c.end)]
+                (set last end)
+                (set r (+ end 1)))
+              (or (>= r (input-start s))
+                  (heading-kind line)
+                  (and other (<= other level))
+                  (and (not (in-code-block? s.buf r))
+                       (or (vim.startswith line ">>")
+                           (. ui-labels (or (line:match "^> (%a+): ") "")))))
+              (set done true)
+              (do
+                (when (not= (vim.trim line) "")
+                  (table.insert rows r)
+                  (set last r))
+                (set r (+ r 1))))))
+        (values rows last)))
+
+    (fn past-footer [s row]
+      ;; For a block ending at row (0-based) that ends its turn, the turn's last row: a
+      ;; thread goes under the turn's footer, which stays with the text it's about.
+      (var r (+ row 1))
+      (var last row)
+      (while (and (< r (input-start s))
+                  (let [line (line-at s.buf r)]
+                    (or (= line "") (vim.startswith line "> turn: ") (vim.startswith line "> stop: "))))
+        (when (not= (line-at s.buf r) "")
+          (set last r))
+        (set r (+ r 1)))
+      (if (or (>= r (input-start s)) (heading-kind (line-at s.buf r))) last row))
+
+    (fn under-threads [s row]
+      ;; The row (0-based) a new thread goes under, for a block ending at row: under the
+      ;; threads already there, so they read in the order they were opened.
+      (let [next (when (= (line-at s.buf (+ row 1)) "") (thread-starting s (+ row 2)))]
+        (if next (under-threads s (mark-row s next.end)) row)))
+
+    (fn open-thread [s c after lines time]
+      ;; Puts comment c's thread under row after (0-based), in c.section, with its lines.
+      (let [row (+ after 1)
+            heading (if time (.. comment-heading " — " time) comment-heading)]
+        (vim.api.nvim_buf_set_lines s.buf row row false
+                                    (vim.list_extend (vim.list_extend ["" heading] lines)
+                                                     [(. section-headings c.section)]))
+        (set c.start (vim.api.nvim_buf_set_extmark s.buf ns (+ row 1) 0 {:invalidate true}))
+        ;; On the line opening the section again, which it hides.
+        (set c.end (vim.api.nvim_buf_set_extmark s.buf ns (+ row 2 (length lines)) 0
+                                                 {:invalidate true :conceal_lines ""}))
+        (table.insert s.comments c)
+        c))
+
+    (fn about-block [s row]
+      ;; The rows (0-based) with text that a comment from row is about, and the row its
+      ;; thread goes under: the block row is in, or the section, if the block starts with
+      ;; a heading. Nothing for a row that's a comment, under a block, or not text.
+      (when (and (block-row? s row)
+                 (not (. (attached-rows s) row))
+                 (not= :comment (section-above s.buf (+ row 1))))
+        (let [top (block-start s row)
+              level (heading-level s top)]
+          (if level
+            (section-rows s top level)
+            (let [bottom (block-end s top)]
+              (values (fcollect [r top bottom]
+                        (when (not= (vim.trim (line-at s.buf r)) "") r))
+                      bottom))))))
+
+    (fn about-selection [s from to]
+      ;; The rows (0-based) of from..to there's something to say about, and the row the
+      ;; thread goes under: the end of the last one's block.
+      (let [rows (fcollect [r from to]
+                   (when (commentable? s r) r))
+            last (. rows (length rows))]
+        (values rows (when last (block-end s last)))))
+
+    (fn mark-about [s c first last]
+      ;; Marks the lines c is about, first..last (0-based), for the gutter.
+      (set c.from (vim.api.nvim_buf_set_extmark s.buf ns first 0 {:invalidate true}))
+      (set c.to (vim.api.nvim_buf_set_extmark s.buf ns last 0 {:invalidate true})))
+
+    (fn add-comment [s from to]
+      ;; Opens a comment on rows from..to (1-based): a selection's; else the block the
+      ;; cursor's row is in, or the section a heading opens. Your edit, so u takes it away
+      ;; again. Returns the row (1-based) to write it on, or nil and why there isn't one.
+      (let [(rows end) (if (= from to)
+                         (about-block s (- to 1))
+                         (about-selection s (- from 1) (- to 1)))
+            after (when (and rows (> (length rows) 0) end) (under-threads s (past-footer s end)))
+            section (when after (section-above s.buf (+ after 1)))]
+        (if (not (. section-headings (or section "")))
+          (values nil "nothing to comment on here")
+          ;; Under the line being written, it would be written onto.
+          (and (= after (last-row s)) (= (?. s.turn :state) :running))
+          (values nil "the reply is still being written here")
+          (let [c {:state :draft : section
+                   :about (icollect [_ r (ipairs rows)] (line-at s.buf r))}]
+            (mark-about s c (. rows 1) (. rows (length rows)))
+            (open-thread s c after [""] (os.date "%H:%M"))
+            (+ (mark-row s c.start) 2)))))
+
+    (fn squash [line]
+      (pick-values 1 (line:gsub "%s+" "")))
+
+    (fn find-about [s about]
+      ;; The rows (0-based) of the first and last of the lines about, where they're last
+      ;; found together in the transcript, or nil. Whitespace aside: tables are laid out
+      ;; again for each width.
+      (let [want (icollect [_ line (ipairs about)] (squash line))
+            first (. want 1)
+            last (. want (length want))]
+        (var found nil)
+        (var r (last-row s))
+        (while (and (not found) (>= r 0))
+          (when (= (squash (line-at s.buf r)) last)
+            (for [k r (math.max 0 (- r 2000)) -1 &until found]
+              (when (= (squash (line-at s.buf k)) first)
+                (set found [k r]))))
+          (set r (- r 1)))
+        (when found (values (. found 1) (. found 2)))))
+
+    (fn restore-comment [s replayed]
+      ;; A comment of a resumed session, {:about :text}, put back under the lines it's
+      ;; about for its reply to be written there, held like the turn's other writes. If
+      ;; they can't be found, its turn goes at the end like any other.
+      (let [c {:state :sent :about replayed.about}]
+        (later s #(let [(first last) (find-about s replayed.about)
+                        after (when last (under-threads s (past-footer s (block-end s last))))
+                        section (when after (section-above s.buf (+ after 1)))]
+                    (when (. section-headings (or section ""))
+                      (set c.section section)
+                      (mark-about s c first last)
+                      (modify s #(open-thread s c after (vim.split replayed.text "\n" {:plain true}) nil)))))
+        c))
+
+    (set about-rows
+         (fn [s]
+           ;; The rows (0-based) comments are about, as a set, for the gutter.
+           (let [rows {}]
+             (each [_ c (ipairs (or s.comments []))]
+               (when (and c.from (comment-alive? s c))
+                 (let [from (mark-row s c.from)
+                       to (mark-row s c.to)]
+                   (when (and from to)
+                     (for [r from to]
+                       (tset rows r true))))))
+             rows)))
+
+    (fn toggle-reply [s c]
+      ;; Hides the reply under a comment, or shows it again.
+      (if c.hidden
+        (do
+          (vim.api.nvim_buf_del_extmark s.buf comment-ns c.hidden)
+          (set c.hidden nil))
+        (let [rows (comment-rows s c)]
+          (when rows.reply
+            (set c.hidden (vim.api.nvim_buf_set_extmark s.buf comment-ns rows.reply 0
+                                                        {:end_row (- rows.end 1) :conceal_lines ""})))))
+      (pcall vim.api.nvim__redraw {:buf s.buf :valid false}))
+    {: add-comment : comment-at : comment-text : comment-state : comment-footer
+     : restore-comment : toggle-reply}))
 
 (fn prompt-text [s]
   (let [lines (vim.api.nvim_buf_get_lines s.buf (- (input-row s) 1) -1 false)]
@@ -1997,12 +2307,16 @@
  : prompt-text
  : clear-prompt
  : add-to-prompt
- : add-comment
- : comment-at
- : comment-text
- : comment-sent
- : reply-to-comment
- : toggle-reply
+ :add-comment comments.add-comment
+ :comment-at comments.comment-at
+ :comment-text comments.comment-text
+ :comment-state comments.comment-state
+ : comment-alive?
+ : about-rows
+ :restore-comment comments.restore-comment
+ :toggle-reply comments.toggle-reply
+ :comment-footer comments.comment-footer
+ : end-turn
  : wipe
  : fold
  : foldtext

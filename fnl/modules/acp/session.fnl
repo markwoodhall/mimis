@@ -368,14 +368,41 @@
               (set-config s id value {:quiet opts.quiet :done #(step (+ i 1))}))))))
     (step 1)))
 
+;; How a comment on a reply is put to the agent, see Comments.
+
+(local comment-intro "Inline comment on this part of ")
+
+(fn comment-prompt [about section text]
+  (.. comment-intro (if (= section :you) "my prompt" "your reply") ":\n\n"
+      (table.concat (icollect [_ line (ipairs about)] (.. "> " line)) "\n")
+      "\n\n" text))
+
+(fn parse-comment-prompt [prompt]
+  ;; {:about :text} for a prompt comment-prompt made, or nil. What the client told the
+  ;; agent first (egress news) may come before it.
+  (let [at (string.find prompt comment-intro 1 true)]
+    (when (and at (or (= at 1) (= "\n" (prompt:sub (- at 1) (- at 1)))))
+      (let [lines (vim.split (prompt:sub at) "\n" {:plain true})
+            about []]
+        (var i 3)
+        (while (vim.startswith (or (. lines i) "") "> ")
+          (table.insert about (: (. lines i) :sub 3))
+          (set i (+ i 1)))
+        (when (and (= (. lines 2) "") (> (length about) 0) (= (. lines i) ""))
+          {: about :text (vim.trim (table.concat (vim.list_slice lines (+ i 1)) "\n"))})))))
+
 ;; Replay ------------------------------------------------------------------------------
 ;; session/load streams the old conversation back as updates. Your prompts open turns
 ;; and the rest fills them, much as live ones do, so the chat looks as it did.
 
 (fn open-replay-turn [s]
   (when (not (turn-active? s))
-    (let [turn {:state :replaying
-                :prompt (or s.replay.prompt "")
+    (let [prompt (or s.replay.prompt "")
+          ;; A comment's turn goes back under the lines it was about, if they're there.
+          parsed (parse-comment-prompt prompt)
+          turn {:state :replaying
+                : prompt
+                :comment (when parsed (render.restore-comment s parsed))
                 :blocks []
                 :tool-ids []}]
       (set s.replay.prompt nil)
@@ -385,6 +412,9 @@
 (fn close-replay-turn [s]
   (when (turn-active? s)
     (table.insert s.replay.turns s.turn)
+    (when s.turn.comment
+      (render.comment-state s s.turn.comment :done))
+    (render.end-turn s)
     (set s.turn {:state :idle})))
 
 (fn replay-update [s u]
@@ -894,6 +924,9 @@
 
 ;; Turns ---------------------------------------------------------------------------
 
+;; See Comments.
+(var send-queued-comment nil)
+
 (fn elapsed [seconds]
   ;; 45s, 2m 3s, 1h 4m.
   (let [s (math.floor seconds)]
@@ -928,10 +961,17 @@
       (if (= reason "end_turn")
         (table.insert turn.blocks block)
         (add-line-block s block)))
-    (add-line-block s {:type :line
-                       :line (turn-footer s turn (when (not err)
-                                                   (. (protocol.parse-prompt-result result)
-                                                      :output-tokens)))})
+    (let [block {:type :line
+                 :line (turn-footer s turn (when (not err)
+                                             (. (protocol.parse-prompt-result result)
+                                                :output-tokens)))}]
+      ;; A comment's reply says it on its heading's row, rather than a line of its own
+      ;; under it; the log has it all the same.
+      (if turn.comment
+        (do
+          (table.insert turn.blocks block)
+          (render.comment-footer s turn.comment block.line))
+        (add-line-block s block)))
     (set s.last-turn {:stop-reason reason
                       :reply (vim.trim (table.concat (icollect [_ b (ipairs turn.blocks)]
                                                        (when (= b.type :text) b.text))
@@ -939,11 +979,9 @@
                       :tools (icollect [_ id (ipairs (or turn.tool-ids []))]
                                (let [tool (. s.tools id)]
                                  (when tool {:title tool.title :status tool.status})))})
-    ;; A comment's reply goes under it too; with no reply, how the turn ended.
     (when turn.comment
-      (render.reply-to-comment s turn.comment (if (= s.last-turn.reply "")
-                                                (.. "_no reply: " reason "_")
-                                                s.last-turn.reply)))
+      (render.comment-state s turn.comment :done))
+    (render.end-turn s)
     (set s.turns-finished (+ (or s.turns-finished 0) 1))
     (set s.turn {:state :idle})
     (idle s)
@@ -954,7 +992,8 @@
       (vim.notify (.. (tag s) "agent finished (" reason ")")))
     (let [(ok e) (pcall log.append-turn s turn)]
       (when (not ok)
-        (vim.notify (.. "acp: could not write session log: " (tostring e)) vim.log.levels.ERROR)))))
+        (vim.notify (.. "acp: could not write session log: " (tostring e)) vim.log.levels.ERROR)))
+    (vim.schedule #(send-queued-comment s))))
 
 (fn take-egress-news [s]
   ;; Answers to egress questions the agent hasn't been told about, as a line for its
@@ -969,7 +1008,8 @@
                     ". Retry what failed on an allowed host if it still matters.]\n\n")
                 list)))))
 
-(fn send-prompt [s text]
+(fn send-prompt [s text for-comment]
+  ;; for-comment: the comment text is for, whose reply goes in its thread; see Comments.
   (if (not (alive? s))
     (vim.notify "acp: no running session" vim.log.levels.WARN)
     (not s.ready)
@@ -979,6 +1019,7 @@
     (let [(news news-note) (take-egress-news s)
           turn {:state :running
                 :prompt text
+                :comment for-comment
                 :time (os.date "%H:%M")
                 :started (vim.uv.hrtime)
                 :blocks []
@@ -997,27 +1038,46 @@
                        (end-turn s err result))))
       true)))
 
+;; Comments ----------------------------------------------------------------------------
+;; A comment on a reply (see render's Comments) goes to the agent as a prompt quoting
+;; the lines it's about, and its reply is written under it. The prompt is made so it
+;; can be told apart in a resumed session's replay, to put the comment back in place.
+
 (fn send-comment [s c]
-  ;; Sends your comment with the lines it's about, quoted. Its reply goes under it when
-  ;; the turn ends, see end-turn.
+  ;; Sends your comment with the lines it's about, or queues it while a turn runs.
   (let [text (render.comment-text s c)]
     (if (= text "")
       (vim.notify "acp: write the comment first" vim.log.levels.WARN)
-      (when (send-prompt s (.. "About this part of " (if (= c.section :you) "my prompt" "your reply") ":\n\n"
-                               (table.concat (icollect [_ line (ipairs c.about)] (.. "> " line)) "\n")
-                               "\n\n" text))
-        (set s.turn.comment c)
-        (render.comment-sent s c)))))
+      (turn-active? s)
+      (do
+        (when (not (vim.tbl_contains s.comment-queue c))
+          (table.insert s.comment-queue c))
+        (render.comment-state s c :queued))
+      (when (send-prompt s (comment-prompt c.about c.section text) c)
+        (render.comment-state s c :sent)))))
+
+(set send-queued-comment
+     (fn [s]
+       ;; The next comment waiting for a turn to end, if its thread is still there.
+       (when (not (turn-active? s))
+         (let [c (table.remove s.comment-queue 1)]
+           (when c
+             (if (render.comment-alive? s c)
+               (send-comment s c)
+               (send-queued-comment s)))))))
 
 (fn comment-action [s row]
-  ;; What <CR> does on a comment or its reply on row (1-based): sends a comment not yet
-  ;; sent, else hides or shows its reply. nil if there's no comment there.
+  ;; What <CR> does on a comment's own rows at row (1-based): sends it if it's a draft,
+  ;; hides or shows its reply once that's in. nil if there's no comment there.
   (let [c (render.comment-at s row)]
     (when c
       (fn []
-        (if (not c.sent) (send-comment s c)
-            c.reply (render.toggle-reply s c)
-            (vim.notify "acp: the reply to this comment isn't in yet" vim.log.levels.INFO))))))
+        (case c.state
+          :draft (send-comment s c)
+          :queued (vim.notify "acp: this comment is queued, to be sent when the turn ends"
+                              vim.log.levels.INFO)
+          :sent (vim.notify "acp: the reply to this comment is still coming" vim.log.levels.INFO)
+          _ (render.toggle-reply s c))))))
 
 (fn cancel [s]
   (if (and s (= s.turn.state :running))
@@ -1046,6 +1106,11 @@
     (set s.elicitation nil)
     (set s.permission-queue [])
     (set s.elicitation-queue [])
+    ;; Comments waiting to be sent go back to being drafts.
+    (each [_ c (ipairs s.comment-queue)]
+      (render.comment-state s c :draft))
+    (set s.comment-queue [])
+    (render.end-turn s)
     (set s.turn {:state :idle})
     (idle s)
     (render.status s (.. "agent exited with code " code
@@ -1398,6 +1463,8 @@
            :permission-queue []
            :elicitation nil
            :elicitation-queue []
+           ;; Comments sent while a turn ran, sent in turn as each ends.
+           :comment-queue []
            :ignored-sessions {}
            :unknown-kinds {}
            :commands []
