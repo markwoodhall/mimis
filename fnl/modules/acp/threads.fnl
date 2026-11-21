@@ -3,7 +3,8 @@
 ;; projects in the order of their newest thread. <CR> on
 ;; one opens it in the window beside the sidebar, with that window's directory set to
 ;; the thread's project: a running one is shown, an earlier one resumed, and the others
-;; keep running. n starts a new thread in the project of the one under the cursor, N
+;; keep running. n starts a new thread in the project of the one under the cursor, a
+;; does too after asking for its agent and model (from those the agent last offered), N
 ;; in a directory you choose (one with no threads yet, say), r renames one (its title
 ;; is otherwise the agent's, or its first prompt), d deletes one, or on a project's
 ;; heading all of its threads (not running ones), R
@@ -278,12 +279,17 @@
                     vim.log.levels.WARN)
         (in-project t #(state.actions.resume t))))))
 
-(fn new-thread []
-  ;; On a thread or its project's heading: a new thread in that project.
+(fn new-thread [choose?]
+  ;; On a thread or its project's heading: a new thread in that project, with choose?
+  ;; with the agent and model you pick.
   (let [t (under-cursor)
         t (if (?. t :heading) (. t.heading.threads 1) t)]
     (when (and t (not t.toggle) (not t.child))
-      (in-project t #(state.actions.new t)))))
+      (if choose?
+        (state.actions.choose t
+          (fn [name settings]
+            (in-project t #(state.actions.new t name settings))))
+        (in-project t #(state.actions.new t))))))
 
 (fn log-paths [threads]
   ;; Every log of these threads: a resumed one can have several, so by session id (by
@@ -385,7 +391,8 @@
       (tset (. vim.bo buf) :bufhidden :hide)
       (tset (. vim.bo buf) :filetype :acpthreads)
       (map "<CR>" open-thread "Open this ACP thread")
-      (map "n" new-thread "Start a new ACP thread in this thread's project")
+      (map "n" #(new-thread) "Start a new ACP thread in this thread's project")
+      (map "a" #(new-thread true) "Start a new ACP thread in this project, choosing its agent and model")
       (map "N" new-thread-in "Start a new ACP thread in a directory you choose")
       (map "r" rename-thread "Rename the ACP thread under the cursor")
       (map "d" delete-under-cursor "Delete the ACP thread, or on a heading the project's threads")
@@ -418,7 +425,8 @@
 
 (fn open [actions]
   ;; :AcpThreads opens the sidebar, or closes it if it's open. actions: {:show s,
-  ;; :resume thread, :new thread}, each run in the thread's window and directory.
+  ;; :resume thread, :new thread [agent settings]}, each run in the thread's window and
+  ;; directory, and :choose thread done, asking for an agent and settings for :new.
   (set state.actions actions)
   (if (and state.win (vim.api.nvim_win_is_valid state.win))
     (close)

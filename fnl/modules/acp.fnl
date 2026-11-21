@@ -133,6 +133,8 @@
                         (do (vim.schedule #(session.choose-at s row)) "")
                         (session.egress-choice-at s row)
                         (do (vim.schedule #(session.choose-egress-at s row)) "")
+                        (handoff.choice-at s row)
+                        (do (vim.schedule #(handoff.choose-at s row)) "")
                         (session.elicitation-at s row)
                         (do (vim.schedule #(session.answer-open s)) "")
                         (session.tool-at s row)
@@ -160,8 +162,9 @@
                                (vim.cmd.normal {:args [(vim.keycode "<Esc>")] :bang true})
                                (open-comment (math.min a b) (math.max a b) true))
                     {:buffer s.buf :nowait true :desc "ACP comment on the selected lines of the chat"}))
-  ;; g! runs the shell code card under the cursor here, as :! would, and sends its
-  ;; output back as a comment on the card: for a command you'd rather run yourself.
+  ;; g! asks under the shell code card under the cursor whether to run it here, as :!
+  ;; would, and once it has, sends its output back as a comment on the card: for a
+  ;; command you'd rather run yourself.
   (vim.keymap.set :n "g!" #(handoff.run-card s (chat-row s))
                   {:buffer s.buf :desc "ACP run the shell code card here and send its output to the agent"}))
 
@@ -309,6 +312,31 @@
       (focus target "")
       (vim.notify "acp: nothing is waiting on you"))))
 
+(fn choose-agent [current done]
+  ;; Asks for an agent, current first, then for one of the models it last offered, and
+  ;; calls done with the agent's name and {:model value} ({} when it offered none).
+  ;; Either question skipped when there's only one answer; cancelling either, nothing.
+  (let [names (vim.list_extend [current]
+                               (vim.tbl_filter #(not= $1 current) (agents.names)))
+        configured (?. vim.g.acp-config :model)
+        choose-model (fn [name]
+                       (let [option (accumulate [found nil _ o (ipairs (session.known-config name))
+                                                 &until found]
+                                      (when (= o.id "model") o))
+                             models (or (?. option :values) [])]
+                         (if (< (length models) 2)
+                           (done name (if (= 1 (length models)) {:model (. models 1)} {}))
+                           (vim.ui.select models
+                                          {:prompt (.. name " model: ")
+                                           :format_item #(.. (if (= $1 configured) "* " "  ") $1)}
+                             (fn [model]
+                               (when model (done name {: model})))))))]
+    (if (= 1 (length names))
+      (choose-model current)
+      (vim.ui.select names {:prompt "Agent: "}
+        (fn [name]
+          (when name (choose-model name)))))))
+
 (fn show-threads []
   ;; :AcpThreads  the sidebar of every thread; see modules.acp.threads. Each action runs
   ;; in the window beside it, its directory already the thread's project.
@@ -321,8 +349,11 @@
        :resume (fn [t]
                  (start-new nil (agent-for t) {} ""
                             {:kind :load :id t.id :cwd t.cwd :title t.title}))
-       :new (fn [t]
-              (start-new nil (agent-for t) {} "" {:kind :new :cwd t.cwd}))})))
+       :new (fn [t name settings]
+              (start-new nil (or name (agent-for t)) (or settings {}) ""
+                         {:kind :new :cwd t.cwd}))
+       :choose (fn [t done]
+                 (choose-agent (agent-for t) done))})))
 
 (fn pick-value [s option]
   (vim.ui.select option.values
@@ -463,7 +494,10 @@
           (vim.api.nvim_set_hl 0 :AcpCommentLabel {:fg thread :bold true :default false})
           ;; The bar beside the lines a comment is about.
           (vim.api.nvim_set_hl 0 :AcpCommentMark {:fg thread :default false})
-          (vim.api.nvim_set_hl 0 :AcpCommentMarkYou {:fg thread :default false})))
+          (vim.api.nvim_set_hl 0 :AcpCommentMarkYou {:fg thread :default false})
+          ;; And in a thread, beside the part of an answer a follow-up quotes.
+          (vim.api.nvim_set_hl 0 :AcpCommentMarkThread {:fg thread :default false})
+          (vim.api.nvim_set_hl 0 :AcpCommentMarkThreadYou {:fg thread :default false})))
       (do
         (vim.api.nvim_set_hl 0 :AcpCommentYou {:link :CursorLine :default false})
         (vim.api.nvim_set_hl 0 :AcpCommentAgent {:default false})
@@ -472,6 +506,8 @@
         (vim.api.nvim_set_hl 0 :AcpCommentMark {:link :DiagnosticInfo :default false})
         (vim.api.nvim_set_hl 0 :AcpCommentLabel {:link :DiagnosticInfo :default false})
         (vim.api.nvim_set_hl 0 :AcpCommentMarkYou {:link :DiagnosticInfo :default false})
+        (vim.api.nvim_set_hl 0 :AcpCommentMarkThread {:link :DiagnosticInfo :default false})
+        (vim.api.nvim_set_hl 0 :AcpCommentMarkThreadYou {:link :DiagnosticInfo :default false})
         (vim.api.nvim_set_hl 0 :AcpYou {:link :CursorLine :default false})
         (vim.api.nvim_set_hl 0 :AcpAgent {:default false})
         (vim.api.nvim_set_hl 0 :AcpYouBar {:link :Comment :default false})
@@ -485,7 +521,9 @@
     ;; starts at the bar and its text sits inside it.
     (each [bar block (pairs {:AcpYouBar :AcpYou :AcpInputBar :AcpInput :AcpAgentBar :AcpAgent
                              :AcpCommentYouBar :AcpCommentYou :AcpCommentAgentBar :AcpCommentAgent
-                             :AcpCommentMark :AcpAgent :AcpCommentMarkYou :AcpYou})]
+                             :AcpCommentMark :AcpAgent :AcpCommentMarkYou :AcpYou
+                             :AcpCommentMarkThread :AcpCommentAgent
+                             :AcpCommentMarkThreadYou :AcpCommentYou})]
       (let [look (vim.api.nvim_get_hl 0 {:name bar :link false})
             shade (. (vim.api.nvim_get_hl 0 {:name block :link false}) :bg)]
         (vim.api.nvim_set_hl 0 bar (vim.tbl_extend :force look {:bg shade :default false}))))

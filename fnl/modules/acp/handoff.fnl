@@ -1,15 +1,18 @@
 ;; Hands the output of a command you ran to the agent, without giving the agent what
 ;; it took to run it: the command runs here, outside any sandbox, with your credentials.
 ;; Its stdout is saved under the project, which a sandboxed agent can read, and the
-;; chat's prompt gets a line saying where. Nothing is sent: you add the question and send
-;; it, or take the line out. stderr only goes to the terminal, so a failed command
-;; leaves no file and the one it does leave stays valid JSON.
+;; chat's prompt gets a line saying where. stderr isn't saved with it, so the file
+;; stays valid JSON.
 ;;
-;; :AcpRun runs a command you type. g! in the chat runs the shell code card under the
-;; cursor, one the agent wrote when you'd rather run its command yourself: you see the
-;; command and can change it first, and once it's done a comment on the card says where
-;; its output is and goes to the agent straight away, its reply in a thread under the
-;; card. An aws logs start-query either way waits for the query and saves its results.
+;; :AcpRun runs a command you type, in a terminal, and nothing is sent: you add the
+;; question and send it, or take the line out. g! in the chat runs the shell code card
+;; under the cursor, one the agent wrote when you'd rather run its command yourself.
+;; Under the card the chat asks, as the agent's permission requests do, showing the
+;; command as it will run; <CR> on a choice answers. It runs out of sight, the chat
+;; saying so, and a comment on the card then says where its output is, or how it failed
+;; and what it said on stderr, and goes to the agent straight away, its reply in a
+;; thread under the card. An aws logs start-query
+;; either way waits for the query and saves its results.
 ;;
 ;; A screenshot goes the same way: taken here, where the display is, and saved beside
 ;; the rest for an agent that can read images. :AcpPath only adds a line naming files
@@ -26,6 +29,12 @@
 
 ;; Marks the code cards being run, to find each again to comment on once it's done.
 (local card-ns (vim.api.nvim_create_namespace "acp-handoff-card"))
+
+;; The cards asking whether to run them, each {:session :block :offset :run}: block is
+;; the question's line, offset how many of its attached lines come before the choices.
+(local asking [])
+
+(local choices [{:name "Run it"} {:name "Don't run it"}])
 
 (fn output-file [root name extension]
   (let [dir (vim.fn.expand (or vim.g.acp-output-dir (.. root "/.acp")))
@@ -70,23 +79,42 @@
         at (when (and row (not details.invalid))
              (render.add-comment s (+ row 1) (+ row 1)))]
     (when at
-      (vim.api.nvim_buf_set_lines s.buf (- at 1) at false [text])
+      (vim.api.nvim_buf_set_lines s.buf (- at 1) at false (vim.split text "\n" {:plain true}))
       ((session.comment-action s at))
       (when (not (render.visible? s.buf))
         (vim.notify (.. "acp: sent " path " to the agent")))
       true)))
 
-(fn finished [target path shown card]
-  ;; card, for a command run from a code card: {:session :mark :edited?}.
+(fn finished [target path shown]
   (if (<= (vim.fn.getfsize path) 0)
     (do
       (vim.fn.delete path)
       (vim.notify "acp: the command wrote no output, nothing to hand over" vim.log.levels.WARN))
-    (when (not (and card
-                    (comment-on-card card path
-                                     (.. "I ran it" (if card.edited? (.. " as `" shown "`") "")
-                                         ", its output is " (saved-to path)))))
-      (deliver target path (reference shown path)))))
+    (deliver target path (reference shown path))))
+
+(fn fenced-tail [text]
+  ;; The last 40 lines of text, in a fence no backticks in it can close.
+  (let [lines (vim.split text "\n" {:plain true})
+        kept (vim.list_slice lines (math.max 1 (- (length lines) 39)))]
+    (var fence "```")
+    (each [run (string.gmatch text "`+")]
+      (when (>= (length run) (length fence))
+        (set fence (string.rep "`" (+ (length run) 1)))))
+    (.. fence "\n" (if (< (length kept) (length lines)) "…\n" "")
+        (table.concat kept "\n") "\n" fence)))
+
+(fn card-report [path code stderr]
+  ;; What the agent is told about the command it asked you to run: where its output
+  ;; is, and if it failed or printed nothing, what it said on stderr, so it can
+  ;; suggest another.
+  (let [output? (> (vim.fn.getfsize path) 0)
+        said? (and (not= stderr "") (or (not= code 0) (not output?)))]
+    (when (not output?) (vim.fn.delete path))
+    (.. (if (= code 0) "I ran it" (.. "I ran it and it failed, exit code " code))
+        (if output? (.. ", its output is " (saved-to path))
+            (= code 0) ", it printed nothing"
+            "")
+        (if said? (.. ". On stderr:\n\n" (fenced-tail stderr)) "."))))
 
 (fn project-for [target]
   (if (session.alive? target) target.session.cwd (session.project-root)))
@@ -104,7 +132,7 @@
   (vim.cmd "setlocal norelativenumber nonumber nolist")
   (vim.api.nvim_get_current_buf))
 
-(fn start [opts target name cmd shown extension card]
+(fn start [opts target name cmd shown extension]
   ;; Runs cmd in a terminal, and hands its output over when it ends. name starts the
   ;; file's name; shown is the command as the agent is told about it; extension is the
   ;; file's, json if not given.
@@ -114,8 +142,33 @@
       {:buffer buf
        :once true
        :desc "Hand the command's output to the ACP session"
-       :callback #(do (finished target path shown card) nil)})
+       :callback #(do (finished target path shown) nil)})
     buf))
+
+(fn run-in-chat [s name cmd shown extension card]
+  ;; Runs cmd out of sight, its stdout saved, while the chat says it's running: unless
+  ;; a turn is, which says what it's doing itself. Then hands the output over.
+  (let [path (output-file (project-for s) name extension)
+        first-line (. (vim.split shown "\n" {:plain true}) 1)
+        label (.. "running " (if (> (vim.fn.strchars first-line) 40)
+                               (.. (vim.fn.strcharpart first-line 0 40) "…")
+                               first-line))
+        quiet? (= s.turn.state :idle)]
+    (when quiet? (render.activity s label))
+    (vim.system (vim.list_extend (vim.split vim.o.shell " " {:trimempty true})
+                                 [vim.o.shellcmdflag
+                                  (.. "{ " cmd "\n} > " (vim.fn.shellescape path))])
+                {:text true}
+                (vim.schedule_wrap
+                  (fn [result]
+                    (when (and quiet? (= s.turn.state :idle) (= (?. s.activity :label) label))
+                      (render.activity s nil))
+                    (let [report (card-report path result.code (vim.trim (or result.stderr "")))]
+                      (when (not (comment-on-card card "the result" report))
+                        (if (= 1 (vim.fn.filereadable path))
+                          (deliver s path (reference shown path))
+                          (vim.notify (.. "acp: the card's gone, so this went nowhere: " report)
+                                      vim.log.levels.WARN)))))))))
 
 (local insights-command
   (.. (vim.fn.shellescape (.. (vim.fn.stdpath :config) "/bin/aws-insights")) " "))
@@ -146,31 +199,49 @@
     (vim.trim joined)))
 
 (fn run-card [s row]
-  ;; Runs the shell code card at row (1-based) in s's chat, once you've seen it: one
-  ;; line to change if you want to, else the whole script to run or not. Its output
-  ;; goes back to the agent as a comment on the card.
+  ;; Asks under the shell code card at row (1-based) in s's chat whether to run it,
+  ;; showing what will run, and puts the cursor on yes.
   (let [block (render.fence-at s.buf row)
         lang (string.lower (or (?. block :lang) ""))
-        shell? (or (= lang "") (= :sh (. render.filetype-aliases lang)) (= lang :sh))]
+        shell? (or (= lang "") (= :sh (. render.filetype-aliases lang)) (= lang :sh))
+        cmd (when block
+              (card-command (vim.api.nvim_buf_get_lines s.buf (- block.from 1) block.to false)))]
     (if (not block)
       (vim.notify "acp: no code card here" vim.log.levels.WARN)
       (not shell?)
       (vim.notify (.. "acp: this card is " lang ", not a shell command") vim.log.levels.WARN)
-      (let [cmd (card-command (vim.api.nvim_buf_get_lines s.buf (- block.from 1) block.to false))
-            mark (vim.api.nvim_buf_set_extmark s.buf card-ns (- block.from 1) 0
-                                               {:invalidate true :undo_restore false})
-            go (fn [chosen]
-                 (if (or (= chosen nil) (= (vim.trim chosen) ""))
-                   (vim.api.nvim_buf_del_extmark s.buf card-ns mark)
-                   (let [(name extension runs) (shell-kind chosen)]
-                     (start {:mods "belowright" :smods {:split "belowright" :tab -1}}
-                            s name runs chosen extension
-                            {:session s : mark :edited? (not= chosen cmd)}))))]
-        (if (= cmd "")
-          (vim.notify "acp: this card is empty" vim.log.levels.WARN)
-          (string.find cmd "\n")
-          (go (when (= 1 (vim.fn.confirm (.. "Run this?\n\n" cmd) "&Run\n&Cancel" 2)) cmd))
-          (vim.ui.input {:prompt "Run: " :default cmd} go))))))
+      (= cmd "")
+      (vim.notify "acp: this card is empty" vim.log.levels.WARN)
+      (let [(name extension runs) (shell-kind cmd)
+            question {:type :line :line "> permission: run this here, outside the sandbox — awaiting choice"}]
+        (if (not (render.add-line-under s question (- block.from 1)))
+          (vim.notify "acp: nowhere to ask about this card" vim.log.levels.WARN)
+          (let [(lines offset) (render.permission-lines s {} runs :execute choices)
+                mark (vim.api.nvim_buf_set_extmark s.buf card-ns (- block.from 1) 0
+                                                   {:invalidate true :undo_restore false})]
+            (render.attach-lines s question lines)
+            (table.insert asking
+                          {:session s :block question : offset
+                           :run #(run-in-chat s name runs cmd extension {:session s : mark})
+                           :drop #(vim.api.nvim_buf_del_extmark s.buf card-ns mark)})
+            (vim.api.nvim_win_set_cursor 0 [(+ (render.line-row s question) offset 1) 0])))))))
+
+(fn choice-at [s row]
+  ;; The question and the index of the choice (1 runs it) on chat row (1-based), if any.
+  (accumulate [found nil i q (ipairs asking) &until found]
+    (let [index (when (= q.session s) (render.attached-index s q.block row))
+          choice (when index (- index q.offset))]
+      (when (and choice (. choices choice))
+        {: i : choice}))))
+
+(fn choose-at [s row]
+  ;; Answers the question on row: takes it away, then runs the card's command, or
+  ;; doesn't.
+  (let [hit (choice-at s row)]
+    (when hit
+      (let [q (table.remove asking hit.i)]
+        (render.remove-line s q.block)
+        (if (= hit.choice 1) (q.run) (q.drop))))))
 
 (fn link [paths]
   ;; Points the agent at files or directories you name, without copying anything: one
@@ -232,6 +303,8 @@
 
 {: run-shell
  : run-card
+ : choice-at
+ : choose-at
  : link
  : screenshot
  : flush}

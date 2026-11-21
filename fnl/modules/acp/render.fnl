@@ -1497,8 +1497,10 @@
       :AcpInput (.. "%#AcpInputBar#▎%#AcpInput# " inner)
       :AcpAgent (.. (if (?. drawing-about buf row) "%#AcpCommentMark#▌" "%#AcpAgentBar#▎")
                     "%#AcpAgent# " inner)
-      :AcpCommentYou (.. "%#AcpCommentYouBar#▎%#AcpCommentYou# " inner)
-      :AcpCommentAgent (.. "%#AcpCommentAgentBar#▎%#AcpCommentAgent# " inner)
+      :AcpCommentYou (.. (if (?. drawing-about buf row) "%#AcpCommentMarkThreadYou#▌" "%#AcpCommentYouBar#▎")
+                         "%#AcpCommentYou# " inner)
+      :AcpCommentAgent (.. (if (?. drawing-about buf row) "%#AcpCommentMarkThread#▌" "%#AcpCommentAgentBar#▎")
+                           "%#AcpCommentAgent# " inner)
       _ (if code? (.. "  " inner) "    "))))
 
 ;; File names ------------------------------------------------------------------------
@@ -2194,10 +2196,15 @@
         (let [rows (if selected?
                      (about-selection s (- from 1) (- to 1))
                      (about-block s (- to 1)))
+              quoted? (and rows (> (length rows) 0))
               f (open-follow-up s {:state :draft
-                                   :quote (when (and rows (> (length rows) 0))
+                                   :quote (when quoted?
                                             (icollect [_ r (ipairs rows)] (line-at s.buf r)))}
                                 (or c.root c) [""] (os.date "%H:%M"))]
+          ;; The bar goes beside the part of the answer it quotes, rather than the
+          ;; thread's first lines. Those rows are above where it opened, so still there.
+          (when quoted?
+            (mark-about s f (. rows 1) (. rows (length rows))))
           (+ (mark-row s f.start) 2))))
 
     (fn add-comment [s from to selected?]
@@ -2295,8 +2302,37 @@
             (set c.hidden (vim.api.nvim_buf_set_extmark s.buf comment-ns rows.reply 0
                                                         {:end_row (- rows.end 1) :conceal_lines ""})))))
       (pcall vim.api.nvim__redraw {:buf s.buf :valid false}))
+
+    (fn add-line-under [s block row]
+      ;; Puts a line block under the block row (0-based) is in, where a thread on it
+      ;; would go, for lines to be attached to it. Your doing, not the agent's, so it's
+      ;; there at once. Whether there was a block there.
+      (let [(rows end) (about-block s row)]
+        (when (and rows (> (length rows) 0) end)
+          (let [after (under-threads s (past-footer s end))
+                at (+ after 2)]
+            (modify s #(vim.api.nvim_buf_set_lines s.buf (+ after 1) (+ after 1) false
+                                                   (if (= (line-at s.buf (+ after 1)) "")
+                                                     ["" block.line]
+                                                     ["" block.line ""])))
+            (set block.mark (vim.api.nvim_buf_set_extmark s.buf ns at 0 {:right_gravity false}))
+            (decorate s.buf at nil)
+            true))))
+
+    (fn remove-line [s block]
+      ;; Takes a block put there by add-line-under away again, with its attached lines.
+      (let [row (line-row s block)]
+        (when row
+          (let [top (if (= (line-at s.buf (- row 2)) "") (- row 2) (- row 1))
+                last (+ row -1 (or block.attached 0))]
+            (modify s #(vim.api.nvim_buf_set_lines s.buf top (+ last 1) false []))
+            (vim.api.nvim_buf_del_extmark s.buf ns block.mark)
+            (set block.mark nil)
+            (set block.attached nil)
+            (tset s.attached-blocks block nil)))))
+
     {: add-comment : comment-at : comment-text : comment-state : comment-footer
-     : restore-comment : toggle-reply})))
+     : restore-comment : toggle-reply : add-line-under : remove-line})))
 
 (fn prompt-text [s]
   (let [lines (vim.api.nvim_buf_get_lines s.buf (- (input-row s) 1) -1 false)]
@@ -2409,6 +2445,8 @@
  : about-rows
  :restore-comment comments.restore-comment
  :toggle-reply comments.toggle-reply
+ :add-line-under comments.add-line-under
+ :remove-line comments.remove-line
  :comment-footer comments.comment-footer
  : end-turn
  : wipe

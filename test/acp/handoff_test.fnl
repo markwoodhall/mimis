@@ -150,8 +150,9 @@
 (check ":AcpRun aws start-query whose query fails leaves the prompt alone" (vim.deep_equal [""] (prompt s)) (prompt s))
 
 ;; Code cards -------------------------------------------------------------------------
-;; g! on a shell card the agent wrote runs it once you've seen it, and its output goes
-;; back as a comment on the card, sent straight away.
+;; g! on a shell card the agent wrote asks under it, in the chat, showing what will run;
+;; <CR> on "Run it" runs it, and its output goes back as a comment on the card, sent
+;; straight away.
 
 (fn chat-lines []
   (vim.api.nvim_buf_get_lines s.buf 0 -1 false))
@@ -164,43 +165,59 @@
   (session.send-prompt s prompt-text)
   (wait #(= s.turn.state :idle)))
 
-(fn press-g! [row]
-  ;; Returns the terminal it opened, once its command has finished, or nil.
+(fn press-g! [row choice]
+  ;; g! on row, then <CR> on choice ("Run it" or "Don't run it"). Returns what the chat
+  ;; showed when asking, how many outputs there were before answering, and what the
+  ;; chat said it was doing just after.
   (vim.api.nvim_set_current_win (. (vim.fn.win_findbuf s.buf) 1))
   (vim.api.nvim_win_set_cursor 0 [row 0])
   (vim.api.nvim_feedkeys "g!" :x false)
-  (let [buf (vim.api.nvim_get_current_buf)]
-    (when (not= buf s.buf)
-      (vim.fn.jobwait [(. vim.bo buf :channel)] 5000)
-      (vim.wait 100)
-      buf)))
+  (let [asked (chat-lines)
+        cursor-line (. asked (. (vim.api.nvim_win_get_cursor 0) 1))
+        ran-early (length (files))]
+    (when (= cursor-line "  1. Run it")
+      (vim.api.nvim_win_set_cursor 0 [(last-row-of (.. "  " (if (= choice "Run it") 1 2) ". ")) 0])
+      (vim.api.nvim_feedkeys (vim.keycode "<CR>") :x false)
+      (wait #(?. s.activity :label) 200))
+    (values asked ran-early (?. s.activity :label))))
 
-(fn close [buf]
-  (when buf (vim.api.nvim_buf_delete buf {:force true})))
+(fn log-has [text]
+  (not= nil (string.find (table.concat (vim.fn.readfile s.log.path) "\n") text 1 true)))
 
-(local real-input vim.ui.input)
-(local real-confirm vim.fn.confirm)
-(var asked nil)
-(fn answer-with [f]
-  (set vim.ui.input (fn [opts on-done] (set asked opts.default) (on-done (f opts.default)))))
+(fn terminals []
+  (icollect [_ b (ipairs (vim.api.nvim_list_bufs))]
+    (when (and (vim.api.nvim_buf_is_loaded b) (= (. vim.bo b :buftype) :terminal)) b)))
+
+(fn contains [lines wanted]
+  ;; Whether wanted appear in lines, in order, one after another.
+  (accumulate [found false i _ (ipairs lines) &until found]
+    (vim.deep_equal wanted (vim.list_slice lines i (+ i (length wanted) -1)))))
 
 (set-prompt s [""])
 (card-reply "shell card")
-(answer-with #$)
-(let [term (press-g! (+ (last-row-of "$ aws logs filter-log-events") 1))]
-  (check "g! asks first, the card's lines as one command, without the prompt"
-         (= asked "aws logs filter-log-events --start-time 5% --x '#y'") asked)
+(let [terminals-before (length (terminals))
+      (asked ran-early) (press-g! (+ (last-row-of "$ aws logs filter-log-events") 1) "Run it")]
+  (check "g! asks under the card, showing the command as it will run, the cursor on yes"
+         (contains asked ["> turn: claude · Opus 5.5 · 0s" ""
+                          "> permission: run this here, outside the sandbox — awaiting choice"
+                          "" "```sh" "aws logs filter-log-events --start-time 5% --x '#y'" "```"
+                          "" "  1. Run it" "  2. Don't run it"])
+         asked)
+  (check "nothing runs until you say" (= 0 ran-early) ran-early)
+  (check "the question goes once answered"
+         (not (last-row-of "> permission: run this here")) (chat-lines))
+  (check "it runs out of sight, the cursor staying in the chat"
+         (and (= s.buf (vim.api.nvim_get_current_buf)) (= terminals-before (length (terminals)))))
   (wait #(and (= s.turn.state :idle) (last-row-of "Noted.")))
-  (let [saved (. (files) 1)
-        log (table.concat (vim.fn.readfile s.log.path) "\n")]
-    (check "g! runs the command as written, % and # untouched"
+  (let [saved (. (files) 1)]
+    (check "Run it runs the command as written, % and # untouched"
            (and saved (= "{\"args\": \"logs filter-log-events --start-time 5% --x #y\"}"
                          (table.concat (vim.fn.readfile saved) "\n")))
            (when saved (vim.fn.readfile saved)))
     (check "g! comments on the card with where the output is, and sends it"
-           (and saved (string.find log "Inline comment on this part of" 1 true)
-                (string.find log (.. "I ran it, its output is saved to " saved) 1 true))
-           log)
+           (and saved (log-has "Inline comment on this part of")
+                (log-has (.. "I ran it, its output is saved to " saved)))
+           (vim.fn.readfile s.log.path))
     (check "the reply is in a thread under the card"
            (let [card (last-row-of "$ aws logs filter-log-events")
                  reply (last-row-of "Noted.")]
@@ -208,47 +225,44 @@
                   (vim.startswith (or (. (chat-lines) (- reply 1)) "") "## Agent ↳")))
            (chat-lines))
     (check "and the prompt is left alone" (vim.deep_equal [""] (prompt s)) (prompt s))
-    (when saved (vim.fn.delete saved)))
-  (close term))
+    (when saved (vim.fn.delete saved))))
 
-(answer-with #(.. $1 " --more"))
-(let [term (press-g! (last-row-of "$ aws logs filter-log-events"))]
-  (wait #(= s.turn.state :idle))
-  (let [saved (. (files) 1)
-        log (table.concat (vim.fn.readfile s.log.path) "\n")]
-    (check "a command changed before it runs is the one that runs"
-           (and saved (string.find (table.concat (vim.fn.readfile saved)) "--more" 1 true))
-           (when saved (vim.fn.readfile saved)))
-    (check "and the comment says how it was run"
-           (string.find log "I ran it as `aws logs filter-log-events --start-time 5% --x '#y' --more`" 1 true)
-           log)
-    (when saved (vim.fn.delete saved)))
-  (close term))
-
-(answer-with #nil)
-(let [term (press-g! (last-row-of "$ aws logs filter-log-events"))]
-  (check "g! cancelled runs nothing" (and (= nil term) (= 0 (length (files)))) (files)))
+(let [before (chat-lines)]
+  (press-g! (last-row-of "$ aws logs filter-log-events") "Don't run it")
+  (vim.wait 200)
+  (check "no runs nothing and sends nothing, and leaves the chat as it was"
+         (and (= 0 (length (files))) (vim.deep_equal before (chat-lines))
+              (= s.turn.state :idle) (= nil s.activity))
+         (chat-lines)))
 
 (card-reply "script card")
-(var confirmed nil)
-(set vim.fn.confirm (fn [message] (set confirmed message) 1))
-(let [term (press-g! (+ (last-row-of "cat <<EOF") 1))]
-  (check "a card of several lines is shown whole to confirm"
-         (= confirmed "Run this?\n\ncat <<EOF\n{\"n\": 1}\nEOF") confirmed)
-  (wait #(= s.turn.state :idle))
+(let [(asked _ doing) (press-g! (+ (last-row-of "cat <<EOF") 1) "Run it")]
+  (check "a card of several lines is shown whole"
+         (contains asked ["```sh" "cat <<EOF" "{\"n\": 1}" "EOF" "sleep 0.3" "```" "" "  1. Run it"])
+         asked)
+  (check "the chat says it's running, with its first line"
+         (= doing "running cat <<EOF") doing)
+  (wait #(log-has "/cat-") 3000)
   (let [saved (. (vim.fn.glob (.. vim.g.acp-output-dir "/cat-*.txt") true true) 1)]
     (check "and runs as a script, a heredoc and all"
            (and saved (vim.deep_equal ["{\"n\": 1}"] (vim.fn.readfile saved)))
            (when saved (vim.fn.readfile saved)))
     (when saved (vim.fn.delete saved)))
-  (close term))
-(set vim.fn.confirm real-confirm)
+  (wait #(= s.turn.state :idle)))
+
+(card-reply "failing card")
+(press-g! (+ (last-row-of "aws fail") 0) "Run it")
+(wait #(log-has "exit code 255") 3000)
+(check "a command that fails tells the agent how, with what it said on stderr"
+       (log-has "I ran it and it failed, exit code 255. On stderr:\n\n```\ntoken expired\n```")
+       (vim.fn.readfile s.log.path))
+(check "and leaves no empty file" (= 0 (length (files))) (files))
+(wait #(= s.turn.state :idle))
 
 (card-reply "python card")
-(set asked nil)
-(let [term (press-g! (last-row-of "print(1)"))]
-  (check "g! on a card that isn't shell runs nothing" (and (= nil term) (= nil asked)) asked))
-(set vim.ui.input real-input)
+(let [before (chat-lines)]
+  (press-g! (last-row-of "print(1)") "Run it")
+  (check "g! on a card that isn't shell asks nothing" (vim.deep_equal before (chat-lines))))
 (set-prompt s [""])
 
 ;; Screenshots ------------------------------------------------------------------------
