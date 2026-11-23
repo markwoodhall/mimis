@@ -9,6 +9,7 @@
 (local credits (require :modules.acp.credits))
 (local form (require :modules.acp.form))
 (local sandbox (require :modules.acp.sandbox))
+(local git (require :modules.acp.git))
 
 (local sessions {:current nil :all []})
 
@@ -1044,6 +1045,36 @@
                     ". Retry what failed on an allowed host if it still matters.]\n\n")
                 list)))))
 
+(fn take-landing-news [s]
+  ;; What the agent is told about its worktree and how its work lands: in full before
+  ;; its first prompt, and again when :AcpLand changes it. nil when there is nothing new.
+  (when s.git
+    (let [what s.tell-landing]
+      (set s.tell-landing nil)
+      (case what
+        :first (values (git.landing-instruction s.git) (.. "lands as " s.git.landing))
+        :changed (values (git.landing-changed s.git) (.. "now lands as " s.git.landing))))))
+
+(fn set-landing [s landing]
+  ;; :AcpLand  the thread's landing from now on, told to the agent in its next prompt.
+  ;; Landing on main opens the main checkout to a sandboxed agent, which a running
+  ;; sandbox can't do: that takes a new session in the same worktree.
+  (if (not (?. s :git :worktree?))
+    (vim.notify "acp: this session isn't in a thread's worktree; start one with :Acp worktree"
+                vim.log.levels.WARN)
+    (not (or (= landing "pr") (= landing "main") (= landing "none")))
+    (vim.notify (.. "acp: landing is pr, main or none, not '" landing "'") vim.log.levels.WARN)
+    (= landing s.git.landing)
+    (vim.notify (.. "acp: the thread already lands as " landing))
+    (do
+      (git.set-landing s.git landing)
+      (when s.log.path (log.set-header s.log.path "landing" landing))
+      (set s.tell-landing :changed)
+      (render.status s (.. "lands as " landing
+                           (if (and (= landing "main") s.sandbox)
+                             " — the sandbox keeps the main checkout read-only until a new session (:Acp! worktree) opens it"
+                             ""))))))
+
 (fn send-prompt [s text for-comment]
   ;; for-comment: the comment text is for, whose reply goes in its thread; see Comments.
   (if (not (alive? s))
@@ -1053,6 +1084,7 @@
     (turn-active? s)
     (vim.notify "acp: a turn is already running" vim.log.levels.WARN)
     (let [(news news-note) (take-egress-news s)
+          (landing landing-note) (take-landing-news s)
           turn {:state :running
                 :prompt text
                 :comment for-comment
@@ -1062,13 +1094,15 @@
                 :tool-ids []}]
       (when news
         (note s (.. "> acp: told the agent about egress: " news-note)))
+      (when landing
+        (note s (.. "> acp: told the agent about its worktree: " landing-note)))
       (set s.turn turn)
       (set s.unseen nil)
       (render.begin-turn s turn)
       (busy s "thinking")
       (start-stall-timer s)
       (rpc.request s.rpc protocol.methods.session-prompt
-                   (protocol.prompt-params s.session.id (.. (or news "") text))
+                   (protocol.prompt-params s.session.id (.. (or landing "") (or news "") text))
                    (fn [err result]
                      (when (= s.turn turn)
                        (end-turn s err result))))
@@ -1216,6 +1250,10 @@
                                     (.. "connected to " (or info.name (. s.agent.cmd 1))))
                                   " · protocol v" (tostring info.protocol-version)
                                   " · " s.session.cwd))
+             (when (?. s :git :worktree?)
+               (render.status s (.. "worktree on " s.git.branch " from " (or s.git.base "HEAD")
+                                    " · lands as " s.git.landing
+                                    " · main checkout " s.git.repo)))
              (when (> (length s.config) 0)
                (render.status s (config-summary s)))
              (when s.on-ready
@@ -1478,18 +1516,28 @@
   (let [opts (or opts {})
         intent (or intent {:kind :new})
         cwd (or intent.cwd (project-root))
+        ;; The worktree just made for it, else what its directory is in git.
+        git-info (or intent.git (git.inspect cwd))
         s {:agent {:name agent.name :cmd agent.cmd :credits-cmd agent.credits-cmd
                    :sandbox agent.sandbox}
            : intent
            :parent opts.parent
            :label opts.label
            :mcp-servers (or opts.mcp-servers [])
+           :git git-info
+           ;; A new thread in a worktree of its own is told how it lands before its
+           ;; first prompt; a resumed one was told already.
+           :tell-landing (when (and git-info git-info.worktree? (= intent.kind :new)
+                                    (or intent.git
+                                        (vim.startswith cwd (.. (git.worktree-dir git-info.repo) "/"))))
+                           :first)
            :on-stop opts.on-stop
            :on-ready opts.on-ready
            :on-turn-end opts.on-turn-end
            :session {:id nil
                      : cwd
-                     :project (vim.fn.fnamemodify cwd ":t")
+                     ;; A thread's worktree belongs to its project, not to its id.
+                     :project (vim.fn.fnamemodify (if (?. git-info :worktree?) git-info.repo cwd) ":t")
                      :started (os.time)}
            :turn {:state :idle}
            :tools {}
@@ -1859,6 +1907,7 @@
       (vim.notify "acp: no tool calls in this session" vim.log.levels.WARN))))
 
 {: start
+ : set-landing
  : here
  : live
  : waiting

@@ -22,6 +22,8 @@
 (local reply-heading "## Agent ↳")
 ;; After a thread, the section it's in opens again with its heading and this: a line
 ;; that's never shown or shaded, there only so what follows is in its section.
+(local ci (require :modules.acp.ci))
+
 (local reopen-mark " ↩")
 
 (fn markdown [buf]
@@ -1582,16 +1584,25 @@
     s.branch))
 
 (fn input-footer [s]
-  ;; The agent, its model and the git branch, as chunks, for the input's top row.
+  ;; The agent, its model, the git branch and, for a thread in a worktree of its own,
+  ;; how it lands and its PR/MR's checks, as chunks, for the input's top row.
   (let [model (accumulate [found nil _ o (ipairs (or s.config [])) &until found]
                 (when (= o.category :model) o.display))
         name (or s.label (?. s :agent :name) "agent")
-        branch (git-branch s)]
+        branch (git-branch s)
+        wt (when (?. s :git :worktree?) s.git)
+        pr (when (and wt branch) (ci.branch-status wt.repo branch))
+        checks (when pr (ci.summary pr))]
     (-> [[name [:AcpInput :AcpTurnAgent]]]
         (vim.list_extend (if model [[(.. " · " model) [:AcpInput :AcpUiPrefix]]] []))
         ;; The branch icon, from the Nerd Font symbols, as the tools' are.
         (vim.list_extend (if branch
                            [[(.. " · " (vim.fn.nr2char 0xE0A0) " " branch) [:AcpInput :AcpUiPrefix]]]
+                           []))
+        (vim.list_extend (if wt [[(.. " · lands as " wt.landing) [:AcpInput :AcpUiPrefix]]] []))
+        (vim.list_extend (if checks
+                           [[(.. " · " (or (ci.glyph pr.state) "") " " checks)
+                             [:AcpInput (ci.group pr.state)]]]
                            [])))))
 
 (fn pad-lines [s above? group width]
@@ -2412,6 +2423,7 @@
  : cursor-to
  : in-input?
  : input-row
+ : input-footer
  : visible?
  : activity
  : activity-text

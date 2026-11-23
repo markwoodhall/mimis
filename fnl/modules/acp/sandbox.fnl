@@ -136,7 +136,7 @@
     (let [read (vim.deepcopy (or spec.read []))
           write (vim.deepcopy (or spec.write []))]
       (if (= spec.net false)
-        {:net false :read read :write write :mask spec.mask}
+        {:net false :read read :write write :mask spec.mask :repo-write spec.repo-write}
         {:net :proxy
          :allow (vim.deepcopy (or spec.allow []))
          :local (let [ports (. spec :local)]
@@ -146,7 +146,10 @@
          :read read
          :write write
          :mask spec.mask
-         :service-ports (when spec.service-ports (vim.deepcopy spec.service-ports))}))))
+         :service-ports (when spec.service-ports (vim.deepcopy spec.service-ports))
+         ;; The main checkout a thread's worktree lands in by merging, writable for
+         ;; that; see worktree-binds.
+         :repo-write spec.repo-write}))))
 
 (fn forward [spec port]
   ;; A sandbox spec that also reaches a service of this Neovim's on the host's loopback,
@@ -267,6 +270,53 @@
     (when (and path (= (string.sub path 1 1) "/") (not= path "/"))
       (strip-slash (vim.fs.normalize path)))))
 
+(fn worktree-git [project]
+  ;; For a project that is a linked worktree, its git directory and the common one it
+  ;; shares with the main checkout (<repo>/.git), both absolute; nil for a checkout of
+  ;; its own.
+  (let [dotgit (vim.fs.joinpath project ".git")]
+    (when (= "file" (vim.fn.getftype dotgit))
+      (let [line (or (. (vim.fn.readfile dotgit "" 1) 1) "")
+            gitdir (string.match line "^gitdir:%s*(.+)$")]
+        (when gitdir
+          (let [gitdir (vim.fs.normalize (if (vim.startswith gitdir "/") gitdir
+                                             (vim.fs.joinpath project gitdir)))
+                common-file (vim.fs.joinpath gitdir "commondir")
+                rel (vim.trim (or (. (vim.fn.readfile common-file "" 1) 1) ""))
+                common (if (= rel "") (vim.fs.dirname (vim.fs.dirname gitdir))
+                           (vim.startswith rel "/") (vim.fs.normalize rel)
+                           (vim.fs.normalize (vim.fs.joinpath gitdir rel)))]
+            {: gitdir : common}))))))
+
+(fn worktree-binds [spec project]
+  ;; A thread's worktree keeps its objects, refs and its own HEAD under the main
+  ;; checkout's .git, which the host bind made read-only: nothing could be committed.
+  ;; That directory is opened, with the same parts frozen as the project's own —
+  ;; hooks and config run on the host — and the main checkout's HEAD and index too, so
+  ;; the agent can't move what you have checked out. For a thread landing by merging,
+  ;; the whole main checkout is writable instead (spec.repo-write names it), HEAD and
+  ;; index included, as that is what git merge --ff-only there changes.
+  (let [argv []
+        wt (worktree-git project)]
+    (when wt
+      (let [repo spec.repo-write
+            ;; The common directory's parent, unless the spec says where to land.
+            root (or repo (vim.fs.dirname wt.common))
+            rw (if repo repo wt.common)
+            frozen (vim.list_extend
+                     [(vim.fs.joinpath wt.common "hooks")
+                      (vim.fs.joinpath wt.common "config")
+                      (vim.fs.joinpath root ".gitattributes")]
+                     (if repo [] [(vim.fs.joinpath wt.common "HEAD")
+                                  (vim.fs.joinpath wt.common "index")]))]
+        (vim.list_extend argv ["--bind" rw rw])
+        (each [_ path (ipairs frozen)]
+          (when (not= "" (vim.fn.getftype path))
+            (vim.list_extend argv ["--ro-bind" path path])))
+        (each [_ path (ipairs (vim.fn.glob (vim.fs.joinpath wt.common "modules/**/hooks") true true))]
+          (vim.list_extend argv ["--ro-bind" path path]))))
+    argv))
+
 (fn bwrap-prefix [spec project sock]
   ;; The namespace, the masks, then the relay that execs whatever follows. The host
   ;; is bound read-only, so the agent can run everything it finds but change nothing.
@@ -319,6 +369,9 @@
       argv
       [;; The only writable host place besides the allowlist.
        "--bind-try" project project])
+    ;; A thread's worktree needs its repository's .git too; first, so that the freezing
+    ;; below lands on top of it, as it does on the project.
+    (vim.list_extend argv (worktree-binds spec project))
     ;; Mounted after the project, so read-only wins over its writable bind: a path the
     ;; profile asked to be read-only is not made writable again by running in it, and
     ;; a hook or a line of repo config can't be replaced with one that runs on the
@@ -547,5 +600,6 @@
  : answer
  : stop
  : read-new
+ : worktree-binds
  : script
  : data-dir}

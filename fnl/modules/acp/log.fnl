@@ -37,6 +37,12 @@
     (when s.parent
       (vim.list_extend lines [(.. "parent: " (or s.parent.session.id ""))
                               (.. "label: " s.label)]))
+    ;; A thread in a worktree of its own: its branch, how it lands, and the checkout it
+    ;; lands in; see modules.acp.git.
+    (when (?. s :git :worktree?)
+      (vim.list_extend lines [(.. "branch: " (or s.git.branch ""))
+                              (.. "landing: " (or s.git.landing ""))
+                              (.. "repo: " (or s.git.repo ""))]))
     (each [_ o (ipairs (or s.config []))]
       (table.insert lines (.. o.id ": " o.display)))
     (when s.log.resumed
@@ -114,27 +120,37 @@
   (when s.log.path
     (vim.fn.writefile [line ""] s.log.path "a")))
 
-(fn set-name [path name]
-  ;; Names the thread logged at path: a "name:" line in its header, replacing one it
-  ;; had. It's the thread's title from then on, over the agent's. Returns whether it
-  ;; could.
+(fn set-header [path key value]
+  ;; Sets a "key:" line in the header of the log at path, replacing one it had.
+  ;; Returns whether it could.
   (let [lines (vim.fn.readfile path)
-        line (.. "name: " (vim.trim (pick-values 1 (name:gsub "\n" " "))))]
+        line (.. key ": " (vim.trim (pick-values 1 (value:gsub "\n" " "))))]
     (when (= "---" (. lines 1))
       (var close nil)
       (var existing nil)
       (for [i 2 (length lines) &until close]
         (if (= "---" (. lines i)) (set close i)
-            (vim.startswith (. lines i) "name: ") (set existing i)))
+            (vim.startswith (. lines i) (.. key ": ")) (set existing i)))
       (when close
         (if existing
           (tset lines existing line)
           (table.insert lines close line))
         (= 0 (vim.fn.writefile lines path))))))
 
+(fn set-name [path name]
+  ;; Names the thread logged at path: it's the thread's title from then on, over the
+  ;; agent's.
+  (set-header path "name" name))
+
+(fn set-branch [path branch]
+  ;; The thread's branch was renamed.
+  (set-header path "branch" branch))
+
 {: init
  : adopt
  : set-name
+ : set-branch
+ : set-header
  : append-turn
  : append-note
  : log-dir

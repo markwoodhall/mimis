@@ -9,6 +9,8 @@
 (local threads (require :modules.acp.threads))
 (local usage (require :modules.acp.usage))
 (local sandbox (require :modules.acp.sandbox))
+(local git (require :modules.acp.git))
+(local ci (require :modules.acp.ci))
 
 (fn send [opts]
   (let [s (session.here)
@@ -47,6 +49,22 @@
     (when (or (= kind "read") (= kind "write"))
       (values kind (vim.fs.normalize (vim.fn.fnamemodify (vim.fn.expand path) ":p"))))))
 
+(fn worktree-flag [arg]
+  ;; :Acp's worktree (or wt): the session in a fresh worktree of the project, see
+  ;; modules.acp.git. Reserved like the sandbox switches.
+  (or (= arg "worktree") (= arg "wt")))
+
+(fn landing-arg [arg]
+  ;; :Acp's land=pr|main|none, how a worktree thread's work lands.
+  (let [value (string.match (or arg "") "^land=(.+)$")]
+    (if (or (= value "pr") (= value "main") (= value "none"))
+      value
+      (when value (values nil (.. "acp: land= takes pr, main or none, not '" value "'"))))))
+
+(fn flag-arg? [arg]
+  ;; An argument that isn't an agent or a setting: a path grant, worktree or land=.
+  (or (not= nil (path-grant arg)) (worktree-flag arg) (not= nil (string.match (or arg "") "^land="))))
+
 (fn known-settings [name]
   ;; What the named agent offers, or with none named the agent a new :Acp would use.
   (session.known-config (or name
@@ -68,28 +86,44 @@
   ;; A leading sandbox/nosandbox switches the session's sandbox for this invocation;
   ;; without one the agent's profile decides.
   ;; read=PATH and write=PATH, anywhere, add to the sandbox's :read and :write.
+  ;; worktree (or wt), anywhere, starts the session in a fresh worktree, and
+  ;; land=pr|main|none says how its work lands: {:worktree true :landing "main"}.
   ;; A first argument that names an agent (and isn't also a setting id) is the agent,
   ;; and what follows must be pairs. Otherwise all arguments are pairs, and an odd
   ;; count means the first one was meant as an agent that doesn't exist, or is also a
   ;; setting id (such an agent must be renamed: completion would be ambiguous).
   (let [grants {:read [] :write []}
+        wt {}
+        bad []
         fargs (icollect [_ arg (ipairs fargs)]
-                (let [(kind path) (path-grant arg)]
+                (let [(kind path) (path-grant arg)
+                      (landing problem) (landing-arg arg)]
                   (if kind
                     (do (table.insert (. grants kind) path) nil)
+                    (worktree-flag arg)
+                    (do (set wt.worktree true) nil)
+                    landing
+                    (do (set wt.landing landing) nil)
+                    problem
+                    (do (table.insert bad problem) nil)
                     arg)))
         paths (when (or (next grants.read) (next grants.write)) grants)
         flag (sandbox-flag (. fargs 1))
         fargs (if (= flag nil) fargs (vim.list_slice fargs 2))
         first (. fargs 1)
-        agent? (and first (agents.get first) (not (. (setting-ids) first)))]
-    (if agent?
+        agent? (and first (agents.get first) (not (. (setting-ids) first)))
+        ;; A landing without a worktree is one.
+        worktree (or wt.worktree (and wt.landing true))]
+    (if (. bad 1)
+      (values nil (. bad 1))
+      agent?
       (if (= 0 (% (length fargs) 2))
         (values nil (.. "acp: settings come in pairs after the agent, e.g. :Acp "
                         first " model sonnet"))
-        {:agent first :settings (setting-pairs (vim.list_slice fargs 2)) :sandbox flag : paths})
+        {:agent first :settings (setting-pairs (vim.list_slice fargs 2)) :sandbox flag : paths
+         : worktree :landing wt.landing})
       (= 0 (% (length fargs) 2))
-      {:settings (setting-pairs fargs) :sandbox flag : paths}
+      {:settings (setting-pairs fargs) :sandbox flag : paths : worktree :landing wt.landing}
       (agents.get first)
       (values nil (.. "acp: '" first "' is both an agent and a setting of the agent, "
                       "rename the agent in vim.g.acp-agents"))
@@ -189,17 +223,20 @@
 (fn decline []
   (session.decline-open (session.here)))
 
-(fn sandbox-for [agent flag paths]
+(fn sandbox-for [agent flag paths git-info]
   ;; flag is :Acp's switch: true (asked for), false (asked against), nil (the profile
   ;; decides). Asking for one an agent has no policy for means no host is allowed.
   ;; paths are :Acp's read= and write= grants, added to the profile's; an unsandboxed
-  ;; session can reach them anyway.
+  ;; session can reach them anyway. git-info is the session's worktree, if it's in one
+  ;; of its own: landing on main opens the main checkout to the agent.
   (let [spec (sandbox.normalize (if (= flag false)
                                   nil
                                   (or agent.sandbox (and flag true))))]
     (when spec
       (vim.list_extend spec.read (or (?. paths :read) []))
-      (vim.list_extend spec.write (or (?. paths :write) [])))
+      (vim.list_extend spec.write (or (?. paths :write) []))
+      (when (and git-info git-info.worktree? (= git-info.landing "main"))
+        (set spec.repo-write git-info.repo)))
     spec))
 
 (fn start-new [s name requested mods intent sandbox-flag paths]
@@ -207,7 +244,11 @@
   ;; agent, else the default agent. Other sessions keep running. intent says what the
   ;; session is for when it isn't just a new one, see session.start.
   (let [name (or name (and s s.agent.name) (agents.default-name))
-        base (agents.get name)]
+        base (agents.get name)
+        ;; Settled here, so the sandbox and the session agree on where it runs.
+        intent (vim.tbl_extend :force {:kind :new} (or intent {}))
+        _ (set intent.cwd (or intent.cwd (session.project-root)))
+        git-info (or intent.git (git.inspect intent.cwd))]
     (if (not base)
       (vim.notify (.. "acp: unknown agent '" name "' in vim.g.acp-config (known: "
                       (table.concat (agents.names) ", ") ")")
@@ -218,7 +259,7 @@
             (vim.notify (.. "acp: switching agent from " s.agent.name " to " name)))
           (session.stop s))
         (let [agent (vim.deepcopy base)
-              _ (tset agent :sandbox (sandbox-for base sandbox-flag paths))
+              _ (tset agent :sandbox (sandbox-for base sandbox-flag paths git-info))
               (delegation problem) (broker.open agent chat-keymaps)
               s (session.start agent (vim.tbl_extend :force (start-config) requested) intent
                                (when delegation (broker.session-options delegation)))]
@@ -228,23 +269,44 @@
           (handoff.flush s)
           (focus s mods))))))
 
+(fn worktree-intent [from landing]
+  ;; A new session's intent for a fresh worktree made from the directory from: its
+  ;; branch when it's a thread's worktree itself, so a thread started from another
+  ;; builds on it. nil and why not when it can't be made.
+  (let [(info problem) (git.add-worktree from landing)]
+    (if info
+      (do
+        (vim.notify (.. "acp: worktree " info.path " on " info.branch " from " info.base
+                        " · lands as " info.landing))
+        {:kind :new :cwd info.path :git info})
+      (values nil (.. "acp: " problem)))))
+
 (fn open [opts]
-  ;; :Acp [sandbox|nosandbox] [read=PATH|write=PATH]... [agent] [setting value]...
+  ;; :Acp [sandbox|nosandbox] [read=PATH|write=PATH]... [worktree] [land=pr|main|none]
+  ;;      [agent] [setting value]...
   ;;   open or focus the session, changing any settings given; naming a different
   ;;   agent, flipping the sandbox, or giving a path starts a new session, as a running
-  ;;   sandbox's mounts can't be changed.
+  ;;   sandbox's mounts can't be changed. worktree starts one in a fresh worktree of
+  ;;   the project (from the branch of the chat you're in, when that is a thread's
+  ;;   worktree), with land= saying how its work lands; see modules.acp.git.
   ;; :Acp! ... end the current session and start a new one, with the same agent unless
-  ;;   another is named.
+  ;;   another is named, in the same directory.
   ;; New sessions start from vim.g.acp-config, with the arguments on top.
   ;; Several sessions can run at once: this acts on the chat you're in, else on the one
   ;; last used in this project. Another project's session is left running.
   (let [here (session.here)
-        s (if (and here (= here.buf (vim.api.nvim_get_current_buf)))
-            here
-            (session.project-session (session.project-root)))
+        in-chat? (and here (= here.buf (vim.api.nvim_get_current_buf)))
+        s (if in-chat? here (session.project-session (session.project-root)))
         (parsed problem) (parse-args opts.fargs)]
     (if (not parsed)
       (vim.notify problem vim.log.levels.WARN)
+      parsed.worktree
+      (let [from (if in-chat? here.session.cwd (session.project-root))
+            (intent problem) (worktree-intent from parsed.landing)]
+        (if intent
+          (start-new (when opts.bang s) parsed.agent parsed.settings opts.mods intent
+                     parsed.sandbox parsed.paths)
+          (vim.notify problem vim.log.levels.WARN)))
       (and (session.alive? s) (not opts.bang)
            (or (not parsed.agent) (= parsed.agent s.agent.name))
            (or (= parsed.sandbox nil) (= parsed.sandbox (and s.sandbox true)))
@@ -253,7 +315,59 @@
         (when (next parsed.settings)
           (session.configure s parsed.settings))
         (focus s opts.mods))
-      (start-new s parsed.agent parsed.settings opts.mods nil parsed.sandbox parsed.paths))))
+      (start-new s parsed.agent parsed.settings opts.mods
+                 (when s {:kind :new :cwd s.session.cwd})
+                 parsed.sandbox parsed.paths))))
+
+(fn land [opts]
+  ;; :AcpLand [pr|main|none]  how the thread's work lands, told to the agent in its next
+  ;; prompt; with no argument, says how it lands now.
+  (let [s (session.here)
+        wt (?. s :git :worktree?)]
+    (if (not s)
+      (vim.notify "acp: no session, run :Acp worktree first" vim.log.levels.WARN)
+      (= opts.args "")
+      (vim.notify (if wt
+                    (.. "acp: " s.git.branch " lands as " s.git.landing " (main checkout " s.git.repo ")")
+                    "acp: this session isn't in a thread's worktree; start one with :Acp worktree"))
+      (session.set-landing s opts.args))))
+
+(fn follow-ci [opts s wt]
+  ;; The checks on a thread's branch, in a terminal, their output handed to the agent
+  ;; as :AcpRun's is: the failed run's log, the running checks until they finish, or
+  ;; the checks as they stand.
+  (let [branch (or wt.branch (git.branch-of wt.path))
+        status (ci.branch-status wt.repo branch)
+        cmd (ci.follow-command wt.repo branch status)]
+    (if (not cmd)
+      (vim.notify "acp: no gh or glab for this repository's origin" vim.log.levels.WARN)
+      (do
+        (vim.notify (.. "acp: " branch " · " (or (ci.summary status) "no PR/MR yet") " · " cmd))
+        (handoff.run-shell opts cmd)))))
+
+(fn show-ci [opts]
+  ;; :AcpCi  the checks on this thread's branch, see follow-ci.
+  (let [s (session.here)
+        wt (?. s :git)]
+    (if (not (and wt wt.worktree?))
+      (vim.notify "acp: this session isn't in a thread's worktree; start one with :Acp worktree"
+                  vim.log.levels.WARN)
+      (follow-ci opts s wt))))
+
+(fn free-worktrees []
+  ;; :AcpFreeWorktrees  removes this project's thread worktrees with nothing
+  ;; uncommitted; their branches stay until they're merged.
+  (let [s (session.here)
+        root (or (?. s :git :repo) (git.repo-of (session.project-root)))]
+    (if (not root)
+      (vim.notify "acp: not in a git repository" vim.log.levels.WARN)
+      (let [busy (collect [_ live (ipairs (session.live))]
+                   (values (vim.fs.normalize live.session.cwd) true))
+            (freed kept) (git.free-clean root busy)]
+        (vim.notify (.. "acp: freed " (length freed) (if (= 1 (length freed)) " worktree" " worktrees")
+                        (if (> (length kept) 0)
+                          (.. "; kept " (table.concat kept ", ") " (uncommitted changes or running)")
+                          "")))))))
 
 (fn resume [opts]
   ;; :AcpResume [agent] [session-id]  choose an earlier session of this project to
@@ -353,7 +467,15 @@
               (start-new nil (or name (agent-for t)) (or settings {}) ""
                          {:kind :new :cwd t.cwd}))
        :choose (fn [t done]
-                 (choose-agent (agent-for t) done))})))
+                 (choose-agent (agent-for t) done))
+       :worktree (fn [t]
+                   (let [(intent problem) (worktree-intent t.cwd nil)]
+                     (if intent
+                       (start-new nil (agent-for t) {} "" intent)
+                       (vim.notify problem vim.log.levels.WARN))))
+       :ci (fn [t wt]
+             (follow-ci {:mods "" :smods {:vertical false :horizontal false :split "" :tab -1}}
+                        t.live wt))})))
 
 (fn pick-value [s option]
   (vim.ui.select option.values
@@ -388,7 +510,7 @@
   (fn [arglead cmdline]
     (let [ids (setting-ids)
           args (icollect [_ a (ipairs (. (vim.api.nvim_parse_cmd cmdline {}) :args))]
-                 (when (not (path-grant a)) a))
+                 (when (not (flag-arg? a)) a))
           skip (if (sandbox-flag (. args 1)) 1 0)
           done (if (= arglead "") (length args) (- (length args) 1))
           left (- done skip)
@@ -412,7 +534,7 @@
                                  (when (not (. ids n)) n)))
                              (vim.list_extend
                                (if (= skip 0) ["sandbox" "nosandbox"] [])
-                               ["read=" "write="]))
+                               ["read=" "write=" "worktree" "land="]))
                            settings))
                        (let [id (. args done)]
                          (accumulate [choices [] _ o (ipairs known)]
@@ -430,6 +552,9 @@
       (if (or (= kind "read=") (= kind "write="))
         (icollect [_ f (ipairs (vim.fn.getcompletion path :dir))]
           (.. kind f))
+        (= kind "land=")
+        (icollect [_ v (ipairs ["pr" "main" "none"])]
+          (when (vim.startswith v path) (.. kind v)))
         ((complete-pairs max-pairs agents?) arglead cmdline)))))
 
 (fn screenshot [opts]
@@ -670,6 +795,7 @@
   ;; After the shades and the rule, which the sidebar's colours are made from.
   (thread-highlights)
   (code-highlights)
+  (ci.highlights)
   (usage.highlights))
 
 (fn setup []
@@ -690,7 +816,7 @@
 
   (vim.api.nvim_create_user_command "Acp" open
     {:nargs "*" :bang true :complete (complete-settings 10 true)
-     :desc "Open or focus the ACP session; ! starts a new one; args are sandbox|nosandbox, read=PATH|write=PATH to expose to the sandbox, an optional agent, then setting/value pairs"})
+     :desc "Open or focus the ACP session; ! starts a new one; args are sandbox|nosandbox, read=PATH|write=PATH to expose to the sandbox, worktree and land=pr|main|none for a fresh worktree, an optional agent, then setting/value pairs"})
   (vim.api.nvim_create_user_command "AcpResume" resume
     {:nargs "*" :bang true
      :complete (fn [arglead _ _]
@@ -724,6 +850,13 @@
     #(handoff.link (if (= 0 (length $1.fargs)) ["%"] $1.fargs))
     {:nargs "*" :complete "file"
      :desc "Add the given files or directories, or the current file, to the ACP prompt"})
+  (vim.api.nvim_create_user_command "AcpLand" land
+    {:nargs "?" :complete (fn [] ["pr" "main" "none"])
+     :desc "Set how the ACP thread's work lands: pr, main or none; with none given, say how it does"})
+  (vim.api.nvim_create_user_command "AcpCi" show-ci
+    {:desc "Follow the checks on the ACP thread's branch in a terminal and hand their output to the agent"})
+  (vim.api.nvim_create_user_command "AcpFreeWorktrees" free-worktrees
+    {:desc "Remove this project's ACP thread worktrees with nothing uncommitted"})
   (vim.api.nvim_create_user_command "AcpCancel" cancel {:desc "Cancel the running ACP turn"})
   (vim.api.nvim_create_user_command "AcpStop" quit {:desc "End the ACP session"})
   (vim.api.nvim_create_user_command "AcpAllow" allow

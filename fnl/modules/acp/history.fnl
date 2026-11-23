@@ -178,7 +178,11 @@
      :cwd (or meta.cwd "")
      :project (or meta.project (vim.fn.fnamemodify (or meta.cwd "") ":t"))
      :agent (or meta.agent "")
-     :agent-name (or meta.agent-name (agent-name (or meta.agent "")))}))
+     :agent-name (or meta.agent-name (agent-name (or meta.agent "")))
+     ;; Set for a thread in a worktree of its own, see modules.acp.git.
+     :branch (when (not= (or meta.branch "") "") meta.branch)
+     :landing (when (not= (or meta.landing "") "") meta.landing)
+     :repo (when (not= (or meta.repo "") "") meta.repo)}))
 
 (fn normalize [path]
   (when (not= (trim path) "")

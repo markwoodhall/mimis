@@ -14,6 +14,15 @@
 ;; getting on; <CR> on one goes to its chat (gW goes to whichever chat waits on you).
 ;; A thread one of them is waiting in is marked as waiting on you too.
 ;;
+;; A thread in a worktree of its own (see modules.acp.git) shows its branch's state at
+;; the right: ↑N commits not yet on its base, ~ uncommitted changes, and its PR/MR's
+;; checks as ✓ ✗ ◔ (see modules.acp.ci); the project's heading shows its default
+;; branch's latest build the same way. w starts a new thread in a fresh worktree of the
+;; project (from the branch of the thread under the cursor, when it has one), l sets
+;; how a thread lands (pr, main or none), b renames its branch, c follows its checks
+;; in a terminal and hands the output to the agent, W frees the project's worktrees
+;; with nothing uncommitted, and d on a worktree thread removes its worktree too.
+;;
 ;; A project shows its running threads and its 3 newest others; "… N more" under them
 ;; shows the rest on <CR>, and "… show fewer" hides them again.
 ;;
@@ -23,11 +32,61 @@
 (local history (require :modules.acp.history))
 (local log (require :modules.acp.log))
 (local session (require :modules.acp.session))
+(local git (require :modules.acp.git))
+(local ci (require :modules.acp.ci))
 
 (local ns (vim.api.nvim_create_namespace "acp-threads"))
 (local state {:buf nil :win nil :main nil :logged [] :rows {} :timer nil :actions nil
               ;; Projects showing all their threads, by name.
-              :expanded {}})
+              :expanded {}
+              ;; Each thread directory's main checkout, asked of git once, and what git
+              ;; says of a worktree whose log doesn't name its branch, until R.
+              :repos {}
+              :inspected {}})
+
+(fn repo-of [cwd]
+  (when (and cwd (not= cwd ""))
+    (let [known (. state.repos cwd)]
+      (if (not= known nil)
+        (when known known)
+        (let [repo (or (git.repo-of cwd) false)]
+          (tset state.repos cwd repo)
+          (when repo repo))))))
+
+(fn worktree-of [t]
+  ;; The thread's worktree, as its log or its session has it: {:repo :branch :path}, or
+  ;; nil for one in a plain checkout.
+  (let [live (?. t :live :git)]
+    (if (and live live.worktree?)
+      live
+      (and t.branch (= 1 (vim.fn.isdirectory (or t.cwd ""))) (git.worktree? t.cwd))
+      {:repo (or t.repo (repo-of t.cwd)) :branch t.branch :path t.cwd :worktree? true
+       :landing t.landing}
+      (and t.cwd (= 1 (vim.fn.isdirectory t.cwd)) (git.worktree? t.cwd)
+           (let [repo (repo-of t.cwd)]
+             (and repo (vim.startswith t.cwd (.. (git.worktree-dir repo) "/")))))
+      (let [known (. state.inspected t.cwd)]
+        (if (not= known nil)
+          (when known known)
+          (let [info (or (git.inspect t.cwd) false)]
+            (tset state.inspected t.cwd info)
+            (when info info)))))))
+
+(fn thread-marks [t]
+  ;; The right-hand marks of a worktree thread: ↑N, ~ and its checks' glyph, as
+  ;; [text group] chunks; [] for the rest.
+  (let [wt (worktree-of t)
+        chunks []]
+    (when wt
+      (let [st (git.status wt.path)
+            pr (when (and wt.repo wt.branch) (ci.branch-status wt.repo wt.branch))]
+        (when (and st st.ahead (> st.ahead 0))
+          (table.insert chunks [(.. "↑" st.ahead) :AcpThreadsMeta]))
+        (when (and st st.dirty?)
+          (table.insert chunks ["~" :AcpThreadsMeta]))
+        (when (and pr (ci.glyph pr.state))
+          (table.insert chunks [(ci.glyph pr.state) (ci.group pr.state)]))))
+    chunks))
 
 (fn threads []
   ;; The logged threads, with the running ones over them or added, newest first.
@@ -148,26 +207,39 @@
                         (math.min (length g.threads) (+ running limit)))]
           (set g.showing showing)
           (set g.hidden (- (length g.threads) showing)))
-        ;; The project, its count, and a rule.
+        ;; The project, its count, its default branch's build, and a rule.
         (add "")
-        (let [row (add (.. margin g.project "  " (length g.threads)))]
+        (let [repo (accumulate [found nil _ t (ipairs g.threads) &until found]
+                     (repo-of t.cwd))
+              build (when repo (ci.build-status repo))
+              glyph (when build (ci.glyph build.state))
+              count (.. "  " (length g.threads))
+              head (.. margin g.project count)
+              row (add (if glyph (.. head "  " glyph) head))]
           ;; The heading stands for the project: d there deletes its threads.
+          (set g.repo repo)
           (tset rows (+ row 1) {:heading g})
           (table.insert marks [row (length margin) (+ (length margin) (length g.project)) :AcpThreadsGroup])
-          (table.insert marks [row (+ (length margin) (length g.project)) -1 :AcpThreadsMeta]))
+          (table.insert marks [row (+ (length margin) (length g.project)) (if glyph (+ (length head) 2) -1) :AcpThreadsMeta])
+          (when glyph
+            (table.insert marks [row (+ (length head) 2) -1 (ci.group build.state)])))
         (let [row (add (.. margin (string.rep "─" inner)))]
           (table.insert marks [row 0 -1 :AcpThreadsRule]))
         (each [i t (ipairs g.threads) &until (> i g.showing)]
           (let [dot (marker t)
                 age (when-short t now)
                 (glyph glyph-group) (agent-glyph (or (?. t :live :agent :name) t.agent-name))
+                ;; A worktree thread's marks go before its age, each with a space.
+                tail-chunks (thread-marks t)
+                tail (table.concat (icollect [_ [text] (ipairs tail-chunks)] (.. text " ")) "")
                 ;; Room for the agent's glyph too, and a space.
-                room (- inner 2 (vim.fn.strdisplaywidth glyph) 1 (vim.fn.strdisplaywidth age) 2)
+                room (- inner 2 (vim.fn.strdisplaywidth glyph) 1 (vim.fn.strdisplaywidth tail)
+                        (vim.fn.strdisplaywidth age) 2)
                 title (shorten (vim.trim (or t.title "")) room)
                 gap (string.rep " " (math.max 1 (- room (vim.fn.strdisplaywidth title) -2)))
                 before (.. margin (if dot "● " "  "))
                 head (.. before glyph " ")
-                row (add (.. head title gap age))
+                row (add (.. head title gap tail age))
                 current? (and t.live (= t.live.buf shown))]
             (tset rows (+ row 1) t)
             (table.insert marks [row (length before) (+ (length before) (length glyph)) glyph-group])
@@ -175,6 +247,10 @@
               (table.insert marks [row (length margin) (+ (length margin) (length "●")) dot]))
             (table.insert marks [row (length head) (+ (length head) (length title))
                                  (if current? :AcpThreadsCurrent :AcpThreadsTitle)])
+            (var at (- (length (. lines (+ row 1))) (length age) (length tail)))
+            (each [_ [text group] (ipairs tail-chunks)]
+              (table.insert marks [row at (+ at (length text)) group])
+              (set at (+ at (length text) 1)))
             (table.insert marks [row (- (length (. lines (+ row 1))) (length age)) -1 :AcpThreadsMeta])
             (when current? (table.insert line-marks [row :AcpThreadsShown]))
             ;; The agents it delegated to, under it while their sessions are open: <CR>
@@ -234,6 +310,7 @@
                                            :hl_group group})))))))
 
 (fn read-logs []
+  (set state.inspected {})
   (set state.logged (history.sessions (log.log-dir) nil true)))
 
 (fn main-window []
@@ -303,23 +380,58 @@
       (let [meta (history.frontmatter (vim.fn.readfile path "" 30))]
         (when (or (. paths path) (. ids (or meta.session ""))) path)))))
 
+(fn thread-worktrees [threads]
+  ;; The worktrees of their own among the threads' directories, once each, with what
+  ;; each still holds.
+  (let [seen {}]
+    (icollect [_ t (ipairs threads)]
+      (let [wt (worktree-of t)]
+        (when (and wt wt.path (not (. seen wt.path)) (not t.live)
+                   (vim.startswith wt.path (.. (git.worktree-dir wt.repo) "/")))
+          (tset seen wt.path true)
+          (let [info (git.inspect wt.path)]
+            (when info
+              (set info.unmerged (git.unmerged info))
+              info)))))))
+
 (fn delete-threads [threads what]
   ;; Deletes the threads' logs, once you've said so: they're gone for good, from the
   ;; sidebar and :AcpResume's history. The agent's own record of the session, if it
-  ;; keeps one, stays.
-  (let [paths (log-paths threads)]
+  ;; keeps one, stays. A thread's worktree goes with it, and its branch once merged;
+  ;; the question says what would be lost with it.
+  (let [paths (log-paths threads)
+        worktrees (thread-worktrees threads)
+        losing (icollect [_ wt (ipairs worktrees)]
+                 (when (or wt.unmerged.dirty? (> wt.unmerged.ahead 0))
+                   (.. wt.branch " (" (if wt.unmerged.dirty? "uncommitted changes" "")
+                       (if (and wt.unmerged.dirty? (> wt.unmerged.ahead 0)) ", " "")
+                       (if (> wt.unmerged.ahead 0) (.. wt.unmerged.ahead " unmerged commits") "")
+                       ")")))]
     (vim.ui.select ["Delete" "Keep"]
                    {:prompt (.. "Delete " what "? Its log"
                                 (if (= 1 (length paths)) "" "s")
-                                " can't be brought back")}
+                                " can't be brought back"
+                                (if (> (length worktrees) 0)
+                                  (.. ", and its worktree" (if (= 1 (length worktrees)) "" "s")
+                                      (if (> (length losing) 0)
+                                        (.. " would lose " (table.concat losing ", "))
+                                        " would go too"))
+                                  ""))}
       (fn [choice]
         (when (= choice "Delete")
           (each [_ path (ipairs paths)]
             (vim.fn.delete path))
+          (each [_ wt (ipairs worktrees)]
+            (git.remove-worktree wt)
+            (git.forget-status wt.path))
           (read-logs)
           (draw)
           (vim.notify (.. "acp: deleted " (length paths)
-                          (if (= 1 (length paths)) " log" " logs"))))))))
+                          (if (= 1 (length paths)) " log" " logs")
+                          (if (> (length worktrees) 0)
+                            (.. " and " (length worktrees)
+                                (if (= 1 (length worktrees)) " worktree" " worktrees"))
+                            ""))))))))
 
 (fn delete-under-cursor []
   ;; d: the thread under the cursor, or on a heading every thread of its project. A
@@ -354,6 +466,92 @@
                 (when path (log.set-name path name))
                 (read-logs)
                 (draw)))))))))
+
+(fn thread-under-cursor []
+  ;; The thread the cursor is on, or a project heading's newest; nil on anything else.
+  (let [t (under-cursor)
+        t (if (?. t :heading) (. t.heading.threads 1) t)]
+    (when (and t (not t.toggle) (not t.child)) t)))
+
+(fn new-worktree-thread []
+  ;; w: a new thread in a fresh worktree of this project, branched from the thread
+  ;; under the cursor's branch when it has one of its own, else the default branch.
+  (let [t (thread-under-cursor)]
+    (when t
+      (if (not (repo-of t.cwd))
+        (vim.notify (.. "acp: " (or t.project "this project") " isn't a git repository")
+                    vim.log.levels.WARN)
+        (in-project t #(state.actions.worktree t))))))
+
+(fn set-landing []
+  ;; l: how the thread under the cursor lands; a running one is told in its next prompt.
+  (let [t (thread-under-cursor)
+        wt (when t (worktree-of t))]
+    (if (not wt)
+      (vim.notify "acp: that thread isn't in a worktree of its own" vim.log.levels.WARN)
+      (vim.ui.select ["pr" "main" "none"]
+                     {:prompt (.. "Land " (or t.title "the thread") " as: ")
+                      :format_item #(.. (if (= $1 wt.landing) "* " "  ") $1
+                                        (case $1
+                                          "pr" " — push and open a PR/MR"
+                                          "main" " — merge fast-forward into the main checkout"
+                                          _ " — just commit; you land it"))}
+        (fn [choice]
+          (when choice
+            (if t.live
+              (session.set-landing t.live choice)
+              (let [info (git.inspect wt.path)]
+                (when info
+                  (git.set-landing info choice)
+                  (vim.notify (.. "acp: " (or t.title "the thread") " lands as " choice)))))
+            (read-logs)
+            (draw)))))))
+
+(fn rename-branch []
+  ;; b: the worktree thread's branch, named by you, while it hasn't been pushed.
+  (let [t (thread-under-cursor)
+        wt (when t (worktree-of t))]
+    (if (not wt)
+      (vim.notify "acp: that thread isn't in a worktree of its own" vim.log.levels.WARN)
+      (vim.ui.input {:prompt "Branch" :default wt.branch}
+        (fn [answer]
+          (let [name (when answer (vim.trim answer))]
+            (when (and name (not= name "") (not= name wt.branch))
+              (let [info (or (?. t :live :git) (git.inspect wt.path))
+                    (ok err) (git.rename-branch info name)]
+                (if ok
+                  (do (git.forget-status wt.path)
+                      (when (?. t :live :log :path) (log.set-branch t.live.log.path name))
+                      (when t.path (log.set-branch t.path name))
+                      (read-logs)
+                      (draw))
+                  (vim.notify (.. "acp: " err) vim.log.levels.WARN))))))))))
+
+(fn follow-ci []
+  ;; c: the thread's checks in a terminal beside the sidebar, their output handed to
+  ;; the agent.
+  (let [t (thread-under-cursor)
+        wt (when t (worktree-of t))]
+    (if (not wt)
+      (vim.notify "acp: that thread isn't in a worktree of its own" vim.log.levels.WARN)
+      (in-project t #(state.actions.ci t wt)))))
+
+(fn free-worktrees []
+  ;; W: the project's worktrees with nothing uncommitted go; their branches stay until
+  ;; they're merged. One with a session running stays.
+  (let [t (thread-under-cursor)
+        repo (when t (repo-of t.cwd))]
+    (if (not repo)
+      (vim.notify "acp: no git repository here" vim.log.levels.WARN)
+      (let [busy (collect [_ s (ipairs (session.live))]
+                   (values (vim.fs.normalize s.session.cwd) true))
+            (freed kept) (git.free-clean repo busy)]
+        (each [_ branch (ipairs freed)] (git.forget-status branch))
+        (vim.notify (.. "acp: freed " (length freed) (if (= 1 (length freed)) " worktree" " worktrees")
+                        (if (> (length kept) 0)
+                          (.. "; kept " (table.concat kept ", ") " (uncommitted changes or running)")
+                          "")))
+        (draw)))))
 
 (fn new-thread-in []
   ;; A new thread in a directory you name, which needn't have had one before: asked
@@ -396,6 +594,11 @@
       (map "N" new-thread-in "Start a new ACP thread in a directory you choose")
       (map "r" rename-thread "Rename the ACP thread under the cursor")
       (map "d" delete-under-cursor "Delete the ACP thread, or on a heading the project's threads")
+      (map "w" new-worktree-thread "Start a new ACP thread in a fresh worktree of this project")
+      (map "l" set-landing "Set how this ACP thread lands: pr, main or none")
+      (map "b" rename-branch "Rename this ACP thread's branch")
+      (map "c" follow-ci "Follow this ACP thread's checks in a terminal")
+      (map "W" free-worktrees "Free this project's worktrees with nothing uncommitted")
       (map "R" #(do (read-logs) (draw)) "Read the ACP session logs again")
       (map "q" close "Close the ACP threads sidebar")
       (vim.api.nvim_create_autocmd :BufEnter
@@ -425,8 +628,9 @@
 
 (fn open [actions]
   ;; :AcpThreads opens the sidebar, or closes it if it's open. actions: {:show s,
-  ;; :resume thread, :new thread [agent settings]}, each run in the thread's window and
-  ;; directory, and :choose thread done, asking for an agent and settings for :new.
+  ;; :resume thread, :new thread [agent settings], :worktree thread, :ci thread wt},
+  ;; each run in the thread's window and directory, and :choose thread done, asking for
+  ;; an agent and settings for :new.
   (set state.actions actions)
   (if (and state.win (vim.api.nvim_win_is_valid state.win))
     (close)
