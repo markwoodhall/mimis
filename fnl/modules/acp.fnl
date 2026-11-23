@@ -276,8 +276,9 @@
   (let [(info problem) (git.add-worktree from landing)]
     (if info
       (do
-        (vim.notify (.. "acp: worktree " info.path " on " info.branch " from " info.base
-                        " · lands as " info.landing))
+        ;; Short enough for one cmdline row: a wrapped message leaves its last row behind
+        ;; after the redraw. The chat's connected line has the path.
+        (vim.notify (.. "acp: worktree on " info.branch " · lands as " info.landing))
         {:kind :new :cwd info.path :git info})
       (values nil (.. "acp: " problem)))))
 
