@@ -17,11 +17,12 @@
 ;; A thread in a worktree of its own (see modules.acp.git) shows its branch's state at
 ;; the right: ↑N commits not yet on its base, ~ uncommitted changes, and its PR/MR's
 ;; checks as ✓ ✗ ◔ (see modules.acp.ci); the project's heading shows its default
-;; branch's latest build the same way. w starts a new thread in a fresh worktree of the
-;; project (from the branch of the thread under the cursor, when it has one), l sets
-;; how a thread lands (pr, main or none), b renames its branch, c follows its checks
-;; in a terminal and hands the output to the agent, W frees the project's worktrees
-;; with nothing uncommitted, and d on a worktree thread removes its worktree too.
+;; branch's latest build the same way. A starts a new thread in a fresh worktree of the
+;; project (from the branch of the thread under the cursor, when it has one), s sets
+;; how a thread lands (pr, main or none), gb renames its branch, c follows its checks
+;; in a terminal and hands the output to the agent, C cleans up the project's worktrees
+;; with nothing uncommitted, and d on a worktree thread removes its worktree too. None
+;; of these is a motion: the sidebar is moved around in like any buffer.
 ;;
 ;; A project shows its running threads and its 3 newest others; "… N more" under them
 ;; shows the rest on <CR>, and "… show fewer" hides them again.
@@ -474,7 +475,7 @@
     (when (and t (not t.toggle) (not t.child)) t)))
 
 (fn new-worktree-thread []
-  ;; w: a new thread in a fresh worktree of this project, branched from the thread
+  ;; A: a new thread in a fresh worktree of this project, branched from the thread
   ;; under the cursor's branch when it has one of its own, else the default branch.
   (let [t (thread-under-cursor)]
     (when t
@@ -484,7 +485,7 @@
         (in-project t #(state.actions.worktree t))))))
 
 (fn set-landing []
-  ;; l: how the thread under the cursor lands; a running one is told in its next prompt.
+  ;; s: how the thread under the cursor lands; a running one is told in its next prompt.
   (let [t (thread-under-cursor)
         wt (when t (worktree-of t))]
     (if (not wt)
@@ -508,7 +509,7 @@
             (draw)))))))
 
 (fn rename-branch []
-  ;; b: the worktree thread's branch, named by you, while it hasn't been pushed.
+  ;; gb: the worktree thread's branch, named by you, while it hasn't been pushed.
   (let [t (thread-under-cursor)
         wt (when t (worktree-of t))]
     (if (not wt)
@@ -537,7 +538,7 @@
       (in-project t #(state.actions.ci t wt)))))
 
 (fn free-worktrees []
-  ;; W: the project's worktrees with nothing uncommitted go; their branches stay until
+  ;; C: the project's worktrees with nothing uncommitted go; their branches stay until
   ;; they're merged. One with a session running stays.
   (let [t (thread-under-cursor)
         repo (when t (repo-of t.cwd))]
@@ -594,11 +595,11 @@
       (map "N" new-thread-in "Start a new ACP thread in a directory you choose")
       (map "r" rename-thread "Rename the ACP thread under the cursor")
       (map "d" delete-under-cursor "Delete the ACP thread, or on a heading the project's threads")
-      (map "w" new-worktree-thread "Start a new ACP thread in a fresh worktree of this project")
-      (map "l" set-landing "Set how this ACP thread lands: pr, main or none")
-      (map "b" rename-branch "Rename this ACP thread's branch")
+      (map "A" new-worktree-thread "Start a new ACP thread in a fresh worktree of this project")
+      (map "s" set-landing "Set how this ACP thread lands: pr, main or none")
+      (map "gb" rename-branch "Rename this ACP thread's branch")
       (map "c" follow-ci "Follow this ACP thread's checks in a terminal")
-      (map "W" free-worktrees "Free this project's worktrees with nothing uncommitted")
+      (map "C" free-worktrees "Free this project's worktrees with nothing uncommitted")
       (map "R" #(do (read-logs) (draw)) "Read the ACP session logs again")
       (map "q" close "Close the ACP threads sidebar")
       (vim.api.nvim_create_autocmd :BufEnter

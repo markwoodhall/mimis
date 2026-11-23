@@ -16,7 +16,7 @@
 ;; changes the default. The base and landing are kept in the repo's config, under the
 ;; branch, so a resumed thread keeps them.
 ;;
-;; A worktree whose work is all committed can be freed (W in :AcpThreads, or
+;; A worktree whose work is all committed can be freed (C in :AcpThreads, or
 ;; :AcpFreeWorktrees): the directory goes, the branch stays until it's merged.
 
 (local default-includes [".mcp.json" ".claude/settings.local.json"])
